@@ -255,6 +255,7 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
         from momentum_alpha.runtime_store import (
+            fetch_recent_account_snapshots,
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
@@ -287,6 +288,14 @@ class MainTests(unittest.TestCase):
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
 
+            def fetch_account_info(self, *, timestamp_ms=None):
+                return {
+                    "availableBalance": "1200.00",
+                    "totalWalletBalance": "1234.56",
+                    "totalMarginBalance": "1260.12",
+                    "totalUnrealizedProfit": "25.56",
+                }
+
         class FakeBroker:
             def submit_execution_plan(self, plan):
                 return [
@@ -312,6 +321,7 @@ class MainTests(unittest.TestCase):
             signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
             snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
+            account_snapshots = fetch_recent_account_snapshots(path=runtime_db_path, limit=10)
 
             self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
             self.assertEqual(signal_decisions[0]["decision_type"], "base_entry")
@@ -320,6 +330,10 @@ class MainTests(unittest.TestCase):
             self.assertEqual(len(broker_orders), 2)
             self.assertEqual(broker_orders[0]["symbol"], "BTCUSDT")
             self.assertEqual(snapshots[0]["leader_symbol"], "BTCUSDT")
+            self.assertEqual(account_snapshots[0]["wallet_balance"], "1234.56")
+            self.assertEqual(account_snapshots[0]["available_balance"], "1200.00")
+            self.assertEqual(account_snapshots[0]["equity"], "1260.12")
+            self.assertEqual(account_snapshots[0]["open_order_count"], 0)
 
     def test_run_once_live_records_blocked_reason_when_leader_switch_does_not_open_position(self) -> None:
         from momentum_alpha.audit import AuditRecorder

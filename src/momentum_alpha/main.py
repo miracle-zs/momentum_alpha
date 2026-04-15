@@ -21,6 +21,7 @@ from momentum_alpha.scheduler import run_loop
 from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
 from momentum_alpha.runtime_store import (
+    insert_account_snapshot,
     insert_broker_order,
     insert_position_snapshot,
     insert_signal_decision,
@@ -184,6 +185,36 @@ def _record_broker_orders(
             )
         except Exception:
             pass
+
+
+def _record_account_snapshot(
+    *,
+    audit_recorder: AuditRecorder | None,
+    now: datetime,
+    leader_symbol: str | None,
+    position_count: int,
+    open_order_count: int,
+    account_info: dict | None,
+    payload: dict | None = None,
+) -> None:
+    if audit_recorder is None or audit_recorder.runtime_db_path is None or account_info is None:
+        return
+    try:
+        insert_account_snapshot(
+            path=audit_recorder.runtime_db_path,
+            timestamp=now,
+            source=audit_recorder.source,
+            wallet_balance=account_info.get("totalWalletBalance"),
+            available_balance=account_info.get("availableBalance"),
+            equity=account_info.get("totalMarginBalance"),
+            unrealized_pnl=account_info.get("totalUnrealizedProfit"),
+            position_count=position_count,
+            open_order_count=open_order_count,
+            leader_symbol=leader_symbol,
+            payload=payload or account_info,
+        )
+    except Exception:
+        pass
 
 
 def load_credentials_from_env() -> tuple[str, str]:
@@ -550,6 +581,8 @@ def run_once_live(
             )
         )
     if audit_recorder is not None:
+        fetch_account_info = getattr(client, "fetch_account_info", None)
+        account_info = fetch_account_info() if callable(fetch_account_info) else None
         audit_recorder.record(
             event_type="tick_result",
             now=now,
@@ -616,6 +649,20 @@ def run_once_live(
             restore_positions=restore_positions,
             execute_stop_replacements=execute_stop_replacements,
             payload={
+                "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
+                "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
+                "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
+            },
+        )
+        _record_account_snapshot(
+            audit_recorder=audit_recorder,
+            now=now,
+            leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            position_count=position_count,
+            open_order_count=order_status_count,
+            account_info=account_info,
+            payload={
+                "symbol_count": len(snapshots),
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
                 "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),

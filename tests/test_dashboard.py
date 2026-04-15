@@ -341,6 +341,7 @@ class DashboardTests(unittest.TestCase):
     def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import (
+            insert_account_snapshot,
             insert_broker_order,
             insert_position_snapshot,
             insert_signal_decision,
@@ -393,6 +394,19 @@ class DashboardTests(unittest.TestCase):
                 payload={"positions": ["BLESSUSDT"]},
                 source="poll",
             )
+            insert_account_snapshot(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 3, tzinfo=timezone.utc),
+                source="poll",
+                wallet_balance="1234.56",
+                available_balance="1200.00",
+                equity="1260.12",
+                unrealized_pnl="25.56",
+                position_count=1,
+                open_order_count=2,
+                leader_symbol="BLESSUSDT",
+                payload={"account_alias": "primary"},
+            )
 
             snapshot = load_dashboard_snapshot(
                 now=now,
@@ -409,8 +423,79 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["runtime"]["latest_signal_decision"]["payload"]["blocked_reason"], "invalid_stop_price")
             self.assertEqual(snapshot["runtime"]["latest_broker_order"]["action_type"], "submit_entry")
             self.assertEqual(snapshot["runtime"]["latest_position_snapshot"]["position_count"], 1)
+            self.assertEqual(snapshot["runtime"]["latest_account_snapshot"]["wallet_balance"], "1234.56")
+            self.assertEqual(snapshot["runtime"]["latest_account_snapshot"]["equity"], "1260.12")
             self.assertEqual(snapshot["recent_signal_decisions"][0]["symbol"], "BLESSUSDT")
             self.assertEqual(snapshot["recent_broker_orders"][0]["order_type"], "MARKET")
+            self.assertEqual(snapshot["recent_account_snapshots"][0]["payload"]["account_alias"], "primary")
+
+    def test_dashboard_api_helpers_split_summary_timeseries_and_tables(self) -> None:
+        from momentum_alpha.dashboard import (
+            build_dashboard_summary_payload,
+            build_dashboard_tables_payload,
+            build_dashboard_timeseries_payload,
+        )
+
+        snapshot = {
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "BLESSUSDT",
+                "position_count": 1,
+                "order_status_count": 2,
+                "latest_tick_timestamp": "2026-04-15T08:49:00+00:00",
+                "latest_signal_decision": {"decision_type": "base_entry", "symbol": "BLESSUSDT"},
+                "latest_account_snapshot": {
+                    "wallet_balance": "1234.56",
+                    "available_balance": "1200.00",
+                    "equity": "1260.12",
+                    "unrealized_pnl": "25.56",
+                    "position_count": 1,
+                    "open_order_count": 2,
+                },
+            },
+            "event_counts": {"poll_tick": 3},
+            "source_counts": {"poll": 3},
+            "leader_history": [{"timestamp": "2026-04-15T08:49:00+00:00", "symbol": "BLESSUSDT"}],
+            "pulse_points": [{"bucket": "2026-04-15T08:49:00+00:00", "event_count": 3}],
+            "recent_signal_decisions": [{"timestamp": "2026-04-15T08:49:00+00:00", "decision_type": "base_entry"}],
+            "recent_broker_orders": [{"timestamp": "2026-04-15T08:49:01+00:00", "action_type": "submit_order"}],
+            "recent_position_snapshots": [{"timestamp": "2026-04-15T08:49:00+00:00", "leader_symbol": "BLESSUSDT"}],
+            "recent_account_snapshots": [
+                {
+                    "timestamp": "2026-04-15T08:48:00+00:00",
+                    "wallet_balance": "1230.00",
+                    "available_balance": "1190.00",
+                    "equity": "1250.00",
+                    "unrealized_pnl": "20.00",
+                    "position_count": 1,
+                    "open_order_count": 1,
+                    "leader_symbol": "ONUSDT",
+                },
+                {
+                    "timestamp": "2026-04-15T08:49:00+00:00",
+                    "wallet_balance": "1234.56",
+                    "available_balance": "1200.00",
+                    "equity": "1260.12",
+                    "unrealized_pnl": "25.56",
+                    "position_count": 1,
+                    "open_order_count": 2,
+                    "leader_symbol": "BLESSUSDT",
+                },
+            ],
+            "recent_events": [{"timestamp": "2026-04-15T08:49:00+00:00", "event_type": "poll_tick"}],
+            "warnings": [],
+        }
+
+        summary = build_dashboard_summary_payload(snapshot)
+        timeseries = build_dashboard_timeseries_payload(snapshot)
+        tables = build_dashboard_tables_payload(snapshot)
+
+        self.assertEqual(summary["account"]["wallet_balance"], 1234.56)
+        self.assertEqual(summary["runtime"]["previous_leader_symbol"], "BLESSUSDT")
+        self.assertEqual(timeseries["account"][0]["timestamp"], "2026-04-15T08:48:00+00:00")
+        self.assertEqual(timeseries["account"][1]["equity"], 1260.12)
+        self.assertEqual(tables["recent_signal_decisions"][0]["decision_type"], "base_entry")
+        self.assertEqual(tables["recent_account_snapshots"][1]["leader_symbol"], "BLESSUSDT")
 
     def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

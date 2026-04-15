@@ -89,14 +89,18 @@ class RuntimeStoreTests(unittest.TestCase):
                     )
                 }
 
-            self.assertTrue({"signal_decisions", "broker_orders", "position_snapshots"}.issubset(tables))
+            self.assertTrue(
+                {"signal_decisions", "broker_orders", "position_snapshots", "account_snapshots"}.issubset(tables)
+            )
 
     def test_structured_inserts_preserve_summary_fields(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,
+            fetch_recent_account_snapshots,
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
+            insert_account_snapshot,
             insert_broker_order,
             insert_position_snapshot,
             insert_signal_decision,
@@ -146,10 +150,24 @@ class RuntimeStoreTests(unittest.TestCase):
                 execute_stop_replacements=False,
                 payload={"mode": "LIVE"},
             )
+            insert_account_snapshot(
+                path=db_path,
+                timestamp=second_timestamp,
+                source="poll",
+                wallet_balance="1234.56",
+                available_balance="1200.00",
+                equity="1260.12",
+                unrealized_pnl="25.56",
+                position_count=1,
+                open_order_count=2,
+                leader_symbol="BLESSUSDT",
+                payload={"account_alias": "primary"},
+            )
 
             signal_decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=db_path, limit=10)
             snapshots = fetch_recent_position_snapshots(path=db_path, limit=10)
+            account_snapshots = fetch_recent_account_snapshots(path=db_path, limit=10)
 
             self.assertEqual(signal_decisions[0]["decision_type"], "base_entry")
             self.assertEqual(signal_decisions[0]["previous_leader_symbol"], "ONUSDT")
@@ -161,6 +179,10 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(snapshots[0]["leader_symbol"], "BLESSUSDT")
             self.assertTrue(snapshots[0]["submit_orders"])
             self.assertEqual(snapshots[0]["symbol_count"], 538)
+            self.assertEqual(account_snapshots[0]["wallet_balance"], "1234.56")
+            self.assertEqual(account_snapshots[0]["equity"], "1260.12")
+            self.assertEqual(account_snapshots[0]["open_order_count"], 2)
+            self.assertEqual(account_snapshots[0]["payload"]["account_alias"], "primary")
 
     def test_dashboard_helpers_return_leader_history_and_pulse_points(self) -> None:
         from momentum_alpha.runtime_store import (

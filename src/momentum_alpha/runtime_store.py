@@ -81,6 +81,24 @@ CREATE INDEX IF NOT EXISTS idx_position_snapshots_timestamp
     ON position_snapshots(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_position_snapshots_leader_timestamp
     ON position_snapshots(leader_symbol, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    source TEXT,
+    wallet_balance TEXT,
+    available_balance TEXT,
+    equity TEXT,
+    unrealized_pnl TEXT,
+    position_count INTEGER NOT NULL,
+    open_order_count INTEGER NOT NULL,
+    leader_symbol TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_account_snapshots_timestamp
+    ON account_snapshots(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_account_snapshots_leader_timestamp
+    ON account_snapshots(leader_symbol, timestamp DESC);
 """
 
 
@@ -100,6 +118,12 @@ def _bool_to_int(value: bool | None) -> int | None:
     if value is None:
         return None
     return 1 if value else 0
+
+
+def _decimal_to_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 @contextmanager
@@ -287,6 +311,52 @@ def insert_position_snapshot(
         )
 
 
+def insert_account_snapshot(
+    *,
+    path: Path,
+    timestamp: datetime,
+    source: str | None,
+    position_count: int,
+    open_order_count: int,
+    leader_symbol: str | None = None,
+    wallet_balance: object | None = None,
+    available_balance: object | None = None,
+    equity: object | None = None,
+    unrealized_pnl: object | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO account_snapshots(
+                timestamp,
+                source,
+                wallet_balance,
+                available_balance,
+                equity,
+                unrealized_pnl,
+                position_count,
+                open_order_count,
+                leader_symbol,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _as_utc_iso(timestamp),
+                source,
+                _decimal_to_text(wallet_balance),
+                _decimal_to_text(available_balance),
+                _decimal_to_text(equity),
+                _decimal_to_text(unrealized_pnl),
+                position_count,
+                open_order_count,
+                leader_symbol,
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
 def fetch_recent_audit_events(*, path: Path, limit: int = 20) -> list[dict]:
     if not path.exists():
         return []
@@ -451,6 +521,46 @@ def fetch_recent_position_snapshots(*, path: Path, limit: int = 20) -> list[dict
             "submit_orders": bool(row[6]) if row[6] is not None else None,
             "restore_positions": bool(row[7]) if row[7] is not None else None,
             "execute_stop_replacements": bool(row[8]) if row[8] is not None else None,
+            "payload": _json_loads(row[9]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_recent_account_snapshots(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                wallet_balance,
+                available_balance,
+                equity,
+                unrealized_pnl,
+                position_count,
+                open_order_count,
+                leader_symbol,
+                payload_json
+            FROM account_snapshots
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "wallet_balance": row[2],
+            "available_balance": row[3],
+            "equity": row[4],
+            "unrealized_pnl": row[5],
+            "position_count": row[6],
+            "open_order_count": row[7],
+            "leader_symbol": row[8],
             "payload": _json_loads(row[9]),
         }
         for row in rows

@@ -12,6 +12,7 @@ from .runtime_store import (
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_recent_audit_events,
+    fetch_recent_account_snapshots,
     fetch_recent_broker_orders,
     fetch_recent_position_snapshots,
     fetch_recent_signal_decisions,
@@ -125,6 +126,7 @@ def _build_pulse_points(events: list[dict], *, now: datetime, minutes: int = 10)
 def _runtime_summary_from_sources(
     *,
     state_payload: dict,
+    latest_account_snapshot: dict | None,
     latest_position_snapshot: dict | None,
     latest_signal_decision: dict | None,
 ) -> tuple[str | None, int, int]:
@@ -140,6 +142,12 @@ def _runtime_summary_from_sources(
             int(latest_signal_decision.get("position_count") or 0),
             int(latest_signal_decision.get("order_status_count") or 0),
         )
+    if latest_account_snapshot is not None:
+        return (
+            latest_account_snapshot.get("leader_symbol"),
+            int(latest_account_snapshot.get("position_count") or 0),
+            len(state_payload.get("order_statuses") or {}),
+        )
     positions = state_payload.get("positions") or {}
     order_statuses = state_payload.get("order_statuses") or {}
     return (
@@ -147,6 +155,65 @@ def _runtime_summary_from_sources(
         len(positions),
         len(order_statuses),
     )
+
+
+def _parse_numeric(value: object | None) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_dashboard_summary_payload(snapshot: dict) -> dict:
+    latest_account = snapshot.get("runtime", {}).get("latest_account_snapshot") or {}
+    return {
+        "health": snapshot.get("health", {}),
+        "runtime": snapshot.get("runtime", {}),
+        "account": {
+            "wallet_balance": _parse_numeric(latest_account.get("wallet_balance")),
+            "available_balance": _parse_numeric(latest_account.get("available_balance")),
+            "equity": _parse_numeric(latest_account.get("equity")),
+            "unrealized_pnl": _parse_numeric(latest_account.get("unrealized_pnl")),
+            "position_count": latest_account.get("position_count"),
+            "open_order_count": latest_account.get("open_order_count"),
+        },
+        "event_counts": snapshot.get("event_counts", {}),
+        "source_counts": snapshot.get("source_counts", {}),
+        "warnings": snapshot.get("warnings", []),
+    }
+
+
+def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
+    account_rows = sorted(snapshot.get("recent_account_snapshots", []), key=lambda item: item.get("timestamp") or "")
+    return {
+        "account": [
+            {
+                "timestamp": row.get("timestamp"),
+                "wallet_balance": _parse_numeric(row.get("wallet_balance")),
+                "available_balance": _parse_numeric(row.get("available_balance")),
+                "equity": _parse_numeric(row.get("equity")),
+                "unrealized_pnl": _parse_numeric(row.get("unrealized_pnl")),
+                "position_count": row.get("position_count"),
+                "open_order_count": row.get("open_order_count"),
+                "leader_symbol": row.get("leader_symbol"),
+            }
+            for row in account_rows
+        ],
+        "pulse_points": snapshot.get("pulse_points", []),
+        "leader_history": list(reversed(snapshot.get("leader_history", []))),
+    }
+
+
+def build_dashboard_tables_payload(snapshot: dict) -> dict:
+    return {
+        "recent_signal_decisions": snapshot.get("recent_signal_decisions", []),
+        "recent_broker_orders": snapshot.get("recent_broker_orders", []),
+        "recent_position_snapshots": snapshot.get("recent_position_snapshots", []),
+        "recent_account_snapshots": snapshot.get("recent_account_snapshots", []),
+        "recent_events": snapshot.get("recent_events", []),
+    }
 
 
 def load_dashboard_snapshot(
@@ -171,11 +238,13 @@ def load_dashboard_snapshot(
     recent_signal_decisions: list[dict] = []
     recent_broker_orders: list[dict] = []
     recent_position_snapshots: list[dict] = []
+    recent_account_snapshots: list[dict] = []
     if runtime_db_file is not None and runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
         recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
+        recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=30)
     else:
         events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
         warnings.extend(audit_warnings)
@@ -196,8 +265,10 @@ def load_dashboard_snapshot(
     latest_position_snapshot = recent_position_snapshots[0] if recent_position_snapshots else None
     latest_signal_decision = recent_signal_decisions[0] if recent_signal_decisions else None
     latest_broker_order = recent_broker_orders[0] if recent_broker_orders else None
+    latest_account_snapshot = recent_account_snapshots[0] if recent_account_snapshots else None
     previous_leader_symbol, position_count, order_status_count = _runtime_summary_from_sources(
         state_payload=state_payload,
+        latest_account_snapshot=latest_account_snapshot,
         latest_position_snapshot=latest_position_snapshot,
         latest_signal_decision=latest_signal_decision,
     )
@@ -221,6 +292,7 @@ def load_dashboard_snapshot(
             "latest_signal_decision": latest_signal_decision,
             "latest_broker_order": latest_broker_order,
             "latest_position_snapshot": latest_position_snapshot,
+            "latest_account_snapshot": latest_account_snapshot,
         },
         "event_counts": event_counts,
         "source_counts": source_counts,
@@ -229,6 +301,7 @@ def load_dashboard_snapshot(
         "recent_signal_decisions": recent_signal_decisions,
         "recent_broker_orders": recent_broker_orders,
         "recent_position_snapshots": recent_position_snapshots,
+        "recent_account_snapshots": recent_account_snapshots,
         "recent_events": recent_events,
         "warnings": warnings,
     }
@@ -238,7 +311,47 @@ def build_dashboard_response_json(snapshot: dict) -> str:
     return json.dumps(snapshot, ensure_ascii=False, indent=2)
 
 
+def _format_metric(value: float | None, *, signed: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    if signed:
+        return f"{value:+,.2f}"
+    return f"{value:,.2f}"
+
+
+def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str) -> str:
+    values = [point.get(value_key) for point in points if isinstance(point.get(value_key), (int, float))]
+    if not values:
+        return "<div class='chart-empty'>waiting for account samples</div>"
+    if len(values) == 1:
+        values = [values[0], values[0]]
+    min_value = min(values)
+    max_value = max(values)
+    spread = max(max_value - min_value, 1e-9)
+    width = 560
+    height = 220
+    pad_x = 18
+    pad_y = 18
+    chart_width = width - pad_x * 2
+    chart_height = height - pad_y * 2
+    coordinates: list[tuple[float, float]] = []
+    for index, value in enumerate(values):
+        x = pad_x + (chart_width * index / max(len(values) - 1, 1))
+        y = pad_y + chart_height - (((value - min_value) / spread) * chart_height)
+        coordinates.append((x, y))
+    polyline = " ".join(f"{x:.2f},{y:.2f}" for x, y in coordinates)
+    area = " ".join([f"{coordinates[0][0]:.2f},{height - pad_y:.2f}", polyline, f"{coordinates[-1][0]:.2f},{height - pad_y:.2f}"])
+    return (
+        f"<svg viewBox='0 0 {width} {height}' class='chart-svg' role='img' aria-label='{escape(value_key)} chart'>"
+        f"<polygon points='{area}' fill='{fill}'></polygon>"
+        f"<polyline points='{polyline}' fill='none' stroke='{stroke}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'></polyline>"
+        f"</svg>"
+    )
+
+
 def render_dashboard_html(snapshot: dict) -> str:
+    summary = build_dashboard_summary_payload(snapshot)
+    timeseries = build_dashboard_timeseries_payload(snapshot)
     health_items = "".join(
         f"<article class='health-row health-{escape(item['status'].lower())}'><div><strong>{escape(item['name'])}</strong></div>"
         f"<div>{escape(item['status'])}</div><div>{escape(item['message'])}</div></article>"
@@ -277,11 +390,28 @@ def render_dashboard_html(snapshot: dict) -> str:
     latest_signal = snapshot["runtime"].get("latest_signal_decision") or {}
     latest_broker_order = snapshot["runtime"].get("latest_broker_order") or {}
     latest_position_snapshot = snapshot["runtime"].get("latest_position_snapshot") or {}
+    latest_account_snapshot = snapshot["runtime"].get("latest_account_snapshot") or {}
     latest_signal_payload = latest_signal.get("payload") or {}
     blocked_reason = latest_signal_payload.get("blocked_reason")
     decision_status = latest_signal.get("decision_type") or "none"
     latest_signal_symbol = latest_signal.get("symbol") or "none"
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
+    wallet_balance = _format_metric(summary["account"].get("wallet_balance"))
+    available_balance = _format_metric(summary["account"].get("available_balance"))
+    equity = _format_metric(summary["account"].get("equity"))
+    unrealized_pnl = _format_metric(summary["account"].get("unrealized_pnl"), signed=True)
+    equity_chart = _render_line_chart_svg(
+        points=timeseries["account"],
+        value_key="equity",
+        stroke="#4cc9f0",
+        fill="rgba(76,201,240,0.14)",
+    )
+    wallet_chart = _render_line_chart_svg(
+        points=timeseries["account"],
+        value_key="wallet_balance",
+        stroke="#36d98a",
+        fill="rgba(54,217,138,0.14)",
+    )
     recent_signal_rows = "".join(
         f"<div class='leader-row'><span>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
         for item in snapshot.get("recent_signal_decisions", [])
@@ -289,6 +419,10 @@ def render_dashboard_html(snapshot: dict) -> str:
     recent_broker_rows = "".join(
         f"<div class='leader-row'><span>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
         for item in snapshot.get("recent_broker_orders", [])
+    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
+    recent_account_rows = "".join(
+        f"<div class='leader-row'><span>{escape(str(item.get('leader_symbol') or 'none'))} · equity {escape(_format_metric(_parse_numeric(item.get('equity'))))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
+        for item in snapshot.get("recent_account_snapshots", [])[:8]
     ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
     runtime = snapshot["runtime"]
     return f"""<!doctype html>
@@ -314,10 +448,16 @@ def render_dashboard_html(snapshot: dict) -> str:
     .metric-card .label {{ color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }}
     .metric-card .value {{ margin-top: 10px; font-size: 1.75rem; font-weight: 700; }}
     .metric-card .sub {{ margin-top: 8px; color: var(--muted); font-size: 0.85rem; }}
+    .metric-card.pnl-positive .value {{ color: var(--ok); }}
+    .metric-card.pnl-negative .value {{ color: var(--fail); }}
     .main-grid {{ display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }}
     .stack {{ display: grid; gap: 16px; }}
     section {{ padding: 18px; }}
     h2 {{ margin: 0 0 14px; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }}
+    .chart-shell {{ display: grid; gap: 10px; }}
+    .chart-svg {{ width: 100%; height: auto; display: block; border-radius: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }}
+    .chart-meta {{ display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 0.82rem; }}
+    .chart-empty {{ display: grid; place-items: center; min-height: 220px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.12); color: var(--muted); }}
     .health-list {{ display: grid; gap: 10px; }}
     .health-row {{ display: grid; grid-template-columns: 1.1fr 0.4fr 1.8fr; gap: 10px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.02); }}
     .health-ok {{ border: 1px solid rgba(54, 217, 138, 0.2); }}
@@ -360,9 +500,27 @@ def render_dashboard_html(snapshot: dict) -> str:
       <article class="metric-card"><div class="label">Positions</div><div class="value">{runtime['position_count']}</div><div class="sub">Open local positions</div></article>
       <article class="metric-card"><div class="label">Order States</div><div class="value">{runtime['order_status_count']}</div><div class="sub">Tracked order lifecycle entries</div></article>
       <article class="metric-card"><div class="label">Latest Tick</div><div class="value">{escape(format_timestamp_for_display(runtime['latest_tick_timestamp']))}</div><div class="sub">Most recent poll tick seen</div></article>
+      <article class="metric-card"><div class="label">Wallet Balance</div><div class="value">{escape(wallet_balance)}</div><div class="sub">Futures wallet balance</div></article>
+      <article class="metric-card"><div class="label">Available Balance</div><div class="value">{escape(available_balance)}</div><div class="sub">Available collateral</div></article>
+      <article class="metric-card"><div class="label">Equity</div><div class="value">{escape(equity)}</div><div class="sub">Current net value</div></article>
+      <article class="metric-card {'pnl-negative' if str(unrealized_pnl).startswith('-') else 'pnl-positive'}"><div class="label">Unrealized PnL</div><div class="value">{escape(unrealized_pnl)}</div><div class="sub">Mark-to-market drift</div></article>
     </div>
     <div class="main-grid">
       <div class="stack">
+        <section>
+          <h2>Account Equity Curve</h2>
+          <div class="chart-shell">
+            {equity_chart}
+            <div class="chart-meta"><span>Net value curve from SQLite snapshots</span><span>{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span></div>
+          </div>
+        </section>
+        <section>
+          <h2>Wallet Balance Curve</h2>
+          <div class="chart-shell">
+            {wallet_chart}
+            <div class="chart-meta"><span>Wallet balance accumulation</span><span>{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span></div>
+          </div>
+        </section>
         <section>
           <h2>Health Matrix</h2>
           <div class="health-list">{health_items}</div>
@@ -427,6 +585,10 @@ def render_dashboard_html(snapshot: dict) -> str:
           <div class="leader-rotation">{recent_broker_rows}</div>
         </section>
         <section>
+          <h2>Account Snapshots</h2>
+          <div class="leader-rotation">{recent_account_rows}</div>
+        </section>
+        <section>
           <h2>Latest Result</h2>
           <pre>{escape(json.dumps(runtime, ensure_ascii=False, indent=2))}</pre>
         </section>
@@ -479,8 +641,16 @@ def run_dashboard_server(
                 audit_log_file=audit_log_file,
                 runtime_db_file=runtime_db_file,
             )
-            if self.path == "/api/dashboard":
-                body = build_dashboard_response_json(snapshot).encode("utf-8")
+            if self.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
+                if self.path == "/api/dashboard/summary":
+                    payload = build_dashboard_summary_payload(snapshot)
+                elif self.path == "/api/dashboard/timeseries":
+                    payload = build_dashboard_timeseries_payload(snapshot)
+                elif self.path == "/api/dashboard/tables":
+                    payload = build_dashboard_tables_payload(snapshot)
+                else:
+                    payload = snapshot
+                body = build_dashboard_response_json(payload).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))

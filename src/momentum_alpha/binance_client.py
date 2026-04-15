@@ -247,6 +247,15 @@ class BinanceRestClient:
         )
         return self.send(request)
 
+    def fetch_account_info(self, *, timestamp_ms: int | None = None) -> dict:
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v3/account",
+            params={},
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
     def cancel_open_orders(self, *, symbol: str, timestamp_ms: int | None = None) -> list:
         request = self.build_signed_request(
             method="DELETE",
