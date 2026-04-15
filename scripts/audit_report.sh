@@ -10,11 +10,20 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
   exit 1
 fi
 
-AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-${PROJECT_ROOT}/var/audit.jsonl}"
+RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
+AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 SINCE_MINUTES="${SINCE_MINUTES:-1440}"
 LIMIT="${LIMIT:-20}"
 
-exec "${VENV_PYTHON}" -m momentum_alpha.main audit-report \
-  --audit-log-file "${AUDIT_LOG_FILE}" \
-  --since-minutes "${SINCE_MINUTES}" \
+ARGS=(
+  audit-report
+  --runtime-db-file "${RUNTIME_DB_FILE}"
+  --since-minutes "${SINCE_MINUTES}"
   --limit "${LIMIT}"
+)
+
+if [[ -n "${AUDIT_LOG_FILE}" ]]; then
+  ARGS+=(--audit-log-file "${AUDIT_LOG_FILE}")
+fi
+
+exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"

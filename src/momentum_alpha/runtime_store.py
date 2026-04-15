@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -103,3 +104,24 @@ def fetch_audit_event_counts(*, path: Path, limit: int = 1000) -> dict[str, int]
             (limit,),
         ).fetchall()
     return {event_type: count for event_type, count in rows}
+
+
+def summarize_audit_events(
+    *,
+    path: Path,
+    now: datetime,
+    since_minutes: int,
+    limit: int,
+) -> dict:
+    cutoff = now.astimezone(timezone.utc) - timedelta(minutes=since_minutes)
+    recent_events = [
+        event
+        for event in fetch_recent_audit_events(path=path, limit=max(limit, 500))
+        if datetime.fromisoformat(event["timestamp"]) >= cutoff
+    ]
+    counts = Counter(event["event_type"] for event in recent_events)
+    return {
+        "total_events": len(recent_events),
+        "counts": dict(sorted(counts.items())),
+        "recent_events": recent_events[:limit],
+    }

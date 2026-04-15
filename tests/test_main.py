@@ -965,19 +965,27 @@ class MainTests(unittest.TestCase):
 
     def test_cli_main_supports_healthcheck_command(self) -> None:
         from momentum_alpha.main import cli_main
+        from momentum_alpha.runtime_store import insert_audit_event
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             state_file = root / "state.json"
             poll_log = root / "momentum-alpha.log"
             user_stream_log = root / "momentum-alpha-user-stream.log"
-            audit_log = root / "audit.jsonl"
-            for path in (state_file, poll_log, user_stream_log, audit_log):
+            runtime_db = root / "runtime.db"
+            for path in (state_file, poll_log, user_stream_log):
                 path.write_text("x", encoding="utf-8")
             now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
             timestamp = now.timestamp()
-            for path in (state_file, poll_log, user_stream_log, audit_log):
+            for path in (state_file, poll_log, user_stream_log):
                 os.utime(path, (timestamp, timestamp))
+            insert_audit_event(
+                path=runtime_db,
+                timestamp=now,
+                event_type="poll_tick",
+                payload={"symbol_count": 538},
+                source="poll",
+            )
 
             out = StringIO()
             with redirect_stdout(out):
@@ -990,8 +998,8 @@ class MainTests(unittest.TestCase):
                         str(poll_log),
                         "--user-stream-log-file",
                         str(user_stream_log),
-                        "--audit-log-file",
-                        str(audit_log),
+                        "--runtime-db-file",
+                        str(runtime_db),
                     ],
                     now_provider=lambda: now,
                 )
@@ -1003,8 +1011,8 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.main import cli_main
 
         with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "audit.jsonl"
-            recorder = AuditRecorder(path=path)
+            db_path = Path(tmpdir) / "runtime.db"
+            recorder = AuditRecorder(path=None, runtime_db_path=db_path, source="poll")
             recorder.record(
                 event_type="tick_result",
                 now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
@@ -1014,7 +1022,7 @@ class MainTests(unittest.TestCase):
             out = StringIO()
             with redirect_stdout(out):
                 exit_code = cli_main(
-                    argv=["audit-report", "--audit-log-file", str(path), "--since-minutes", "60", "--limit", "5"],
+                    argv=["audit-report", "--runtime-db-file", str(db_path), "--since-minutes", "60", "--limit", "5"],
                     now_provider=lambda: datetime(2026, 4, 15, 14, 30, tzinfo=timezone.utc),
                 )
             self.assertEqual(exit_code, 0)
@@ -1043,8 +1051,8 @@ class MainTests(unittest.TestCase):
                 "/tmp/poll.log",
                 "--user-stream-log-file",
                 "/tmp/user-stream.log",
-                "--audit-log-file",
-                "/tmp/audit.jsonl",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
             ],
             run_dashboard_fn=fake_run_dashboard,
         )
@@ -1052,6 +1060,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[0]["host"], "127.0.0.1")
         self.assertEqual(calls[0]["port"], 8080)
         self.assertEqual(str(calls[0]["state_file"]), "/tmp/state.json")
+        self.assertEqual(str(calls[0]["runtime_db_file"]), "/tmp/runtime.db")
 
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(

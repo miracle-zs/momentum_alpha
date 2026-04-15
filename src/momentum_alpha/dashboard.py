@@ -4,11 +4,11 @@ import json
 from collections import Counter
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .health import build_runtime_health_report
-from .runtime_store import fetch_audit_event_counts, fetch_recent_audit_events
+from .runtime_store import fetch_recent_audit_events
 
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
@@ -39,7 +39,67 @@ def _load_recent_events(*, path: Path, recent_limit: int) -> tuple[list[dict], l
             events.append(json.loads(line))
         except json.JSONDecodeError as exc:
             warnings.append(f"audit file invalid path={path} line={line_number} error={exc}")
-    return sorted(events, key=lambda item: item.get("timestamp", ""), reverse=True)[:recent_limit], warnings
+    sorted_events = sorted(events, key=lambda item: item.get("timestamp", ""), reverse=True)
+    for event in sorted_events:
+        event.setdefault("source", "audit-file")
+    return sorted_events[:recent_limit], warnings
+
+
+def _normalize_events(events: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for event in events:
+        normalized.append(
+            {
+                "timestamp": event.get("timestamp"),
+                "event_type": event.get("event_type"),
+                "payload": event.get("payload") or {},
+                "source": event.get("source") or "unknown",
+            }
+        )
+    return normalized
+
+
+def _build_source_counts(events: list[dict]) -> dict[str, int]:
+    return dict(sorted(Counter(event.get("source") or "unknown" for event in events).items()))
+
+
+def _build_leader_history(events: list[dict], limit: int = 8) -> list[dict]:
+    leader_history: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for event in events:
+        if event.get("event_type") != "tick_result":
+            continue
+        payload = event.get("payload") or {}
+        symbol = payload.get("next_previous_leader_symbol") or payload.get("previous_leader_symbol")
+        if not symbol:
+            continue
+        key = (event.get("timestamp") or "", str(symbol))
+        if key in seen:
+            continue
+        seen.add(key)
+        leader_history.append({"timestamp": event.get("timestamp"), "symbol": str(symbol)})
+        if len(leader_history) >= limit:
+            break
+    return leader_history
+
+
+def _build_pulse_points(events: list[dict], *, now: datetime, minutes: int = 10) -> list[dict]:
+    utc_now = now.astimezone(timezone.utc)
+    buckets = []
+    bucket_counts: Counter[str] = Counter()
+    for offset in range(minutes - 1, -1, -1):
+        bucket_dt = (utc_now - timedelta(minutes=offset)).replace(second=0, microsecond=0)
+        bucket_key = bucket_dt.isoformat()
+        buckets.append(bucket_key)
+    bucket_set = set(buckets)
+    for event in events:
+        timestamp = event.get("timestamp")
+        if not timestamp:
+            continue
+        bucket_key = datetime.fromisoformat(timestamp).astimezone(timezone.utc).replace(second=0, microsecond=0).isoformat()
+        if bucket_key in bucket_set:
+            bucket_counts[bucket_key] += 1
+    return [{"bucket": bucket, "event_count": bucket_counts.get(bucket, 0)} for bucket in buckets]
 
 
 def load_dashboard_snapshot(
@@ -57,18 +117,23 @@ def load_dashboard_snapshot(
         state_file=state_file,
         poll_log_file=poll_log_file,
         user_stream_log_file=user_stream_log_file,
+        runtime_db_file=runtime_db_file,
         audit_log_file=audit_log_file,
     )
     state_payload, warnings = _load_state_file(path=state_file)
     positions = state_payload.get("positions") or {}
     order_statuses = state_payload.get("order_statuses") or {}
     if runtime_db_file is not None and runtime_db_file.exists():
-        recent_events = fetch_recent_audit_events(path=runtime_db_file, limit=recent_limit)
-        event_counts = fetch_audit_event_counts(path=runtime_db_file, limit=recent_limit)
+        events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
     else:
-        recent_events, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=recent_limit)
+        events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
         warnings.extend(audit_warnings)
-        event_counts = dict(Counter(event.get("event_type") for event in recent_events if event.get("event_type")))
+        events_for_metrics = _normalize_events(events_for_metrics)
+    recent_events = events_for_metrics[:recent_limit]
+    event_counts = dict(sorted(Counter(event.get("event_type") for event in events_for_metrics if event.get("event_type")).items()))
+    source_counts = _build_source_counts(events_for_metrics)
+    leader_history = _build_leader_history(events_for_metrics)
+    pulse_points = _build_pulse_points(events_for_metrics, now=now)
 
     return {
         "health": {
@@ -88,6 +153,9 @@ def load_dashboard_snapshot(
             "latest_user_stream_start_timestamp": _select_latest_timestamp(recent_events, "user_stream_worker_start"),
         },
         "event_counts": event_counts,
+        "source_counts": source_counts,
+        "leader_history": leader_history,
+        "pulse_points": pulse_points,
         "recent_events": recent_events,
         "warnings": warnings,
     }
@@ -107,6 +175,7 @@ def render_dashboard_html(snapshot: dict) -> str:
     recent_events = "".join(
         "<article class='timeline-event'>"
         f"<header><strong>{escape(event['event_type'])}</strong><time>{escape(event['timestamp'])}</time></header>"
+        f"<div class='timeline-source'>{escape(str(event.get('source') or 'unknown'))}</div>"
         f"<pre>{escape(json.dumps(event['payload'], ensure_ascii=False, indent=2))}</pre>"
         "</article>"
         for event in snapshot["recent_events"]
@@ -115,6 +184,23 @@ def render_dashboard_html(snapshot: dict) -> str:
         f"<div class='event-bar'><span>{escape(event_type)}</span><strong>{count}</strong></div>"
         for event_type, count in sorted(snapshot.get("event_counts", {}).items())
     ) or "<div class='event-bar'><span>none</span><strong>0</strong></div>"
+    source_bars = "".join(
+        f"<div class='source-chip'><span>{escape(source)}</span><strong>{count}</strong></div>"
+        for source, count in sorted(snapshot.get("source_counts", {}).items())
+    ) or "<div class='source-chip'><span>none</span><strong>0</strong></div>"
+    leader_rows = "".join(
+        f"<div class='leader-row'><span>{escape(item['symbol'])}</span><time>{escape(item['timestamp'])}</time></div>"
+        for item in snapshot.get("leader_history", [])
+    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
+    pulse_points = snapshot.get("pulse_points", [])
+    pulse_max = max((point["event_count"] for point in pulse_points), default=1)
+    pulse_bars = "".join(
+        "<div class='pulse-bar-wrap'>"
+        f"<div class='pulse-bar' style='height:{max(10, int(100 * point['event_count'] / pulse_max))}%;'></div>"
+        f"<span>{escape(point['bucket'][11:16])}</span>"
+        "</div>"
+        for point in pulse_points
+    ) or "<div class='pulse-bar-wrap'><div class='pulse-bar' style='height:10%;'></div><span>n/a</span></div>"
     runtime = snapshot["runtime"]
     return f"""<!doctype html>
 <html lang="en">
@@ -147,13 +233,20 @@ def render_dashboard_html(snapshot: dict) -> str:
     .health-row {{ display: grid; grid-template-columns: 1.1fr 0.4fr 1.8fr; gap: 10px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.02); }}
     .health-ok {{ border: 1px solid rgba(54, 217, 138, 0.2); }}
     .health-fail {{ border: 1px solid rgba(255, 93, 115, 0.2); }}
-    .event-bars {{ display: grid; gap: 10px; }}
+    .event-bars, .source-mix, .leader-rotation {{ display: grid; gap: 10px; }}
     .event-bar {{ display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 12px; background: linear-gradient(90deg, rgba(76,201,240,0.16), rgba(76,201,240,0.05)); border: 1px solid rgba(76,201,240,0.18); }}
     .event-bar span {{ color: var(--muted); text-transform: uppercase; font-size: 0.82rem; }}
+    .source-chip, .leader-row {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }}
+    .source-chip span, .leader-row span {{ color: var(--muted); text-transform: uppercase; font-size: 0.82rem; }}
+    .pulse-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(32px, 1fr)); gap: 8px; align-items: end; min-height: 180px; }}
+    .pulse-bar-wrap {{ display: grid; gap: 8px; justify-items: center; align-items: end; }}
+    .pulse-bar {{ width: 100%; max-width: 28px; border-radius: 999px 999px 4px 4px; background: linear-gradient(180deg, #4cc9f0, #2a7a9a); min-height: 10px; }}
+    .pulse-bar-wrap span {{ color: var(--muted); font-size: 0.75rem; }}
     .timeline {{ display: grid; gap: 12px; max-height: 640px; overflow: auto; }}
     .timeline-event {{ border-left: 3px solid var(--accent); padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 0 12px 12px 0; }}
     .timeline-event header {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }}
     .timeline-event time {{ color: var(--muted); font-size: 0.85rem; }}
+    .timeline-source {{ margin-bottom: 10px; color: var(--accent); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; }}
     .warnings ul {{ margin: 0; padding-left: 18px; }}
     .warnings li {{ margin: 8px 0; color: #ffd7a1; }}
     pre {{ margin: 0; white-space: pre-wrap; word-break: break-word; background: rgba(3, 10, 18, 0.72); color: #c8f1ff; padding: 12px; border-radius: 12px; overflow: auto; }}
@@ -192,6 +285,18 @@ def render_dashboard_html(snapshot: dict) -> str:
           <div class="event-bars">{event_bars}</div>
         </section>
         <section>
+          <h2>Pulse Window</h2>
+          <div class="pulse-grid">{pulse_bars}</div>
+        </section>
+        <section>
+          <h2>Source Mix</h2>
+          <div class="source-mix">{source_bars}</div>
+        </section>
+        <section>
+          <h2>Leader Rotation</h2>
+          <div class="leader-rotation">{leader_rows}</div>
+        </section>
+        <section>
           <h2>Latest Result</h2>
           <pre>{escape(json.dumps(runtime, ensure_ascii=False, indent=2))}</pre>
         </section>
@@ -203,20 +308,18 @@ def render_dashboard_html(snapshot: dict) -> str:
     </section>
   </main>
   <script>
-    async function loadDashboard() {{
+    async function refreshDashboard() {{
       try {{
         const response = await fetch('/api/dashboard', {{ cache: 'no-store' }});
         if (!response.ok) return;
         const payload = await response.json();
-        const title = document.querySelector('.status-pill');
-        if (title) {{
-          title.textContent = `overall=${{payload.health.overall_status}}`;
-        }}
+        document.title = `Momentum Alpha Dashboard · ${{payload.health.overall_status}}`;
+        window.location.reload();
       }} catch (error) {{
         console.error(error);
       }}
     }}
-    setInterval(loadDashboard, 5000);
+    setInterval(refreshDashboard, 5000);
   </script>
 </body>
 </html>"""

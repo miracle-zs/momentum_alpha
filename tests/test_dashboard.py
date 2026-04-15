@@ -20,12 +20,11 @@ class DashboardTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            now = datetime(2026, 4, 15, 15, 0, tzinfo=timezone.utc)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
             state_file = root / "state.json"
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
             audit_log_file = root / "audit.jsonl"
-
             state_file.write_text(
                 json.dumps(
                     {
@@ -96,13 +95,16 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(len(snapshot["recent_events"]), 3)
             self.assertEqual(snapshot["recent_events"][0]["event_type"], "user_stream_worker_start")
             self.assertEqual(snapshot["event_counts"], {"poll_tick": 1, "tick_result": 1, "user_stream_worker_start": 1})
+            self.assertEqual(snapshot["source_counts"], {"audit-file": 3})
+            self.assertEqual(snapshot["leader_history"][0]["symbol"], "INUSDT")
+            self.assertIn(3, [point["event_count"] for point in snapshot["pulse_points"]])
 
     def test_load_dashboard_snapshot_reports_missing_state_as_warning(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            now = datetime(2026, 4, 15, 15, 0, tzinfo=timezone.utc)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
             audit_log_file = root / "audit.jsonl"
@@ -144,9 +146,17 @@ class DashboardTests(unittest.TestCase):
                     "latest_user_stream_start_timestamp": "2026-04-15T06:58:05+00:00",
                 },
                 "recent_events": [
-                    {"timestamp": "2026-04-15T06:59:01+00:00", "event_type": "tick_result", "payload": {"symbol_count": 538}}
+                    {
+                        "timestamp": "2026-04-15T06:59:01+00:00",
+                        "event_type": "tick_result",
+                        "payload": {"symbol_count": 538},
+                        "source": "poll",
+                    }
                 ],
                 "event_counts": {"poll_tick": 12, "tick_result": 12, "user_stream_event": 3},
+                "source_counts": {"poll": 24, "user-stream": 3},
+                "leader_history": [{"timestamp": "2026-04-15T06:59:01+00:00", "symbol": "INUSDT"}],
+                "pulse_points": [{"bucket": "2026-04-15T06:59:00+00:00", "event_count": 3}],
                 "warnings": [],
             }
         )
@@ -155,12 +165,16 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("overall=OK", html)
         self.assertIn("INUSDT", html)
         self.assertIn("tick_result", html)
-        self.assertIn("setInterval(loadDashboard, 5000)", html)
+        self.assertIn("setInterval(refreshDashboard, 5000)", html)
         self.assertIn("/api/dashboard", html)
         self.assertIn("desk-shell", html)
         self.assertIn("event-bar", html)
         self.assertIn("metric-card", html)
         self.assertIn("user_stream_event", html)
+        self.assertIn("Leader Rotation", html)
+        self.assertIn("Source Mix", html)
+        self.assertIn("Pulse Window", html)
+        self.assertIn("setInterval(refreshDashboard, 5000)", html)
 
     def test_build_dashboard_response_json_serializes_snapshot(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_response_json
@@ -185,7 +199,7 @@ class DashboardTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            now = datetime(2026, 4, 15, 15, 0, tzinfo=timezone.utc)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
             state_file = root / "state.json"
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
@@ -224,3 +238,57 @@ class DashboardTests(unittest.TestCase):
 
             self.assertEqual(snapshot["event_counts"]["poll_tick"], 1)
             self.assertEqual(snapshot["recent_events"][0]["event_type"], "user_stream_worker_start")
+            self.assertEqual(snapshot["source_counts"]["poll"], 1)
+            self.assertEqual(snapshot["source_counts"]["user-stream"], 1)
+
+    def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_audit_event
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+            state_file = root / "state.json"
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            runtime_db_file = root / "runtime.db"
+
+            state_file.write_text(
+                json.dumps({"previous_leader_symbol": "ONUSDT", "positions": {}, "order_statuses": {}}),
+                encoding="utf-8",
+            )
+            for path in (state_file, poll_log_file, user_stream_log_file):
+                if path is not state_file:
+                    path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+            bootstrap_runtime_db(path=runtime_db_file)
+            os.utime(runtime_db_file, (now.timestamp(), now.timestamp()))
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 58, tzinfo=timezone.utc),
+                event_type="poll_worker_start",
+                payload={"symbol_count": 538},
+                source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
+                event_type="tick_result",
+                payload={"next_previous_leader_symbol": "ONUSDT"},
+                source="poll",
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=now,
+                state_file=state_file,
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                audit_log_file=root / "missing-audit.jsonl",
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+            )
+
+            self.assertEqual(snapshot["health"]["overall_status"], "OK")
+            self.assertEqual(snapshot["event_counts"]["poll_worker_start"], 1)
+            self.assertEqual(snapshot["source_counts"]["poll"], 2)
+            self.assertEqual(snapshot["leader_history"][0]["symbol"], "ONUSDT")

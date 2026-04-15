@@ -11,7 +11,7 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
-AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-${PROJECT_ROOT}/var/audit.jsonl}"
+AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 POLL_LOG_FILE="${POLL_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha.log}"
 USER_STREAM_LOG_FILE="${USER_STREAM_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha-user-stream.log}"
@@ -21,10 +21,18 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
 mkdir -p "$(dirname "${RUNTIME_DB_FILE}")"
 touch "${RUNTIME_DB_FILE}"
 
-exec "${VENV_PYTHON}" -u -m momentum_alpha.main dashboard \
-  --host "${DASHBOARD_HOST}" \
-  --port "${DASHBOARD_PORT}" \
-  --state-file "${STATE_FILE}" \
-  --poll-log-file "${POLL_LOG_FILE}" \
-  --user-stream-log-file "${USER_STREAM_LOG_FILE}" \
-  --audit-log-file "${AUDIT_LOG_FILE}"
+ARGS=(
+  dashboard
+  --host "${DASHBOARD_HOST}"
+  --port "${DASHBOARD_PORT}"
+  --state-file "${STATE_FILE}"
+  --poll-log-file "${POLL_LOG_FILE}"
+  --user-stream-log-file "${USER_STREAM_LOG_FILE}"
+  --runtime-db-file "${RUNTIME_DB_FILE}"
+)
+
+if [[ -n "${AUDIT_LOG_FILE}" ]]; then
+  ARGS+=(--audit-log-file "${AUDIT_LOG_FILE}")
+fi
+
+exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"

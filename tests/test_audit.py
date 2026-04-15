@@ -78,6 +78,24 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(db_events[0]["event_type"], "poll_tick")
             self.assertEqual(db_events[0]["source"], "poll")
 
+    def test_audit_recorder_can_write_sqlite_without_jsonl(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            recorder = AuditRecorder(path=None, runtime_db_path=db_path, source="user-stream")
+            recorder.record(
+                event_type="user_stream_worker_start",
+                now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
+                payload={"position_count": 0},
+            )
+
+            db_events = fetch_recent_audit_events(path=db_path, limit=10)
+            self.assertEqual(len(db_events), 1)
+            self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
+            self.assertEqual(db_events[0]["source"], "user-stream")
+
     def test_audit_recorder_swallows_sqlite_write_failures(self) -> None:
         from momentum_alpha.audit import AuditRecorder, read_audit_events
 

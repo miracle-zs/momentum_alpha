@@ -64,11 +64,21 @@ def resolve_runtime_db_path(*, explicit_path: str | None, state_store, audit_log
     return None
 
 
-def _build_audit_recorder(*, explicit_path: str | None, state_store, source: str | None = None) -> AuditRecorder | None:
+def _build_audit_recorder(
+    *,
+    explicit_path: str | None,
+    explicit_runtime_db_path: str | None,
+    state_store,
+    source: str | None = None,
+) -> AuditRecorder | None:
     path = resolve_audit_log_path(explicit_path=explicit_path, state_store=state_store)
-    if path is None:
+    runtime_db_path = resolve_runtime_db_path(
+        explicit_path=explicit_runtime_db_path,
+        state_store=state_store,
+        audit_log_path=path,
+    )
+    if path is None and runtime_db_path is None:
         return None
-    runtime_db_path = resolve_runtime_db_path(explicit_path=None, state_store=state_store, audit_log_path=path)
     return AuditRecorder(path=path, runtime_db_path=runtime_db_path, source=source)
 
 
@@ -624,6 +634,7 @@ def cli_main(
     run_once_live_parser.add_argument("--testnet", action="store_true")
     run_once_live_parser.add_argument("--submit-orders", action="store_true")
     run_once_live_parser.add_argument("--audit-log-file")
+    run_once_live_parser.add_argument("--runtime-db-file")
     poll_parser = subparsers.add_parser("poll")
     poll_parser.add_argument("--symbols", nargs="+")
     poll_parser.add_argument("--previous-leader")
@@ -634,21 +645,26 @@ def cli_main(
     poll_parser.add_argument("--execute-stop-replacements", action="store_true")
     poll_parser.add_argument("--max-ticks", type=int)
     poll_parser.add_argument("--audit-log-file")
+    poll_parser.add_argument("--runtime-db-file")
     user_stream_parser = subparsers.add_parser("user-stream")
     user_stream_parser.add_argument("--testnet", action="store_true")
     user_stream_parser.add_argument("--state-file")
     user_stream_parser.add_argument("--audit-log-file")
+    user_stream_parser.add_argument("--runtime-db-file")
     healthcheck_parser = subparsers.add_parser("healthcheck")
     healthcheck_parser.add_argument("--state-file", required=True)
     healthcheck_parser.add_argument("--poll-log-file", required=True)
     healthcheck_parser.add_argument("--user-stream-log-file", required=True)
-    healthcheck_parser.add_argument("--audit-log-file", required=True)
+    healthcheck_parser.add_argument("--runtime-db-file", required=True)
+    healthcheck_parser.add_argument("--audit-log-file")
     healthcheck_parser.add_argument("--max-state-age-seconds", type=int, default=3600)
     healthcheck_parser.add_argument("--max-poll-log-age-seconds", type=int, default=180)
     healthcheck_parser.add_argument("--max-user-stream-log-age-seconds", type=int, default=1800)
+    healthcheck_parser.add_argument("--max-runtime-db-age-seconds", type=int, default=1800)
     healthcheck_parser.add_argument("--max-audit-log-age-seconds", type=int, default=1800)
     audit_report_parser = subparsers.add_parser("audit-report")
-    audit_report_parser.add_argument("--audit-log-file", required=True)
+    audit_report_parser.add_argument("--audit-log-file")
+    audit_report_parser.add_argument("--runtime-db-file")
     audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
     audit_report_parser.add_argument("--limit", type=int, default=20)
     dashboard_parser = subparsers.add_parser("dashboard")
@@ -657,7 +673,8 @@ def cli_main(
     dashboard_parser.add_argument("--state-file", required=True)
     dashboard_parser.add_argument("--poll-log-file", required=True)
     dashboard_parser.add_argument("--user-stream-log-file", required=True)
-    dashboard_parser.add_argument("--audit-log-file", required=True)
+    dashboard_parser.add_argument("--audit-log-file")
+    dashboard_parser.add_argument("--runtime-db-file")
 
     args = parser.parse_args(argv)
     def _default_client_factory(*, testnet: bool = False):
@@ -682,7 +699,12 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         broker = broker_factory(client)
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
-        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store, source="run-once-live")
+        audit_recorder = _build_audit_recorder(
+            explicit_path=args.audit_log_file,
+            explicit_runtime_db_path=args.runtime_db_file,
+            state_store=state_store,
+            source="run-once-live",
+        )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         result = run_once_live(
             symbols=args.symbols,
@@ -705,7 +727,12 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
-        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store, source="poll")
+        audit_recorder = _build_audit_recorder(
+            explicit_path=args.audit_log_file,
+            explicit_runtime_db_path=args.runtime_db_file,
+            state_store=state_store,
+            source="poll",
+        )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         print(
             "starting poll "
@@ -735,7 +762,11 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
         audit_path = resolve_audit_log_path(explicit_path=args.audit_log_file, state_store=state_store)
-        runtime_db_path = resolve_runtime_db_path(explicit_path=None, state_store=state_store, audit_log_path=audit_path)
+        runtime_db_path = resolve_runtime_db_path(
+            explicit_path=args.runtime_db_file,
+            state_store=state_store,
+            audit_log_path=audit_path,
+        )
         print(f"starting user-stream testnet={use_testnet}")
         try:
             return run_user_stream_fn(
@@ -755,10 +786,12 @@ def cli_main(
             state_file=Path(os.path.abspath(args.state_file)),
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
-            audit_log_file=Path(os.path.abspath(args.audit_log_file)),
+            runtime_db_file=Path(os.path.abspath(args.runtime_db_file)),
+            audit_log_file=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
             max_state_age_seconds=args.max_state_age_seconds,
             max_poll_log_age_seconds=args.max_poll_log_age_seconds,
             max_user_stream_log_age_seconds=args.max_user_stream_log_age_seconds,
+            max_runtime_db_age_seconds=args.max_runtime_db_age_seconds,
             max_audit_log_age_seconds=args.max_audit_log_age_seconds,
         )
         print(f"overall={report.overall_status}")
@@ -767,12 +800,22 @@ def cli_main(
         return 0 if report.overall_status == "OK" else 1
 
     if args.command == "audit-report":
-        summary = summarize_audit_events(
-            path=Path(os.path.abspath(args.audit_log_file)),
-            now=now_provider(),
-            since_minutes=args.since_minutes,
-            limit=args.limit,
-        )
+        if args.runtime_db_file:
+            from momentum_alpha.runtime_store import summarize_audit_events as summarize_runtime_db_events
+
+            summary = summarize_runtime_db_events(
+                path=Path(os.path.abspath(args.runtime_db_file)),
+                now=now_provider(),
+                since_minutes=args.since_minutes,
+                limit=args.limit,
+            )
+        else:
+            summary = summarize_audit_events(
+                path=Path(os.path.abspath(args.audit_log_file)),
+                now=now_provider(),
+                since_minutes=args.since_minutes,
+                limit=args.limit,
+            )
         print(f"total_events={summary['total_events']}")
         for event_type, count in summary["counts"].items():
             print(f"{event_type}={count}")
@@ -787,11 +830,11 @@ def cli_main(
             state_file=Path(os.path.abspath(args.state_file)),
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
-            audit_log_file=Path(os.path.abspath(args.audit_log_file)),
+            audit_log_file=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else Path(os.path.abspath(args.runtime_db_file)).with_name("audit.jsonl"),
             runtime_db_file=resolve_runtime_db_path(
-                explicit_path=None,
+                explicit_path=args.runtime_db_file,
                 state_store=None,
-                audit_log_path=Path(os.path.abspath(args.audit_log_file)),
+                audit_log_path=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
             ),
             now_provider=now_provider,
         )

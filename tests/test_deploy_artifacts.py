@@ -10,13 +10,13 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "run_poll.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"', content)
-        self.assertIn('--audit-log-file "${AUDIT_LOG_FILE}"', content)
+        self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
 
     def test_run_user_stream_script_prefers_project_venv_python(self) -> None:
         content = (ROOT / "scripts" / "run_user_stream.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"', content)
-        self.assertIn('--audit-log-file "${AUDIT_LOG_FILE}"', content)
+        self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
         self.assertIn('--state-file "${STATE_FILE}"', content)
 
     def test_install_logrotate_script_installs_project_policy(self) -> None:
@@ -36,6 +36,7 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("healthcheck", content)
         self.assertIn("momentum-alpha.log", content)
         self.assertIn("momentum-alpha-user-stream.log", content)
+        self.assertIn("RUNTIME_DB_FILE", content)
 
     def test_check_health_and_notify_script_invokes_serverchan_helper(self) -> None:
         content = (ROOT / "scripts" / "check_health_and_notify.sh").read_text()
@@ -53,7 +54,7 @@ class DeployArtifactTests(unittest.TestCase):
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
         self.assertIn("audit-report", content)
-        self.assertIn('AUDIT_LOG_FILE', content)
+        self.assertIn('RUNTIME_DB_FILE', content)
 
     def test_env_example_contains_serverchan_settings(self) -> None:
         content = (ROOT / "deploy" / "env.example").read_text()

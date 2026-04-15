@@ -27,21 +27,22 @@ def _coerce_json_value(value):
 
 @dataclass(frozen=True)
 class AuditRecorder:
-    path: Path
+    path: Path | None
     runtime_db_path: Path | None = None
     source: str | None = None
     db_insert_fn: Callable = insert_audit_event
 
     def record(self, *, event_type: str, now: datetime, payload: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         event = {
             "timestamp": now.astimezone(timezone.utc).isoformat(),
             "event_type": event_type,
             "payload": _coerce_json_value(payload),
         }
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event, ensure_ascii=False))
-            handle.write("\n")
+        if self.path is not None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False))
+                handle.write("\n")
         if self.runtime_db_path is not None:
             try:
                 self.db_insert_fn(
