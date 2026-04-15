@@ -21,6 +21,7 @@ class BrokerTests(unittest.TestCase):
         class FakeClient:
             def __init__(self) -> None:
                 self.new_order_calls = []
+                self.new_algo_order_calls = []
                 self.send_calls = []
 
             def new_order(self, **params):
@@ -28,6 +29,15 @@ class BrokerTests(unittest.TestCase):
                 return BinanceRequest(
                     method="POST",
                     url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
                     headers={"X-MBX-APIKEY": "key"},
                     body=f"symbol={params['symbol']}",
                 )
@@ -56,7 +66,8 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(len(responses), 2)
         self.assertEqual(responses[0]["type"], "MARKET")
         self.assertEqual(responses[1]["type"], "STOP_MARKET")
-        self.assertEqual(len(broker.client.new_order_calls), 2)
+        self.assertEqual(len(broker.client.new_order_calls), 1)
+        self.assertEqual(len(broker.client.new_algo_order_calls), 1)
         self.assertEqual(len(broker.client.send_calls), 2)
 
     def test_broker_replaces_stop_orders(self) -> None:
@@ -65,27 +76,27 @@ class BrokerTests(unittest.TestCase):
 
         class FakeClient:
             def __init__(self) -> None:
-                self.open_order_calls = []
-                self.cancel_calls = []
-                self.new_order_calls = []
+                self.open_algo_order_calls = []
+                self.cancel_algo_calls = []
+                self.new_algo_order_calls = []
                 self.send_calls = []
 
-            def fetch_open_orders(self, **params):
-                self.open_order_calls.append(params)
+            def fetch_open_algo_orders(self, **params):
+                self.open_algo_order_calls.append(params)
                 return [
-                    {"symbol": params["symbol"], "type": "STOP_MARKET", "orderId": 11},
-                    {"symbol": params["symbol"], "type": "LIMIT", "orderId": 12},
+                    {"symbol": params["symbol"], "orderType": "STOP_MARKET", "algoId": 11},
+                    {"symbol": params["symbol"], "orderType": "TAKE_PROFIT_MARKET", "algoId": 12},
                 ]
 
-            def cancel_order(self, **params):
-                self.cancel_calls.append(params)
-                return {"symbol": params["symbol"], "status": "CANCELED", "orderId": params["order_id"]}
+            def cancel_algo_order(self, **params):
+                self.cancel_algo_calls.append(params)
+                return {"status": "CANCELED", "algoId": params["algo_id"]}
 
-            def new_order(self, **params):
-                self.new_order_calls.append(params)
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
                 return BinanceRequest(
                     method="POST",
-                    url="https://example.test/fapi/v1/order",
+                    url="https://example.test/fapi/v1/algoOrder",
                     headers={"X-MBX-APIKEY": "key"},
                     body=f"symbol={params['symbol']}",
                 )
@@ -96,12 +107,14 @@ class BrokerTests(unittest.TestCase):
 
         broker = BinanceBroker(client=FakeClient())
         responses = broker.replace_stop_orders(
-            replacements=[("BTCUSDT", "0.010", "61000.0"), ("ETHUSDT", "0.500", "3000.0")]
+            replacements=[("BTCUSDT", "0.010", "61000.0", None), ("ETHUSDT", "0.500", "3000.0", "LONG")]
         )
         self.assertEqual(len(responses), 2)
-        self.assertEqual(broker.client.open_order_calls[0]["symbol"], "BTCUSDT")
-        self.assertEqual(broker.client.cancel_calls[0]["order_id"], 11)
-        self.assertEqual(broker.client.cancel_calls[1]["order_id"], 11)
-        self.assertEqual(broker.client.new_order_calls[1]["symbol"], "ETHUSDT")
-        self.assertEqual(broker.client.new_order_calls[0]["type"], "STOP_MARKET")
+        self.assertEqual(broker.client.open_algo_order_calls[0]["symbol"], "BTCUSDT")
+        self.assertEqual(broker.client.cancel_algo_calls[0]["algo_id"], 11)
+        self.assertEqual(broker.client.cancel_algo_calls[1]["algo_id"], 11)
+        self.assertEqual(broker.client.new_algo_order_calls[1]["symbol"], "ETHUSDT")
+        self.assertEqual(broker.client.new_algo_order_calls[0]["type"], "STOP_MARKET")
+        self.assertEqual(broker.client.new_algo_order_calls[0]["stopPrice"], "61000.0")
+        self.assertEqual(broker.client.new_algo_order_calls[1]["positionSide"], "LONG")
         self.assertEqual(len(broker.client.send_calls), 2)

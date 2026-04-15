@@ -49,13 +49,16 @@ class ExecutionPlanTests(unittest.TestCase):
             decision=decision,
             stop_budget=Decimal("10"),
             now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            position_side="LONG",
         )
         self.assertEqual(len(plan.entry_orders), 1)
         self.assertEqual(plan.entry_orders[0]["type"], "MARKET")
         self.assertIn("newClientOrderId", plan.entry_orders[0])
+        self.assertEqual(plan.entry_orders[0]["positionSide"], "LONG")
         self.assertEqual(len(plan.stop_orders), 1)
         self.assertEqual(plan.stop_orders[0]["type"], "STOP_MARKET")
         self.assertIn("newClientOrderId", plan.stop_orders[0])
+        self.assertEqual(plan.stop_orders[0]["positionSide"], "LONG")
 
     def test_builds_stop_replacements_for_hourly_updates(self) -> None:
         from momentum_alpha.execution import build_stop_replacements

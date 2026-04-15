@@ -275,6 +275,7 @@ def run_once(
     submit_orders: bool,
     initial_state: StrategyState | None = None,
     exchange_symbols: dict | None = None,
+    position_side: str | None = None,
 ) -> RunOnceResult:
     runtime = build_runtime_from_snapshots(snapshots=snapshots).with_exchange_symbols(
         exchange_symbols if exchange_symbols is not None else parse_exchange_info(client.fetch_exchange_info())
@@ -284,7 +285,7 @@ def run_once(
         previous_leader_symbol=previous_leader_symbol,
         positions={},
     )
-    runtime_result = process_runtime_tick(runtime=runtime, state=state, now=now)
+    runtime_result = process_runtime_tick(runtime=runtime, state=state, now=now, position_side=position_side)
     broker_responses = broker.submit_execution_plan(runtime_result.execution_plan) if submit_orders else []
     return RunOnceResult(
         runtime_result=runtime_result,
@@ -535,6 +536,16 @@ def run_once_live(
     audit_recorder: AuditRecorder | None = None,
 ) -> RunOnceResult:
     runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
+    position_side: str | None = None
+    fetch_position_mode = getattr(client, "fetch_position_mode", None)
+    if callable(fetch_position_mode):
+        try:
+            position_mode = fetch_position_mode()
+        except Exception:
+            position_mode = None
+        dual_side = None if position_mode is None else position_mode.get("dualSidePosition")
+        if dual_side in (True, "true", "TRUE", "True"):
+            position_side = "LONG"
     if previous_leader_symbol is None and state_store is not None:
         stored_state = state_store.load()
         if stored_state is not None:
@@ -542,11 +553,15 @@ def run_once_live(
 
     initial_state = None
     if restore_positions:
+        open_orders = client.fetch_open_orders()
+        fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
+        if callable(fetch_open_algo_orders):
+            open_orders = [*open_orders, *fetch_open_algo_orders()]
         initial_state = restore_state(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
             previous_leader_symbol=previous_leader_symbol,
             position_risk=client.fetch_position_risk(),
-            open_orders=client.fetch_open_orders(),
+            open_orders=open_orders,
         )
 
     resolved_symbols = (
@@ -574,6 +589,7 @@ def run_once_live(
         exchange_symbols=(
             market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
         ),
+        position_side=position_side,
     )
     stop_replacements: list[tuple[str, Decimal]] = []
     if restore_positions and initial_state is not None:
@@ -588,6 +604,13 @@ def run_once_live(
                         symbol,
                         str(initial_state.positions[symbol].total_quantity),
                         str(stop_price),
+                    )
+                    if position_side is None
+                    else (
+                        symbol,
+                        str(initial_state.positions[symbol].total_quantity),
+                        str(stop_price),
+                        position_side,
                     )
                     for symbol, stop_price in stop_replacements
                     if symbol in initial_state.positions

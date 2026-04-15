@@ -344,6 +344,26 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIn("timestamp=1700000000000", client.requests[0].url)
         self.assertIsNone(client.requests[0].body)
 
+    def test_fetch_open_algo_orders_uses_signed_endpoint(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeClient(BinanceRestClient):
+            def __init__(self) -> None:
+                super().__init__(api_key="key", api_secret="secret")
+                self.requests = []
+
+            def send(self, request):
+                self.requests.append(request)
+                return [{"symbol": "BTCUSDT", "orderType": "STOP_MARKET", "triggerPrice": "61000"}]
+
+        client = FakeClient()
+        payload = client.fetch_open_algo_orders(symbol="BTCUSDT", timestamp_ms=1700000000000)
+        self.assertEqual(payload[0]["orderType"], "STOP_MARKET")
+        self.assertIn("https://fapi.binance.com/fapi/v1/openAlgoOrders?", client.requests[0].url)
+        self.assertIn("symbol=BTCUSDT", client.requests[0].url)
+        self.assertIn("timestamp=1700000000000", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
+
     def test_fetch_account_info_uses_signed_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
 
@@ -410,6 +430,50 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIn("orderId=123", client.requests[0].url)
         self.assertIn("signature=", client.requests[0].url)
         self.assertIsNone(client.requests[0].body)
+
+    def test_cancel_algo_order_uses_delete_signed_endpoint_with_algo_id(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeClient(BinanceRestClient):
+            def __init__(self) -> None:
+                super().__init__(api_key="key", api_secret="secret")
+                self.requests = []
+
+            def send(self, request):
+                self.requests.append(request)
+                return {"algoId": 123, "code": "200"}
+
+        client = FakeClient()
+        payload = client.cancel_algo_order(algo_id=123, timestamp_ms=1700000000000)
+        self.assertEqual(payload["algoId"], 123)
+        self.assertIn("https://fapi.binance.com/fapi/v1/algoOrder?", client.requests[0].url)
+        self.assertIn("algoId=123", client.requests[0].url)
+        self.assertEqual(client.requests[0].method, "DELETE")
+        self.assertIsNone(client.requests[0].body)
+
+    def test_new_algo_order_uses_algo_endpoint_and_maps_stop_fields(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        client = BinanceRestClient(api_key="key", api_secret="secret")
+        request = client.new_algo_order(
+            symbol="BTCUSDT",
+            side="SELL",
+            type="STOP_MARKET",
+            quantity="0.010",
+            stopPrice="61000",
+            newClientOrderId="ma_foo",
+            positionSide="LONG",
+            timestamp="1700000000000",
+        )
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.url, "https://fapi.binance.com/fapi/v1/algoOrder")
+        self.assertIsNotNone(request.body)
+        assert request.body is not None
+        self.assertIn("algoType=CONDITIONAL", request.body)
+        self.assertIn("orderType=STOP_MARKET", request.body)
+        self.assertIn("triggerPrice=61000", request.body)
+        self.assertIn("clientAlgoId=ma_foo", request.body)
+        self.assertIn("positionSide=LONG", request.body)
 
     def test_create_listen_key_uses_api_key_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient

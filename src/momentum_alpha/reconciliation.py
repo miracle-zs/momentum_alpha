@@ -22,11 +22,13 @@ def restore_state(
     stop_prices: dict[str, Decimal] = {}
     fallback_stop_prices: dict[str, Decimal] = {}
     for order in open_orders:
-        if order.get("type") != "STOP_MARKET" or order.get("stopPrice") is None:
+        order_type = order.get("type") or order.get("orderType")
+        raw_stop_price = order.get("stopPrice") or order.get("triggerPrice")
+        if order_type != "STOP_MARKET" or raw_stop_price is None:
             continue
         symbol = order["symbol"]
-        stop_price = Decimal(order["stopPrice"])
-        if is_strategy_client_order_id(order.get("clientOrderId")):
+        stop_price = Decimal(raw_stop_price)
+        if is_strategy_client_order_id(order.get("clientOrderId") or order.get("clientAlgoId")):
             stop_prices[symbol] = stop_price
         elif symbol not in stop_prices:
             fallback_stop_prices[symbol] = stop_price

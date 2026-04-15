@@ -54,6 +54,7 @@ def process_runtime_tick(
     runtime: Runtime,
     state: StrategyState,
     now: datetime,
+    position_side: str | None = None,
 ) -> RuntimeTickResult:
     decision = process_clock_tick(now=now, state=state, market=runtime.market)
     execution_plan = build_execution_plan(
@@ -62,6 +63,7 @@ def process_runtime_tick(
         decision=decision,
         stop_budget=Decimal(runtime.config.stop_budget_usdt),
         now=now,
+        position_side=position_side,
     )
     next_state = replace(state, previous_leader_symbol=decision.new_previous_leader_symbol)
     return RuntimeTickResult(

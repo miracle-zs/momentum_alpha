@@ -44,6 +44,7 @@ def build_market_entry_order(
     symbol: ExchangeSymbol,
     quantity: Decimal,
     client_order_id: str | None = None,
+    position_side: str | None = None,
 ) -> dict[str, str]:
     normalized_quantity = _normalized_quantity(symbol, quantity)
     payload = {
@@ -54,6 +55,8 @@ def build_market_entry_order(
     }
     if client_order_id:
         payload["newClientOrderId"] = client_order_id
+    if position_side:
+        payload["positionSide"] = position_side
     return payload
 
 
@@ -63,6 +66,7 @@ def build_stop_market_order(
     quantity: Decimal,
     stop_price: Decimal,
     client_order_id: str | None = None,
+    position_side: str | None = None,
 ) -> dict[str, str]:
     normalized_quantity = _normalized_quantity(symbol, quantity)
     normalized_stop_price = symbol.filters.normalize_price(stop_price)
@@ -76,4 +80,6 @@ def build_stop_market_order(
     }
     if client_order_id:
         payload["newClientOrderId"] = client_order_id
+    if position_side:
+        payload["positionSide"] = position_side
     return payload

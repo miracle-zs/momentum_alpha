@@ -59,6 +59,31 @@ class ReconciliationTests(unittest.TestCase):
         )
         self.assertEqual(state.positions, {})
 
+    def test_restore_state_reads_stop_from_open_algo_orders(self) -> None:
+        from momentum_alpha.reconciliation import restore_state
+
+        state = restore_state(
+            current_day="2026-04-15",
+            previous_leader_symbol=None,
+            position_risk=[
+                {
+                    "symbol": "BTCUSDT",
+                    "positionAmt": "0.010",
+                    "entryPrice": "61200",
+                    "updateTime": 1700000000000,
+                }
+            ],
+            open_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "orderType": "STOP_MARKET",
+                    "triggerPrice": "61000",
+                    "clientAlgoId": "ma_foo",
+                }
+            ],
+        )
+        self.assertEqual(state.positions["BTCUSDT"].stop_price, Decimal("61000"))
+
     def test_build_stop_reconciliation_plan_replaces_mismatched_stop(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, TickDecision
         from momentum_alpha.reconciliation import build_stop_reconciliation_plan, restore_state

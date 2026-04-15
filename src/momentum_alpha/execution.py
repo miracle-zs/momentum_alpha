@@ -24,6 +24,7 @@ def _build_orders_for_intent(
     symbols: dict[str, ExchangeSymbol],
     market: dict[str, MarketSnapshot],
     stop_budget: Decimal,
+    position_side: str | None,
 ) -> tuple[dict[str, str], dict[str, str]] | None:
     exchange_symbol = symbols.get(intent.symbol)
     snapshot = market.get(intent.symbol)
@@ -50,6 +51,7 @@ def _build_orders_for_intent(
             order_kind="entry",
             sequence=sequence,
         ),
+        position_side=position_side,
     )
     stop_order = build_stop_market_order(
         symbol=exchange_symbol,
@@ -62,6 +64,7 @@ def _build_orders_for_intent(
             order_kind="stop",
             sequence=sequence,
         ),
+        position_side=position_side,
     )
     return entry_order, stop_order
 
@@ -73,6 +76,7 @@ def build_execution_plan(
     decision: TickDecision,
     stop_budget: Decimal,
     now: datetime,
+    position_side: str | None = None,
 ) -> ExecutionPlan:
     entry_orders: list[dict[str, str]] = []
     stop_orders: list[dict[str, str]] = []
@@ -85,6 +89,7 @@ def build_execution_plan(
             symbols=symbols,
             market=market,
             stop_budget=stop_budget,
+            position_side=position_side,
         )
         if built is None:
             continue

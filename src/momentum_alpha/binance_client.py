@@ -128,6 +128,16 @@ class BinanceRestClient:
     def new_order(self, **params: str) -> BinanceRequest:
         return self.build_signed_request(method="POST", path="/fapi/v1/order", params=params)
 
+    def new_algo_order(self, **params: str) -> BinanceRequest:
+        algo_params = dict(params)
+        algo_params["algoType"] = algo_params.get("algoType", "CONDITIONAL")
+        algo_params["orderType"] = algo_params.pop("type")
+        if "stopPrice" in algo_params:
+            algo_params["triggerPrice"] = algo_params.pop("stopPrice")
+        if "newClientOrderId" in algo_params:
+            algo_params["clientAlgoId"] = algo_params.pop("newClientOrderId")
+        return self.build_signed_request(method="POST", path="/fapi/v1/algoOrder", params=algo_params)
+
     def send(self, request: BinanceRequest) -> dict:
         raw_request = Request(
             url=request.url,
@@ -247,6 +257,18 @@ class BinanceRestClient:
         )
         return self.send(request)
 
+    def fetch_open_algo_orders(self, *, symbol: str | None = None, timestamp_ms: int | None = None) -> list:
+        params: dict[str, str] = {}
+        if symbol is not None:
+            params["symbol"] = symbol
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/openAlgoOrders",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
     def fetch_account_info(self, *, timestamp_ms: int | None = None) -> dict:
         request = self.build_signed_request(
             method="GET",
@@ -273,6 +295,35 @@ class BinanceRestClient:
                 "symbol": symbol,
                 "orderId": str(order_id),
             },
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
+    def cancel_algo_order(
+        self,
+        *,
+        algo_id: int | None = None,
+        client_algo_id: str | None = None,
+        timestamp_ms: int | None = None,
+    ) -> dict:
+        params: dict[str, str] = {}
+        if algo_id is not None:
+            params["algoId"] = str(algo_id)
+        if client_algo_id is not None:
+            params["clientAlgoId"] = client_algo_id
+        request = self.build_signed_request(
+            method="DELETE",
+            path="/fapi/v1/algoOrder",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
+    def fetch_position_mode(self, *, timestamp_ms: int | None = None) -> dict:
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/positionSide/dual",
+            params={},
             timestamp_ms=timestamp_ms,
         )
         return self.send(request)
