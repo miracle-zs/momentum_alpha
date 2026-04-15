@@ -5,7 +5,7 @@ import hmac
 import json
 import time
 from dataclasses import dataclass
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -26,6 +26,24 @@ class BinanceRequest:
     url: str
     headers: dict[str, str]
     body: str | None = None
+
+
+class BinanceHttpError(HTTPError):
+    def __init__(self, http_error: HTTPError, response_body: str) -> None:
+        super().__init__(
+            url=http_error.url,
+            code=http_error.code,
+            msg=http_error.msg,
+            hdrs=http_error.hdrs,
+            fp=None,
+        )
+        self.status_code = http_error.code
+        self.response_body = response_body
+
+    def __str__(self) -> str:
+        if self.response_body:
+            return f"HTTP Error {self.status_code}: {self.msg} body={self.response_body}"
+        return super().__str__()
 
 
 class BinanceRestClient:
@@ -108,6 +126,11 @@ class BinanceRestClient:
                     response_context = self.opener(raw_request)
                 with response_context as response:
                     return json.loads(response.read().decode("utf-8"))
+            except HTTPError as exc:
+                response_body = ""
+                if exc.fp is not None:
+                    response_body = exc.fp.read().decode("utf-8", errors="replace")
+                raise BinanceHttpError(exc, response_body) from exc
             except URLError:
                 if attempt >= len(self.retry_delays):
                     raise

@@ -2,7 +2,8 @@ import sys
 import unittest
 from pathlib import Path
 import json
-from urllib.error import URLError
+from io import BytesIO
+from urllib.error import HTTPError, URLError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,6 +198,35 @@ class BinanceClientTests(unittest.TestCase):
                 )
             )
         self.assertEqual(sleeps, [0.1, 0.2])
+
+    def test_send_raises_binance_http_error_with_response_body(self) -> None:
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest, BinanceRestClient
+
+        class HttpFailOpener:
+            def __call__(self, request, timeout=None):
+                raise HTTPError(
+                    url=request.full_url,
+                    code=403,
+                    msg="Forbidden",
+                    hdrs=None,
+                    fp=BytesIO(b'{"code":-2015,"msg":"Invalid API-key, IP, or permissions for action."}'),
+                )
+
+        client = BinanceRestClient(
+            api_key="key",
+            api_secret="secret",
+            opener=HttpFailOpener(),
+        )
+        with self.assertRaises(BinanceHttpError) as context:
+            client.send(
+                BinanceRequest(
+                    method="GET",
+                    url="https://fapi.binance.com/fapi/v3/positionRisk",
+                    headers={"X-MBX-APIKEY": "key"},
+                )
+            )
+        self.assertEqual(context.exception.status_code, 403)
+        self.assertIn("Invalid API-key", context.exception.response_body)
 
     def test_fetch_ticker_price_uses_symbol_query(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
