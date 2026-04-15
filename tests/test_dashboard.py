@@ -170,6 +170,7 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("Momentum Alpha", html)
+        self.assertIn("交易监控面板", html)
         self.assertIn("OK", html)
         self.assertIn("INUSDT", html)
         self.assertIn("tick_result", html)
@@ -178,17 +179,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("app", html)
         self.assertIn("pulse-bar", html)
         self.assertIn("metric", html)
-        self.assertIn("user_stream_event", html)
-        self.assertIn("Leader Rotation Timeline", html)
-        self.assertIn("Source Distribution", html)
-        self.assertIn("Event Activity", html)
-        self.assertIn("setInterval(refreshDashboard, 5000)", html)
-        self.assertIn("Signal Decisions", html)
-        self.assertIn("Broker Orders", html)
-        self.assertIn("Account Snapshots", html)
-        self.assertIn("Decision Status", html)
-        self.assertIn("Leader Rotation Timeline", html)
-        self.assertIn("2026-04-15 14:59", html)
+        self.assertIn("POSITIONS", html)
+        self.assertIn("ACCOUNT METRICS", html)
+        self.assertIn("LATEST DECISION", html)
+        self.assertIn("LEADER ROTATION", html)
+        self.assertIn("TRADE HISTORY", html)
+        self.assertIn("SYSTEM HEALTH", html)
+        self.assertIn("RECENT EVENTS", html)
+        self.assertIn("2026-04-15 14:59:01", html)
 
     def test_build_dashboard_response_json_serializes_snapshot(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_response_json
@@ -689,3 +687,42 @@ class DashboardTests(unittest.TestCase):
 
         html = render_position_cards([])
         self.assertIn("No positions", html)
+
+    def test_render_dashboard_html_includes_positions_section(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html({
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "BTCUSDT",
+                "position_count": 1,
+                "order_status_count": 2,
+                "latest_position_snapshot": {
+                    "payload": {
+                        "positions": {
+                            "BTCUSDT": {
+                                "symbol": "BTCUSDT",
+                                "stop_price": "81000",
+                                "legs": [{"symbol": "BTCUSDT", "quantity": "0.01", "entry_price": "82000", "stop_price": "81000", "opened_at": "2026-04-15T09:15:00+00:00", "leg_type": "base"}]
+                            }
+                        }
+                    }
+                },
+                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
+                "latest_signal_decision": {},
+            },
+            "recent_broker_orders": [],
+            "recent_account_snapshots": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "leader_history": [],
+            "pulse_points": [],
+            "warnings": [],
+        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False})
+
+        self.assertIn("POSITIONS", html)
+        self.assertIn("TRADE HISTORY", html)
+        self.assertIn("STRATEGY CONFIG", html)
+        self.assertIn("Stop Budget", html)
+        self.assertIn("10", html)

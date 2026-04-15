@@ -366,6 +366,11 @@ def load_dashboard_snapshot(
     audit_log_file: Path,
     runtime_db_file: Path | None = None,
     recent_limit: int = 20,
+    stop_budget_usdt: str | None = None,
+    entry_start_hour_utc: int = 1,
+    entry_end_hour_utc: int = 23,
+    testnet: bool = False,
+    submit_orders: bool = False,
 ) -> dict:
     health_report = build_runtime_health_report(
         now=now,
@@ -445,6 +450,13 @@ def load_dashboard_snapshot(
         "recent_account_snapshots": recent_account_snapshots,
         "recent_events": recent_events,
         "warnings": warnings,
+        "strategy_config": build_strategy_config(
+            stop_budget_usdt=stop_budget_usdt,
+            entry_start_hour_utc=entry_start_hour_utc,
+            entry_end_hour_utc=entry_end_hour_utc,
+            testnet=testnet,
+            submit_orders=submit_orders,
+        ),
     }
 
 
@@ -593,7 +605,7 @@ def _render_timeline_svg(*, events: list[dict]) -> str:
     return f"<svg viewBox='0 0 {width} {height}' class='timeline-svg'>{timeline}</svg>"
 
 
-def render_dashboard_html(snapshot: dict) -> str:
+def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -> str:
     summary = build_dashboard_summary_payload(snapshot)
     timeseries = build_dashboard_timeseries_payload(snapshot)
     runtime = snapshot["runtime"]
@@ -621,6 +633,21 @@ def render_dashboard_html(snapshot: dict) -> str:
     leader_history = snapshot.get("leader_history", [])
     timeline_chart = _render_timeline_svg(events=leader_history)
     health_status = snapshot["health"]["overall_status"]
+    # Build position cards
+    position_details = build_position_details(latest_position_snapshot)
+    position_cards_html = render_position_cards(position_details)
+    # Build trade history
+    broker_orders = snapshot.get("recent_broker_orders") or []
+    trade_history_html = render_trade_history_table(broker_orders)
+    # Build strategy config
+    config = strategy_config or {}
+    config_html = (
+        f"<div class='config-panel'>"
+        f"<div class='config-row'><span class='config-label'>Stop Budget</span><span>{escape(str(config.get('stop_budget_usdt') or 'n/a'))}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Entry Window</span><span>{escape(str(config.get('entry_window') or 'n/a'))}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Testnet</span><span class='{'config-value-true' if config.get('testnet') else 'config-value-false'}'>{'Yes' if config.get('testnet') else 'No'}</span></div>"
+        f"</div>"
+    )
     health_items_html = "".join(
         f"<div class='health-item status-{escape(item['status'].lower())}'>"
         f"<span class='health-status-dot'></span>"
@@ -1063,14 +1090,52 @@ def render_dashboard_html(snapshot: dict) -> str:
       0%, 100% {{ opacity: 1; }}
       50% {{ opacity: 0.3; }}
     }}
+    .positions-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }}
+    .position-card {{ background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border-left: 3px solid var(--success); }}
+    .position-header {{ display: flex; justify-content: space-between; margin-bottom: 10px; }}
+    .position-symbol {{ font-weight: 700; color: var(--accent); }}
+    .position-direction {{ font-size: 0.75rem; color: var(--fg-muted); }}
+    .position-metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 0.8rem; }}
+    .position-metric {{ text-align: center; }}
+    .metric-danger {{ color: var(--danger); }}
+    .position-legs {{ margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }}
+    .positions-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
+    .trade-history {{ max-height: 200px; overflow-y: auto; }}
+    .trade-history-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
+    .trade-row {{ display: grid; grid-template-columns: 80px 100px 100px 60px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }}
+    .trade-row:last-child {{ border-bottom: none; }}
+    .trade-time {{ color: var(--fg-muted); }}
+    .trade-symbol {{ color: var(--accent); font-weight: 500; }}
+    .side-buy {{ color: var(--success); }}
+    .side-sell {{ color: var(--danger); }}
+    .status-filled {{ color: var(--success); }}
+    .status-pending {{ color: var(--warning); }}
+    .section-header {{ font-size: 0.7rem; color: var(--accent); padding: 4px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.1em; }}
+    .config-panel {{ background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; font-size: 0.8rem; }}
+    .config-row {{ display: flex; justify-content: space-between; padding: 4px 0; }}
+    .config-label {{ color: var(--fg-muted); }}
+    .config-value-true {{ color: var(--warning); }}
+    .config-value-false {{ color: var(--fg-muted); }}
+    .dashboard-section {{ margin-bottom: 20px; padding: 16px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); }}
+    .charts-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
+    .chart-card {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
+    .decision-row {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+    .decision-half {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
+    .bottom-row {{ display: grid; grid-template-columns: 200px 1fr 1fr; gap: 16px; }}
+    .bottom-col {{ }}
     @media (max-width: 1200px) {{
       .main-layout {{ grid-template-columns: 1fr; }}
       .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
+      .charts-row {{ grid-template-columns: 1fr; }}
+      .decision-row {{ grid-template-columns: 1fr; }}
+      .bottom-row {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 768px) {{
       .metrics-grid {{ grid-template-columns: 1fr; }}
       .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
       .decision-grid {{ grid-template-columns: 1fr; }}
+      .positions-grid {{ grid-template-columns: 1fr; }}
+      .trade-row {{ grid-template-columns: 60px 80px 80px 50px 60px; font-size: 0.7rem; }}
     }}
   </style>
 </head>
@@ -1108,92 +1173,72 @@ def render_dashboard_html(snapshot: dict) -> str:
         <div class="metric-sub">Mark-to-market</div>
       </div>
     </div>
-    <div class="main-layout">
-      <div class="left-panel">
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Account Equity Curve</span>
-            <span style="font-size:0.75rem;color:var(--fg-muted)">{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span>
-          </div>
-          <div class="chart-container">{equity_chart}</div>
+    <section class="dashboard-section">
+      <div class="section-header">POSITIONS</div>
+      {position_cards_html}
+    </section>
+    <section class="dashboard-section">
+      <div class="section-header">ACCOUNT METRICS</div>
+      <div class="charts-row">
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Equity Curve</div>
+          {equity_chart}
         </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Wallet Balance History</span>
-          </div>
-          <div class="chart-container">{wallet_chart}</div>
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Wallet Balance</div>
+          {wallet_chart}
         </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Leader Rotation Timeline</span>
-          </div>
-          <div class="chart-container">{timeline_chart}</div>
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Unrealized PnL</div>
+          {pnl_chart}
         </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">System Health</span>
+      </div>
+    </section>
+    <section class="dashboard-section decision-row">
+      <div class="decision-half">
+        <div class="section-header">LATEST DECISION</div>
+        <div class="decision-grid">
+          <div class="decision-item">
+            <div class="decision-label">Decision Type</div>
+            <div class="decision-value">{escape(str(decision_status))}</div>
           </div>
-          <div class="health-grid">{health_items_html}</div>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Decision Status</span>
+          <div class="decision-item">
+            <div class="decision-label">Target Symbol</div>
+            <div class="decision-value">{escape(str(latest_signal_symbol))}</div>
           </div>
-          <div class="decision-grid">
-            <div class="decision-item">
-              <div class="decision-label">Latest Decision</div>
-              <div class="decision-value">{escape(str(decision_status))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Target Symbol</div>
-              <div class="decision-value">{escape(str(latest_signal_symbol))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Blocked Reason</div>
-              <div class="decision-value">{escape(str(blocked_reason or 'None'))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Decision Time</div>
-              <div class="decision-value">{escape(latest_signal_time)}</div>
-            </div>
+          <div class="decision-item">
+            <div class="decision-label">Blocked Reason</div>
+            <div class="decision-value">{escape(str(blocked_reason or 'None'))}</div>
+          </div>
+          <div class="decision-item">
+            <div class="decision-label">Decision Time</div>
+            <div class="decision-value">{escape(latest_signal_time)}</div>
           </div>
         </div>
       </div>
-      <div class="right-panel">
-        <div class="card">
-          <div class="card-header"><span class="card-title">Event Distribution</span></div>
-          <div class="chart-container">{pie_chart}</div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Event Activity (10min)</span></div>
-          <div class="pulse-container">{pulse_html}</div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Signal Decisions</span></div>
-          <div class="data-list">{signal_rows_html}</div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Broker Orders</span></div>
-          <div class="data-list">{broker_rows_html}</div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Account Snapshots</span></div>
-          <div class="data-list">{account_rows_html}</div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Warnings</span></div>
-          <ul class="warnings-list">{warnings_html}</ul>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title">Source Distribution</span></div>
-          <div class="source-tags">{source_html}</div>
-        </div>
+      <div class="decision-half">
+        <div class="section-header">LEADER ROTATION</div>
+        <div class="chart-container">{timeline_chart}</div>
       </div>
-    </div>
-    <div class="card" style="margin-top:20px;">
-      <div class="card-header"><span class="card-title">Recent Events</span></div>
-      <div class="event-list">{recent_events_html}</div>
-    </div>
+    </section>
+    <section class="dashboard-section">
+      <div class="section-header">TRADE HISTORY</div>
+      {trade_history_html}
+    </section>
+    <section class="dashboard-section bottom-row">
+      <div class="bottom-col">
+        <div class="section-header">STRATEGY CONFIG</div>
+        {config_html}
+      </div>
+      <div class="bottom-col">
+        <div class="section-header">SYSTEM HEALTH</div>
+        <div class="health-grid">{health_items_html}</div>
+      </div>
+      <div class="bottom-col">
+        <div class="section-header">RECENT EVENTS</div>
+        <div class="event-list" style="max-height:200px;overflow-y:auto;">{recent_events_html}</div>
+      </div>
+    </section>
   </div>
   <div class="refresh-indicator">
     <div class="refresh-dot"></div>
