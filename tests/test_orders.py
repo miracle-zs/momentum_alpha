@@ -1,0 +1,53 @@
+import sys
+import unittest
+from decimal import Decimal
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+
+class BinanceOrderPayloadTests(unittest.TestCase):
+    def test_builds_market_entry_payload(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.orders import build_market_entry_order
+
+        symbol = ExchangeSymbol(
+            symbol="BTCUSDT",
+            status="TRADING",
+            filters=SymbolFilters(step_size=Decimal("0.001"), min_qty=Decimal("0.001"), tick_size=Decimal("0.10")),
+            min_notional=Decimal("5"),
+        )
+
+        payload = build_market_entry_order(symbol=symbol, quantity=Decimal("0.1234"))
+        self.assertEqual(payload["symbol"], "BTCUSDT")
+        self.assertEqual(payload["type"], "MARKET")
+        self.assertEqual(payload["side"], "BUY")
+        self.assertEqual(payload["quantity"], "0.123")
+
+    def test_builds_stop_market_order_payload(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.orders import build_stop_market_order
+
+        symbol = ExchangeSymbol(
+            symbol="BTCUSDT",
+            status="TRADING",
+            filters=SymbolFilters(step_size=Decimal("0.001"), min_qty=Decimal("0.001"), tick_size=Decimal("0.10")),
+            min_notional=Decimal("5"),
+        )
+
+        payload = build_stop_market_order(
+            symbol=symbol,
+            quantity=Decimal("0.1234"),
+            stop_price=Decimal("61234.567"),
+        )
+        self.assertEqual(payload["type"], "STOP_MARKET")
+        self.assertEqual(payload["side"], "SELL")
+        self.assertEqual(payload["workingType"], "CONTRACT_PRICE")
+        self.assertEqual(payload["quantity"], "0.123")
+        self.assertEqual(payload["stopPrice"], "61234.50")

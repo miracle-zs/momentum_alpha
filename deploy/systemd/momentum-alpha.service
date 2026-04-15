@@ -1,0 +1,17 @@
+[Unit]
+Description=Momentum Alpha Binance Polling Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.example
+ExecStart=%h/momentum_alpha/scripts/run_poll.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha.log
+
+[Install]
+WantedBy=multi-user.target

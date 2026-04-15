@@ -1,0 +1,17 @@
+[Unit]
+Description=Momentum Alpha Binance User Stream Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.example
+ExecStart=%h/momentum_alpha/scripts/run_user_stream.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-user-stream.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-user-stream.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[project]
+name = "momentum-alpha"
+version = "0.1.0"
+description = "Binance leader rotation strategy core"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+live = ["websocket-client>=1.8.0"]
+
+[tool.unittest]
+start-directory = "tests"
