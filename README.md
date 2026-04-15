@@ -92,7 +92,9 @@ Use the provided wrappers and systemd units as a starting point:
 
 ```bash
 cp deploy/env.example .env.local
+cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh
+chmod +x scripts/install_systemd.sh
 chmod +x scripts/run_poll.sh
 chmod +x scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
@@ -101,6 +103,7 @@ chmod +x scripts/run_user_stream.sh
 Relevant artifacts:
 
 - `scripts/init_runtime_dirs.sh`
+- `scripts/install_systemd.sh`
 - `scripts/run_poll.sh`
 - `scripts/run_user_stream.sh`
 - `deploy/systemd/momentum-alpha.service`
@@ -113,7 +116,7 @@ Recommended first-time bootstrap:
 ```bash
 python3 -m pip install -e .[live]
 cp deploy/env.example deploy/env.local
-chmod +x scripts/init_runtime_dirs.sh scripts/run_poll.sh scripts/run_user_stream.sh
+chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/run_poll.sh scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
 ```
 
@@ -122,14 +125,10 @@ Then edit `deploy/env.local` with your real API key, secret, symbols, state file
 Suggested systemd rollout:
 
 ```bash
-sudo cp deploy/systemd/momentum-alpha.service /etc/systemd/system/
-sudo cp deploy/systemd/momentum-alpha-user-stream.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now momentum-alpha.service
-sudo systemctl enable --now momentum-alpha-user-stream.service
+./scripts/install_systemd.sh
 ```
 
-Before enabling the services, update the `EnvironmentFile=` path in both unit files if you want to use `deploy/env.local` instead of `deploy/env.example`.
+The provided unit files already point to `deploy/env.local`.
 
 Operational split:
 

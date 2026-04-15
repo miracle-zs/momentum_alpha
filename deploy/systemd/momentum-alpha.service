@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/momentum_alpha
-EnvironmentFile=%h/momentum_alpha/deploy/env.example
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
 ExecStart=%h/momentum_alpha/scripts/run_poll.sh
 Restart=always
 RestartSec=10
