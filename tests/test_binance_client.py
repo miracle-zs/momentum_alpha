@@ -227,6 +227,7 @@ class BinanceClientTests(unittest.TestCase):
             )
         self.assertEqual(context.exception.status_code, 403)
         self.assertIn("Invalid API-key", context.exception.response_body)
+        self.assertIn("/fapi/v3/positionRisk", str(context.exception))
 
     def test_fetch_ticker_price_uses_symbol_query(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient

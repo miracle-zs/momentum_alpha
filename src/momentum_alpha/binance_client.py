@@ -29,7 +29,14 @@ class BinanceRequest:
 
 
 class BinanceHttpError(HTTPError):
-    def __init__(self, http_error: HTTPError, response_body: str) -> None:
+    def __init__(
+        self,
+        http_error: HTTPError,
+        response_body: str,
+        *,
+        request_method: str = "UNKNOWN",
+        request_url: str = "",
+    ) -> None:
         super().__init__(
             url=http_error.url,
             code=http_error.code,
@@ -39,10 +46,13 @@ class BinanceHttpError(HTTPError):
         )
         self.status_code = http_error.code
         self.response_body = response_body
+        self.request_method = request_method
+        self.request_url = request_url
 
     def __str__(self) -> str:
+        request_label = f"{self.request_method} {self.request_url}".strip()
         if self.response_body:
-            return f"HTTP Error {self.status_code}: {self.msg} body={self.response_body}"
+            return f"HTTP Error {self.status_code}: {self.msg} request={request_label} body={self.response_body}"
         return super().__str__()
 
 
@@ -130,7 +140,12 @@ class BinanceRestClient:
                 response_body = ""
                 if exc.fp is not None:
                     response_body = exc.fp.read().decode("utf-8", errors="replace")
-                raise BinanceHttpError(exc, response_body) from exc
+                raise BinanceHttpError(
+                    exc,
+                    response_body,
+                    request_method=request.method,
+                    request_url=request.url,
+                ) from exc
             except URLError:
                 if attempt >= len(self.retry_delays):
                     raise
