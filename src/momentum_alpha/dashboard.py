@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from decimal import Decimal
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta, timezone
@@ -164,6 +165,59 @@ def _parse_numeric(value: object | None) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_decimal(value: object | None) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return None
+
+
+def build_position_details(position_snapshot: dict) -> list[dict]:
+    """Extract position details with leg breakdown from position snapshot payload."""
+    payload = position_snapshot.get("payload") or {}
+    positions = payload.get("positions") or {}
+    if not positions:
+        return []
+
+    details: list[dict] = []
+    for symbol, position in positions.items():
+        legs = position.get("legs") or []
+        if not legs:
+            continue
+
+        total_quantity = Decimal("0")
+        weighted_sum = Decimal("0")
+        stop_price = _parse_decimal(position.get("stop_price")) or Decimal("0")
+        leg_info: list[dict] = []
+
+        for leg in legs:
+            qty = _parse_decimal(leg.get("quantity")) or Decimal("0")
+            entry = _parse_decimal(leg.get("entry_price")) or Decimal("0")
+            total_quantity += qty
+            weighted_sum += qty * entry
+            leg_info.append({
+                "type": leg.get("leg_type") or "unknown",
+                "time": leg.get("opened_at") or "",
+            })
+
+        avg_entry = weighted_sum / total_quantity if total_quantity > 0 else Decimal("0")
+        risk = total_quantity * (avg_entry - stop_price)
+
+        details.append({
+            "symbol": symbol,
+            "direction": "LONG",
+            "total_quantity": str(total_quantity),
+            "entry_price": f"{avg_entry:.2f}",
+            "stop_price": str(stop_price),
+            "risk": f"{risk:.2f}",
+            "legs": leg_info,
+        })
+
+    return details
 
 
 def build_dashboard_summary_payload(snapshot: dict) -> dict:

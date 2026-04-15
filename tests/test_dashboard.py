@@ -547,3 +547,53 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["event_counts"]["poll_worker_start"], 1)
             self.assertEqual(snapshot["source_counts"]["poll"], 2)
             self.assertEqual(snapshot["leader_history"][0]["symbol"], "ONUSDT")
+
+    def test_build_position_details_extracts_legs_from_payload(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BTCUSDT": {
+                        "symbol": "BTCUSDT",
+                        "stop_price": "81000",
+                        "legs": [
+                            {
+                                "symbol": "BTCUSDT",
+                                "quantity": "0.01",
+                                "entry_price": "82000",
+                                "stop_price": "81000",
+                                "opened_at": "2026-04-15T09:15:00+00:00",
+                                "leg_type": "base"
+                            },
+                            {
+                                "symbol": "BTCUSDT",
+                                "quantity": "0.005",
+                                "entry_price": "82500",
+                                "stop_price": "81000",
+                                "opened_at": "2026-04-15T10:00:00+00:00",
+                                "leg_type": "add_on"
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot)
+
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["symbol"], "BTCUSDT")
+        self.assertEqual(details[0]["total_quantity"], "0.015")
+        self.assertEqual(details[0]["entry_price"], "82166.67")
+        self.assertEqual(details[0]["stop_price"], "81000")
+        self.assertAlmostEqual(float(details[0]["risk"]), 17.50, places=2)
+
+    def test_build_position_details_returns_empty_list_for_missing_payload(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        details = build_position_details({})
+        self.assertEqual(details, [])
+
+        details = build_position_details({"payload": {}})
+        self.assertEqual(details, [])
