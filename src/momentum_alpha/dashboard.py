@@ -268,6 +268,45 @@ def build_strategy_config(
     }
 
 
+def render_position_cards(positions: list[dict]) -> str:
+    """Render HTML for position detail cards."""
+    if not positions:
+        return "<div class='positions-empty'>No positions</div>"
+
+    cards = ""
+    for pos in positions:
+        symbol = escape(str(pos.get("symbol") or "-"))
+        direction = escape(str(pos.get("direction") or "LONG"))
+        qty = escape(str(pos.get("total_quantity") or "0"))
+        entry = escape(str(pos.get("entry_price") or "n/a"))
+        stop = escape(str(pos.get("stop_price") or "n/a"))
+        risk = escape(str(pos.get("risk") or "0"))
+        legs = pos.get("legs") or []
+
+        legs_str = " | ".join(
+            f"Leg {i+1}: {escape(str(leg.get('type') or '-'))} · {escape(str((leg.get('time') or '')[:10]))}"
+            for i, leg in enumerate(legs)
+        ) if legs else "No legs"
+
+        cards += (
+            f"<div class='position-card'>"
+            f"<div class='position-header'>"
+            f"<span class='position-symbol'>{symbol}</span>"
+            f"<span class='position-direction'>{direction}</span>"
+            f"</div>"
+            f"<div class='position-metrics'>"
+            f"<div class='position-metric'><span class='metric-label'>Qty</span><span class='metric-value'>{qty}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Entry</span><span class='metric-value'>{entry}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Stop</span><span class='metric-value metric-danger'>{stop}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Risk</span><span class='metric-value'>{risk} USDT</span></div>"
+            f"</div>"
+            f"<div class='position-legs'>{escape(legs_str)}</div>"
+            f"</div>"
+        )
+
+    return f"<div class='positions-grid'>{cards}</div>"
+
+
 def build_dashboard_summary_payload(snapshot: dict) -> dict:
     latest_account = snapshot.get("runtime", {}).get("latest_account_snapshot") or {}
     return {

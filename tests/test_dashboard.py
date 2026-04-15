@@ -654,3 +654,38 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(config["entry_window"], "01:00-23:00 UTC")
         self.assertEqual(config["testnet"], True)
         self.assertEqual(config["submit_orders"], False)
+
+    def test_render_position_cards_generates_html(self) -> None:
+        from momentum_alpha.dashboard import render_position_cards
+
+        positions = [
+            {
+                "symbol": "BTCUSDT",
+                "direction": "LONG",
+                "total_quantity": "0.015",
+                "entry_price": "82166.67",
+                "stop_price": "81000",
+                "risk": "17.50",
+                "legs": [
+                    {"type": "base", "time": "2026-04-15T09:15:00+00:00"},
+                    {"type": "add_on", "time": "2026-04-15T10:00:00+00:00"},
+                ],
+            }
+        ]
+
+        html = render_position_cards(positions)
+
+        self.assertIn("BTCUSDT", html)
+        self.assertIn("LONG", html)
+        self.assertIn("0.015", html)
+        self.assertIn("82166.67", html)
+        self.assertIn("81000", html)
+        self.assertIn("17.50", html)
+        self.assertIn("base", html)
+        self.assertIn("add_on", html)
+
+    def test_render_position_cards_shows_empty_message(self) -> None:
+        from momentum_alpha.dashboard import render_position_cards
+
+        html = render_position_cards([])
+        self.assertIn("No positions", html)
