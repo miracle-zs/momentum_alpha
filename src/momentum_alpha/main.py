@@ -280,6 +280,7 @@ def run_once(
     initial_state: StrategyState | None = None,
     exchange_symbols: dict | None = None,
     position_side: str | None = None,
+    last_add_on_hour: int | None = None,
 ) -> RunOnceResult:
     runtime = build_runtime_from_snapshots(snapshots=snapshots).with_exchange_symbols(
         exchange_symbols if exchange_symbols is not None else parse_exchange_info(client.fetch_exchange_info())
@@ -289,7 +290,7 @@ def run_once(
         previous_leader_symbol=previous_leader_symbol,
         positions={},
     )
-    runtime_result = process_runtime_tick(runtime=runtime, state=state, now=now, position_side=position_side)
+    runtime_result = process_runtime_tick(runtime=runtime, state=state, now=now, position_side=position_side, last_add_on_hour=last_add_on_hour)
     broker_responses = broker.submit_execution_plan(runtime_result.execution_plan) if submit_orders else []
     return RunOnceResult(
         runtime_result=runtime_result,
@@ -538,6 +539,7 @@ def run_once_live(
     state_store=None,
     market_data_cache: LiveMarketDataCache | None = None,
     audit_recorder: AuditRecorder | None = None,
+    last_add_on_hour: int | None = None,
 ) -> RunOnceResult:
     runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
     position_side: str | None = None
@@ -594,6 +596,7 @@ def run_once_live(
             market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
         ),
         position_side=position_side,
+        last_add_on_hour=last_add_on_hour,
     )
     stop_replacements: list[tuple[str, Decimal]] = []
     if restore_positions and initial_state is not None:
@@ -1184,6 +1187,7 @@ def run_forever(
     market_data_cache = LiveMarketDataCache()
     resolved_symbols = market_data_cache.resolve_symbols(symbols=symbols, client=client)
     rate_limited_until = None
+    last_add_on_hour: int | None = None
 
     def _log(message: str) -> None:
         if hasattr(logger, "info"):
@@ -1217,14 +1221,17 @@ def run_forever(
         )
 
     def _run_once(now):
-        nonlocal rate_limited_until
+        nonlocal rate_limited_until, last_add_on_hour
         if rate_limited_until is not None and now < rate_limited_until:
             _log(f"rate-limit-backoff until={rate_limited_until.isoformat()}")
             return
+        # Initialize last_add_on_hour on first tick to skip add-on
+        if last_add_on_hour is None:
+            last_add_on_hour = now.hour
         _log(f"tick {now.isoformat()}")
         try:
             try:
-                run_once_live_fn(
+                result = run_once_live_fn(
                     symbols=resolved_symbols,
                     now=now,
                     previous_leader_symbol=previous_leader_symbol,
@@ -1236,9 +1243,10 @@ def run_forever(
                     execute_stop_replacements=execute_stop_replacements,
                     market_data_cache=market_data_cache,
                     audit_recorder=audit_recorder,
+                    last_add_on_hour=last_add_on_hour,
                 )
             except TypeError:
-                run_once_live_fn(
+                result = run_once_live_fn(
                     symbols=resolved_symbols,
                     now=now,
                     previous_leader_symbol=previous_leader_symbol,
@@ -1248,7 +1256,12 @@ def run_forever(
                     state_store=state_store,
                     restore_positions=restore_positions,
                     execute_stop_replacements=execute_stop_replacements,
+                    last_add_on_hour=last_add_on_hour,
                 )
+            # Update last_add_on_hour from result
+            new_hour = result.runtime_result.decision.new_last_add_on_hour
+            if new_hour is not None and new_hour != last_add_on_hour:
+                last_add_on_hour = new_hour
         except HTTPError as exc:
             if exc.code == 429:
                 rate_limited_until = now + timedelta(minutes=2)

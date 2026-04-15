@@ -55,8 +55,9 @@ def process_runtime_tick(
     state: StrategyState,
     now: datetime,
     position_side: str | None = None,
+    last_add_on_hour: int | None = None,
 ) -> RuntimeTickResult:
-    decision = process_clock_tick(now=now, state=state, market=runtime.market)
+    decision = process_clock_tick(now=now, state=state, market=runtime.market, last_add_on_hour=last_add_on_hour)
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,
         market=runtime.market,

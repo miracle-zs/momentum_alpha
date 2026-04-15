@@ -78,6 +78,7 @@ class TickDecision:
     add_on_entries: list[EntryIntent]
     updated_stop_prices: dict[str, Decimal]
     new_previous_leader_symbol: str | None
+    new_last_add_on_hour: int | None = None
     blocked_reason: str | None = None
 
 

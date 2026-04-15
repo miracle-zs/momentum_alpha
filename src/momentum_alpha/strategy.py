@@ -89,11 +89,24 @@ def process_clock_tick(
     now: datetime,
     state: StrategyState,
     market: dict[str, MarketSnapshot],
+    last_add_on_hour: int | None = None,
 ) -> TickDecision:
     minute_close = evaluate_minute_close(now=now, state=state, market=market)
     add_on_entries: list[EntryIntent] = []
     updated_stop_prices: dict[str, Decimal] = {}
-    if now.minute == 0:
+    new_last_add_on_hour = last_add_on_hour
+    current_hour = now.hour
+    # Execute add-on when:
+    # 1. last_add_on_hour is None and we're at minute 0 (backward compatible)
+    # 2. OR we're in a new hour (current_hour > last_add_on_hour or crossed midnight)
+    should_execute_add_on = (
+        (last_add_on_hour is None and now.minute == 0)
+        or (
+            last_add_on_hour is not None
+            and (current_hour > last_add_on_hour or (current_hour == 0 and last_add_on_hour == 23))
+        )
+    )
+    if should_execute_add_on:
         latest_hour_lows = {
             symbol: snapshot.previous_hour_low
             for symbol, snapshot in market.items()
@@ -102,11 +115,13 @@ def process_clock_tick(
         hour_close = evaluate_hour_close(now=now, state=state, latest_hour_lows=latest_hour_lows)
         add_on_entries = hour_close.add_on_entries
         updated_stop_prices = hour_close.updated_stop_prices
+        new_last_add_on_hour = current_hour
 
     return TickDecision(
         base_entries=minute_close.base_entries,
         add_on_entries=add_on_entries,
         updated_stop_prices=updated_stop_prices,
         new_previous_leader_symbol=minute_close.new_previous_leader_symbol,
+        new_last_add_on_hour=new_last_add_on_hour,
         blocked_reason=minute_close.blocked_reason,
     )

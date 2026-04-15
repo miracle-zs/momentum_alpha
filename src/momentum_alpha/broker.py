@@ -27,7 +27,8 @@ class BinanceBroker:
                 symbol, quantity, stop_price, position_side = replacement
             open_orders = self.client.fetch_open_algo_orders(symbol=symbol)
             for order in open_orders:
-                if order.get("orderType") == "STOP_MARKET":
+                order_type = order.get("type") or order.get("orderType")
+                if order_type == "STOP_MARKET":
                     self.client.cancel_algo_order(
                         algo_id=order.get("algoId"),
                         client_algo_id=order.get("clientAlgoId"),
@@ -39,6 +40,7 @@ class BinanceBroker:
                 "quantity": quantity,
                 "stopPrice": stop_price,
                 "workingType": "CONTRACT_PRICE",
+                "reduceOnly": "true",
             }
             if position_side is not None:
                 order_params["positionSide"] = position_side
