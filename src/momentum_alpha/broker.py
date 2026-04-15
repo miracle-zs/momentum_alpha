@@ -12,9 +12,15 @@ class BinanceBroker:
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         for order in plan.entry_orders:
-            responses.append(self.client.send(self.client.new_order(**order)))
+            try:
+                responses.append(self.client.send(self.client.new_order(**order)))
+            except Exception as exc:
+                print(f"entry order failed for {order.get('symbol')}: {exc}")
         for order in plan.stop_orders:
-            responses.append(self.client.send(self.client.new_algo_order(**order)))
+            try:
+                responses.append(self.client.send(self.client.new_algo_order(**order)))
+            except Exception as exc:
+                print(f"stop order failed for {order.get('symbol')}: {exc}")
         return responses
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
