@@ -569,7 +569,7 @@ def run_once_live(
         previous_leader_symbol=previous_leader_symbol,
         client=client,
         broker=broker,
-        submit_orders=submit_orders,
+        submit_orders=False,
         initial_state=initial_state,
         exchange_symbols=(
             market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
@@ -593,6 +593,10 @@ def run_once_live(
                     if symbol in initial_state.positions
                 ]
             )
+    broker_responses: list[dict] = []
+    if submit_orders:
+        broker_responses = broker.submit_execution_plan(result.execution_plan)
+        result = replace(result, broker_responses=broker_responses)
     if state_store is not None:
         _merge_save_strategy_state(
             state_store=state_store,
