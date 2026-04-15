@@ -611,24 +611,27 @@ def run_once_live(
             merged_replacements.setdefault(symbol, stop_price)
         stop_replacements = sorted(merged_replacements.items())
         if execute_stop_replacements and stop_replacements:
-            broker.replace_stop_orders(
-                replacements=[
-                    (
-                        symbol,
-                        str(initial_state.positions[symbol].total_quantity),
-                        str(stop_price),
-                    )
-                    if position_side is None
-                    else (
-                        symbol,
-                        str(initial_state.positions[symbol].total_quantity),
-                        str(stop_price),
-                        position_side,
-                    )
-                    for symbol, stop_price in stop_replacements
-                    if symbol in initial_state.positions
-                ]
-            )
+            try:
+                broker.replace_stop_orders(
+                    replacements=[
+                        (
+                            symbol,
+                            str(initial_state.positions[symbol].total_quantity),
+                            str(stop_price),
+                        )
+                        if position_side is None
+                        else (
+                            symbol,
+                            str(initial_state.positions[symbol].total_quantity),
+                            str(stop_price),
+                            position_side,
+                        )
+                        for symbol, stop_price in stop_replacements
+                        if symbol in initial_state.positions
+                    ]
+                )
+            except Exception as exc:
+                print(f"stop replacement failed: {exc}")
     broker_responses: list[dict] = []
     if submit_orders:
         broker_responses = broker.submit_execution_plan(result.execution_plan)
