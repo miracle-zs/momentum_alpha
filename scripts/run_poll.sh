@@ -5,12 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
-SYMBOLS="${SYMBOLS:-BTCUSDT ETHUSDT}"
+SYMBOLS="${SYMBOLS:-}"
 
-ARGS=(poll --symbols)
-for symbol in ${SYMBOLS}; do
-  ARGS+=("${symbol}")
-done
+ARGS=(poll)
+if [[ -n "${SYMBOLS// }" ]]; then
+  ARGS+=(--symbols)
+  for symbol in ${SYMBOLS}; do
+    ARGS+=("${symbol}")
+  done
+fi
 
 ARGS+=(--state-file "${STATE_FILE}" --restore-positions --execute-stop-replacements)
 

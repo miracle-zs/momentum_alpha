@@ -1772,6 +1772,67 @@ class MainTests(unittest.TestCase):
         self.assertTrue(recorded[0]["restore_positions"])
         self.assertTrue(recorded[0]["execute_stop_replacements"])
 
+    def test_run_forever_discovers_all_usdt_perpetual_symbols_when_symbols_missing(self) -> None:
+        from momentum_alpha.main import run_forever
+
+        recorded = []
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                            ],
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                            ],
+                        },
+                        {
+                            "symbol": "BTCUSD_PERP",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USD",
+                            "status": "TRADING",
+                            "filters": [],
+                        },
+                    ]
+                }
+
+        def fake_run_once_live(**kwargs):
+            recorded.append(kwargs)
+
+        times = iter([datetime(2026, 4, 15, 1, 1, 0, tzinfo=timezone.utc)])
+        exit_code = run_forever(
+            symbols=[],
+            previous_leader_symbol=None,
+            submit_orders=False,
+            state_store=None,
+            client_factory=lambda: FakeClient(),
+            broker_factory=lambda client: object(),
+            now_provider=lambda: next(times),
+            sleep_fn=lambda seconds: None,
+            logger=lambda message: None,
+            max_ticks=1,
+            run_once_live_fn=fake_run_once_live,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(recorded[0]["symbols"], ["BTCUSDT", "ETHUSDT"])
+
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever
         from momentum_alpha.state_store import FileStateStore
@@ -1996,6 +2057,78 @@ class MainTests(unittest.TestCase):
         )
         self.assertIn("BTCUSDT", result.runtime_result.next_state.positions)
         self.assertEqual(result.runtime_result.next_state.positions["BTCUSDT"].stop_price, Decimal("60900"))
+
+    def test_run_once_live_discovers_all_usdt_perpetual_symbols_when_symbols_missing(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        seen_symbols = []
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                        {
+                            "symbol": "BNBUSD_PERP",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USD",
+                            "status": "TRADING",
+                            "filters": [],
+                        },
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                seen_symbols.append(symbol)
+                prices = {
+                    "BTCUSDT": {"symbol": "BTCUSDT", "price": "61200"},
+                    "ETHUSDT": {"symbol": "ETHUSDT", "price": "3020"},
+                }
+                return prices[symbol]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    opens = {"BTCUSDT": "60000", "ETHUSDT": "3000"}
+                    return [[0, opens[symbol], "0", "0", "0"]]
+                lows = {"BTCUSDT": "61000", "ETHUSDT": "2990"}
+                return [[0, "0", "0", lows[symbol], "0"]]
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+        result = run_once_live(
+            symbols=[],
+            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            previous_leader_symbol=None,
+            client=FakeClient(),
+            broker=FakeBroker(),
+            submit_orders=False,
+        )
+        self.assertEqual(seen_symbols, ["BTCUSDT", "ETHUSDT"])
 
     def test_run_once_live_uses_restored_positions_to_avoid_duplicate_base_entry(self) -> None:
         from momentum_alpha.main import run_once_live

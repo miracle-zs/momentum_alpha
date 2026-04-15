@@ -41,6 +41,12 @@ Dry-run a single live evaluation without submitting orders:
 python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --state-file ./var/state.json
 ```
 
+Omit `--symbols` to auto-discover all Binance USDⓈ-M perpetual contracts:
+
+```bash
+python3 -m momentum_alpha.main run-once-live --state-file ./var/state.json
+```
+
 Submit orders for a single live evaluation:
 
 ```bash
@@ -59,11 +65,12 @@ Run the minute-based polling loop in dry-run mode:
 
 ```bash
 python3 -m momentum_alpha.main poll \
-  --symbols BTCUSDT ETHUSDT \
   --state-file ./var/state.json \
   --restore-positions \
   --execute-stop-replacements
 ```
+
+Add `--symbols BTCUSDT ETHUSDT` only when you intentionally want a symbol whitelist instead of the default all-market scan.
 
 Limit the loop for testing:
 
@@ -120,7 +127,7 @@ chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/run_pol
 ./scripts/init_runtime_dirs.sh
 ```
 
-Then edit `deploy/env.local` with your real API key, secret, symbols, state file path, and whether `SUBMIT_ORDERS=1`.
+Then edit `deploy/env.local` with your real API key, secret, state file path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist.
 
 Suggested systemd rollout:
 

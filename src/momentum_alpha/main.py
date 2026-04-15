@@ -58,6 +58,13 @@ def build_runtime_from_snapshots(*, snapshots: list[dict]) -> Runtime:
     return build_runtime(snapshots=snapshots)
 
 
+def _resolve_symbols(*, symbols: list[str] | None, client) -> list[str]:
+    requested_symbols = [symbol for symbol in (symbols or []) if symbol]
+    if requested_symbols:
+        return list(dict.fromkeys(requested_symbols))
+    return list(parse_exchange_info(client.fetch_exchange_info()).keys())
+
+
 def run_once(
     *,
     snapshots: list[dict],
@@ -190,7 +197,7 @@ def _build_live_snapshots(*, symbols: list[str], client, now: datetime) -> list[
 
 def run_once_live(
     *,
-    symbols: list[str],
+    symbols: list[str] | None,
     now: datetime,
     previous_leader_symbol: str | None,
     client,
@@ -205,7 +212,8 @@ def run_once_live(
         if stored_state is not None:
             previous_leader_symbol = stored_state.previous_leader_symbol
 
-    snapshots = _build_live_snapshots(symbols=symbols, client=client, now=now)
+    resolved_symbols = _resolve_symbols(symbols=symbols, client=client)
+    snapshots = _build_live_snapshots(symbols=resolved_symbols, client=client, now=now)
     initial_state = None
     if restore_positions:
         initial_state = restore_state(
@@ -372,13 +380,13 @@ def cli_main(
     parser = argparse.ArgumentParser(prog="momentum_alpha")
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_once_live_parser = subparsers.add_parser("run-once-live")
-    run_once_live_parser.add_argument("--symbols", nargs="+", required=True)
+    run_once_live_parser.add_argument("--symbols", nargs="+")
     run_once_live_parser.add_argument("--previous-leader")
     run_once_live_parser.add_argument("--state-file")
     run_once_live_parser.add_argument("--testnet", action="store_true")
     run_once_live_parser.add_argument("--submit-orders", action="store_true")
     poll_parser = subparsers.add_parser("poll")
-    poll_parser.add_argument("--symbols", nargs="+", required=True)
+    poll_parser.add_argument("--symbols", nargs="+")
     poll_parser.add_argument("--previous-leader")
     poll_parser.add_argument("--state-file")
     poll_parser.add_argument("--testnet", action="store_true")
@@ -435,7 +443,7 @@ def cli_main(
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         print(
             "starting poll "
-            f"mode={mode} symbols={args.symbols} "
+            f"mode={mode} symbols={args.symbols or 'AUTO'} "
             f"testnet={use_testnet} "
             f"restore_positions={args.restore_positions} "
             f"execute_stop_replacements={args.execute_stop_replacements} "
@@ -466,7 +474,7 @@ def cli_main(
 
 def run_forever(
     *,
-    symbols: list[str],
+    symbols: list[str] | None,
     previous_leader_symbol: str | None,
     submit_orders: bool,
     state_store,
@@ -482,6 +490,7 @@ def run_forever(
 ) -> int:
     client = client_factory()
     broker = broker_factory(client)
+    resolved_symbols = _resolve_symbols(symbols=symbols, client=client)
 
     def _log(message: str) -> None:
         if hasattr(logger, "info"):
@@ -489,10 +498,12 @@ def run_forever(
         else:
             logger(message)
 
+    _log(f"tracking symbols={resolved_symbols}")
+
     def _run_once(now):
         _log(f"tick {now.isoformat()}")
         run_once_live_fn(
-            symbols=symbols,
+            symbols=resolved_symbols,
             now=now,
             previous_leader_symbol=previous_leader_symbol,
             client=client,
