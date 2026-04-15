@@ -1069,6 +1069,8 @@ def cli_main(
         return 0
 
     if args.command == "dashboard":
+        runtime_settings = load_runtime_settings_from_env()
+        submit_orders_env = os.environ.get("SUBMIT_ORDERS", "").strip().lower() in {"1", "true", "yes", "on"}
         return run_dashboard_fn(
             host=args.host,
             port=args.port,
@@ -1082,6 +1084,9 @@ def cli_main(
                 audit_log_path=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
             ),
             now_provider=now_provider,
+            stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "10"),
+            testnet=runtime_settings["use_testnet"],
+            submit_orders=submit_orders_env,
         )
 
     return 1

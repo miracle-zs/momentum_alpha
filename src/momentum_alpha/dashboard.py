@@ -1271,6 +1271,11 @@ def run_dashboard_server(
     runtime_db_file: Path | None = None,
     now_provider=None,
     server_factory=ThreadingHTTPServer,
+    stop_budget_usdt: str | None = None,
+    entry_start_hour_utc: int = 1,
+    entry_end_hour_utc: int = 23,
+    testnet: bool = False,
+    submit_orders: bool = False,
 ) -> int:
     now_provider = now_provider or datetime.now
 
@@ -1283,6 +1288,11 @@ def run_dashboard_server(
                 user_stream_log_file=user_stream_log_file,
                 audit_log_file=audit_log_file,
                 runtime_db_file=runtime_db_file,
+                stop_budget_usdt=stop_budget_usdt,
+                entry_start_hour_utc=entry_start_hour_utc,
+                entry_end_hour_utc=entry_end_hour_utc,
+                testnet=testnet,
+                submit_orders=submit_orders,
             )
             if self.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
                 if self.path == "/api/dashboard/summary":
