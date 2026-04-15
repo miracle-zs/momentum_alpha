@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 import logging
+import subprocess
 from datetime import datetime, timezone
 from decimal import Decimal
 from io import StringIO
@@ -960,6 +961,17 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[0], ("client", True))
         self.assertEqual(calls[1], ("stream", True, "FakeClient"))
         self.assertIn("user-stream-started", out.getvalue())
+
+    def test_module_main_invokes_cli_entrypoint(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "momentum_alpha.main", "--help"],
+            cwd=ROOT,
+            env={**os.environ, "PYTHONPATH": str(SRC)},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("usage:", result.stdout)
 
     def test_run_user_stream_persists_updated_state(self) -> None:
         from momentum_alpha.main import run_user_stream

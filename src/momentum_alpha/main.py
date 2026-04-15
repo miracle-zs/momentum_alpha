@@ -525,3 +525,7 @@ def run_forever(
         error_handler=_handle_error,
     )
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli_main())
