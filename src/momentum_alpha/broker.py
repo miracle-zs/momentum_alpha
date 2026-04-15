@@ -32,17 +32,17 @@ class BinanceBroker:
                         algo_id=order.get("algoId"),
                         client_algo_id=order.get("clientAlgoId"),
                     )
+            order_params = {
+                "symbol": symbol,
+                "side": "SELL",
+                "type": "STOP_MARKET",
+                "quantity": quantity,
+                "stopPrice": stop_price,
+                "workingType": "CONTRACT_PRICE",
+            }
+            if position_side is not None:
+                order_params["positionSide"] = position_side
             responses.append(
-                self.client.send(
-                    self.client.new_algo_order(
-                        symbol=symbol,
-                        side="SELL",
-                        type="STOP_MARKET",
-                        quantity=quantity,
-                        stopPrice=stop_price,
-                        workingType="CONTRACT_PRICE",
-                        positionSide=position_side,
-                    )
-                )
+                self.client.send(self.client.new_algo_order(**order_params))
             )
         return responses

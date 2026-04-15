@@ -116,5 +116,8 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.new_algo_order_calls[1]["symbol"], "ETHUSDT")
         self.assertEqual(broker.client.new_algo_order_calls[0]["type"], "STOP_MARKET")
         self.assertEqual(broker.client.new_algo_order_calls[0]["stopPrice"], "61000.0")
+        # 单向持仓模式: positionSide=None 时不应该传递该参数
+        self.assertNotIn("positionSide", broker.client.new_algo_order_calls[0])
+        # 双向持仓模式: positionSide="LONG" 时应该传递该参数
         self.assertEqual(broker.client.new_algo_order_calls[1]["positionSide"], "LONG")
         self.assertEqual(len(broker.client.send_calls), 2)
