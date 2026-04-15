@@ -13,17 +13,32 @@ if str(SRC) not in sys.path:
 class BrokerTests(unittest.TestCase):
     def test_broker_submits_entry_and_stop_orders(self) -> None:
         from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker
         from momentum_alpha.exchange_info import ExchangeSymbol
         from momentum_alpha.execution import ExecutionPlan
 
         class FakeClient:
             def __init__(self) -> None:
-                self.calls = []
+                self.new_order_calls = []
+                self.send_calls = []
 
             def new_order(self, **params):
-                self.calls.append(params)
-                return {"status": "NEW", **params}
+                self.new_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                self.send_calls.append(request)
+                return {
+                    "status": "NEW",
+                    "symbol": "BTCUSDT",
+                    "type": "MARKET" if len(self.send_calls) == 1 else "STOP_MARKET",
+                }
 
         broker = BinanceBroker(client=FakeClient())
         symbol = ExchangeSymbol(
@@ -41,8 +56,11 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(len(responses), 2)
         self.assertEqual(responses[0]["type"], "MARKET")
         self.assertEqual(responses[1]["type"], "STOP_MARKET")
+        self.assertEqual(len(broker.client.new_order_calls), 2)
+        self.assertEqual(len(broker.client.send_calls), 2)
 
     def test_broker_replaces_stop_orders(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker
 
         class FakeClient:
@@ -50,6 +68,7 @@ class BrokerTests(unittest.TestCase):
                 self.open_order_calls = []
                 self.cancel_calls = []
                 self.new_order_calls = []
+                self.send_calls = []
 
             def fetch_open_orders(self, **params):
                 self.open_order_calls.append(params)
@@ -64,7 +83,16 @@ class BrokerTests(unittest.TestCase):
 
             def new_order(self, **params):
                 self.new_order_calls.append(params)
-                return {"status": "NEW", **params}
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                self.send_calls.append(request)
+                return {"status": "NEW", "symbol": "BTCUSDT" if len(self.send_calls) == 1 else "ETHUSDT"}
 
         broker = BinanceBroker(client=FakeClient())
         responses = broker.replace_stop_orders(
@@ -76,3 +104,4 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.cancel_calls[1]["order_id"], 11)
         self.assertEqual(broker.client.new_order_calls[1]["symbol"], "ETHUSDT")
         self.assertEqual(broker.client.new_order_calls[0]["type"], "STOP_MARKET")
+        self.assertEqual(len(broker.client.send_calls), 2)

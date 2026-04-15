@@ -12,9 +12,9 @@ class BinanceBroker:
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         for order in plan.entry_orders:
-            responses.append(self.client.new_order(**order))
+            responses.append(self.client.send(self.client.new_order(**order)))
         for order in plan.stop_orders:
-            responses.append(self.client.new_order(**order))
+            responses.append(self.client.send(self.client.new_order(**order)))
         return responses
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str]]) -> list[dict]:
@@ -25,13 +25,15 @@ class BinanceBroker:
                 if order.get("type") == "STOP_MARKET":
                     self.client.cancel_order(symbol=symbol, order_id=order["orderId"])
             responses.append(
-                self.client.new_order(
-                    symbol=symbol,
-                    side="SELL",
-                    type="STOP_MARKET",
-                    quantity=quantity,
-                    stopPrice=stop_price,
-                    workingType="CONTRACT_PRICE",
+                self.client.send(
+                    self.client.new_order(
+                        symbol=symbol,
+                        side="SELL",
+                        type="STOP_MARKET",
+                        quantity=quantity,
+                        stopPrice=stop_price,
+                        workingType="CONTRACT_PRICE",
+                    )
                 )
             )
         return responses
