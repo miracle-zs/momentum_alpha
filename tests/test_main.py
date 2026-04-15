@@ -963,6 +963,64 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[1], ("stream", True, "FakeClient"))
         self.assertIn("user-stream-started", out.getvalue())
 
+    def test_cli_main_supports_healthcheck_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            state_file = root / "state.json"
+            poll_log = root / "momentum-alpha.log"
+            user_stream_log = root / "momentum-alpha-user-stream.log"
+            audit_log = root / "audit.jsonl"
+            for path in (state_file, poll_log, user_stream_log, audit_log):
+                path.write_text("x", encoding="utf-8")
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            timestamp = now.timestamp()
+            for path in (state_file, poll_log, user_stream_log, audit_log):
+                os.utime(path, (timestamp, timestamp))
+
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=[
+                        "healthcheck",
+                        "--state-file",
+                        str(state_file),
+                        "--poll-log-file",
+                        str(poll_log),
+                        "--user-stream-log-file",
+                        str(user_stream_log),
+                        "--audit-log-file",
+                        str(audit_log),
+                    ],
+                    now_provider=lambda: now,
+                )
+            self.assertEqual(exit_code, 0)
+            self.assertIn("overall=OK", out.getvalue())
+
+    def test_cli_main_supports_audit_report_command(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.main import cli_main
+
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "audit.jsonl"
+            recorder = AuditRecorder(path=path)
+            recorder.record(
+                event_type="tick_result",
+                now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
+                payload={"base_entry_symbols": ["BTCUSDT"]},
+            )
+
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=["audit-report", "--audit-log-file", str(path), "--since-minutes", "60", "--limit", "5"],
+                    now_provider=lambda: datetime(2026, 4, 15, 14, 30, tzinfo=timezone.utc),
+                )
+            self.assertEqual(exit_code, 0)
+            self.assertIn("total_events=1", out.getvalue())
+            self.assertIn("tick_result=1", out.getvalue())
+
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "momentum_alpha.main", "--help"],
@@ -1018,6 +1076,53 @@ class MainTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn("ETHUSDT", loaded.positions)
             self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
+
+    def test_run_user_stream_writes_audit_events(self) -> None:
+        from momentum_alpha.audit import read_audit_events
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ORDER_TRADE_UPDATE",
+                            "T": 1776215100000,
+                            "o": {
+                                "s": "ETHUSDT",
+                                "S": "BUY",
+                                "X": "FILLED",
+                                "x": "TRADE",
+                                "ot": "MARKET",
+                                "ap": "108",
+                                "z": "2",
+                                "sp": "106",
+                                "i": 123,
+                                "t": 456,
+                            },
+                        }
+                    )
+                )
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "audit.jsonl"
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                audit_recorder_path=audit_path,
+            )
+            events = read_audit_events(path=audit_path)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(events[0]["event_type"], "user_stream_event")
+            self.assertEqual(events[0]["payload"]["symbol"], "ETHUSDT")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream

@@ -11,6 +11,7 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
+AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-${PROJECT_ROOT}/var/audit.jsonl}"
 SYMBOLS="${SYMBOLS:-}"
 
 ARGS=(poll)
@@ -21,7 +22,7 @@ if [[ -n "${SYMBOLS// }" ]]; then
   done
 fi
 
-ARGS+=(--state-file "${STATE_FILE}" --restore-positions --execute-stop-replacements)
+ARGS+=(--state-file "${STATE_FILE}" --audit-log-file "${AUDIT_LOG_FILE}" --restore-positions --execute-stop-replacements)
 
 if [[ "${BINANCE_USE_TESTNET:-0}" == "1" ]]; then
   ARGS+=(--testnet)

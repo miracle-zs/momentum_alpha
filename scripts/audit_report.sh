@@ -10,14 +10,11 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
   exit 1
 fi
 
-STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
 AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-${PROJECT_ROOT}/var/audit.jsonl}"
+SINCE_MINUTES="${SINCE_MINUTES:-1440}"
+LIMIT="${LIMIT:-20}"
 
-ARGS=(user-stream)
-ARGS+=(--state-file "${STATE_FILE}" --audit-log-file "${AUDIT_LOG_FILE}")
-
-if [[ "${BINANCE_USE_TESTNET:-0}" == "1" ]]; then
-  ARGS+=(--testnet)
-fi
-
-exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"
+exec "${VENV_PYTHON}" -m momentum_alpha.main audit-report \
+  --audit-log-file "${AUDIT_LOG_FILE}" \
+  --since-minutes "${SINCE_MINUTES}" \
+  --limit "${LIMIT}"

@@ -1,4 +1,5 @@
 __all__ = [
+    "audit",
     "binance_filters",
     "binance_client",
     "broker",
@@ -6,6 +7,7 @@ __all__ = [
     "diagnostics",
     "execution",
     "exchange_info",
+    "health",
     "main",
     "models",
     "orders",

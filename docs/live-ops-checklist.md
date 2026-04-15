@@ -14,6 +14,7 @@ Use this checklist during the first production session and any later restart or 
   - `/root/momentum_alpha/var`
   - `/root/momentum_alpha/var/log`
 - Confirm log rotation is installed at `/etc/logrotate.d/momentum-alpha`
+- Confirm `AUDIT_LOG_FILE` points to a persistent writable path
 
 ## Start Order
 
@@ -30,6 +31,7 @@ Use this checklist during the first production session and any later restart or 
 - Watch logs:
   - `tail -f /root/momentum_alpha/var/log/momentum-alpha-user-stream.log`
   - `tail -f /root/momentum_alpha/var/log/momentum-alpha.log`
+- Run `bash scripts/check_health.sh` after both services are up
 - Reject the session if you see any of:
   - `HTTP Error 403`
   - `HTTP Error 429`
@@ -59,6 +61,7 @@ Use this checklist during the first production session and any later restart or 
 - If the poll worker fails, clear only the worker log and restart only that service before changing code:
   - `truncate -s 0 /root/momentum_alpha/var/log/momentum-alpha.log`
   - `systemctl restart momentum-alpha.service`
+- Use `bash scripts/audit_report.sh` to review the latest structured decision and fill history
 
 ## Daily Checks
 
@@ -66,3 +69,4 @@ Use this checklist during the first production session and any later restart or 
 - Confirm log files are rotating instead of growing without bound
 - Confirm there is no repeated error pattern in the latest 100 log lines
 - Confirm `state.json` is still writable and current
+- Confirm `audit.jsonl` is still growing with new runtime and user-stream events

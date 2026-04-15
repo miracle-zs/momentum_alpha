@@ -103,6 +103,8 @@ cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh
 chmod +x scripts/install_systemd.sh
 chmod +x scripts/install_logrotate.sh
+chmod +x scripts/check_health.sh
+chmod +x scripts/audit_report.sh
 chmod +x scripts/run_poll.sh
 chmod +x scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
@@ -113,6 +115,8 @@ Relevant artifacts:
 - `scripts/init_runtime_dirs.sh`
 - `scripts/install_systemd.sh`
 - `scripts/install_logrotate.sh`
+- `scripts/check_health.sh`
+- `scripts/audit_report.sh`
 - `scripts/run_poll.sh`
 - `scripts/run_user_stream.sh`
 - `deploy/systemd/momentum-alpha.service`
@@ -130,10 +134,11 @@ python3 -m venv .venv
 ./.venv/bin/python -m pip install -e .[live]
 cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/install_logrotate.sh scripts/run_poll.sh scripts/run_user_stream.sh
+chmod +x scripts/check_health.sh scripts/audit_report.sh
 ./scripts/init_runtime_dirs.sh
 ```
 
-Then edit `deploy/env.local` with your real API key, secret, state file path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
+Then edit `deploy/env.local` with your real API key, secret, state file path, audit log path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
 
 Suggested systemd rollout:
 
@@ -158,6 +163,7 @@ Practical live startup order:
 5. Start `momentum-alpha.service` second so minute polling runs against a warmed state file.
 6. Watch `var/log/momentum-alpha-user-stream.log` and `var/log/momentum-alpha.log` for reconnects, keepalive activity, and order flow.
 7. Install log rotation so the two service logs do not grow without bound.
+8. Use `./scripts/check_health.sh` for a scriptable health verdict and `./scripts/audit_report.sh` for structured replay summaries.
 
 Pre-go-live review:
 
@@ -169,3 +175,4 @@ Pre-go-live review:
 - `run-once-live` and `poll` default to dry-run mode.
 - Real order submission only happens when `--submit-orders` is explicitly provided.
 - State persistence now stores previous leader, local position view, processed user-stream event ids, and tracked order statuses.
+- Structured audit events now default to `AUDIT_LOG_FILE` and can be replayed with `audit-report`.

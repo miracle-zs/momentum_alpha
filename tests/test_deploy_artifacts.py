@@ -10,11 +10,14 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "run_poll.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"', content)
+        self.assertIn('--audit-log-file "${AUDIT_LOG_FILE}"', content)
 
     def test_run_user_stream_script_prefers_project_venv_python(self) -> None:
         content = (ROOT / "scripts" / "run_user_stream.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"', content)
+        self.assertIn('--audit-log-file "${AUDIT_LOG_FILE}"', content)
+        self.assertIn('--state-file "${STATE_FILE}"', content)
 
     def test_install_logrotate_script_installs_project_policy(self) -> None:
         content = (ROOT / "scripts" / "install_logrotate.sh").read_text()
@@ -27,3 +30,14 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('/var/log/momentum-alpha-user-stream.log', content)
         self.assertIn('daily', content)
         self.assertIn('rotate 14', content)
+
+    def test_check_health_script_invokes_healthcheck_command(self) -> None:
+        content = (ROOT / "scripts" / "check_health.sh").read_text()
+        self.assertIn("healthcheck", content)
+        self.assertIn("momentum-alpha.log", content)
+        self.assertIn("momentum-alpha-user-stream.log", content)
+
+    def test_audit_report_script_invokes_audit_report_command(self) -> None:
+        content = (ROOT / "scripts" / "audit_report.sh").read_text()
+        self.assertIn("audit-report", content)
+        self.assertIn('AUDIT_LOG_FILE', content)

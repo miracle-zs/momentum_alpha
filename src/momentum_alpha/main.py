@@ -9,9 +9,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError
 
+from momentum_alpha.audit import AuditRecorder, summarize_audit_events
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.binance_client import BINANCE_TESTNET_FAPI_BASE_URL, BinanceRestClient
 from momentum_alpha.exchange_info import parse_exchange_info
+from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.models import StrategyState
 from momentum_alpha.reconciliation import build_stop_reconciliation_plan, restore_state
 from momentum_alpha.scheduler import run_loop
@@ -35,6 +37,24 @@ class RunOnceResult:
     @property
     def execution_plan(self):
         return self.runtime_result.execution_plan
+
+
+def resolve_audit_log_path(*, explicit_path: str | None, state_store) -> Path | None:
+    if explicit_path:
+        return Path(os.path.abspath(explicit_path))
+    env_path = os.environ.get("AUDIT_LOG_FILE")
+    if env_path:
+        return Path(os.path.abspath(env_path))
+    if state_store is not None:
+        return state_store.path.parent / "audit.jsonl"
+    return None
+
+
+def _build_audit_recorder(*, explicit_path: str | None, state_store) -> AuditRecorder | None:
+    path = resolve_audit_log_path(explicit_path=explicit_path, state_store=state_store)
+    if path is None:
+        return None
+    return AuditRecorder(path=path)
 
 
 def load_credentials_from_env() -> tuple[str, str]:
@@ -333,6 +353,7 @@ def run_once_live(
     execute_stop_replacements: bool = False,
     state_store=None,
     market_data_cache: LiveMarketDataCache | None = None,
+    audit_recorder: AuditRecorder | None = None,
 ) -> RunOnceResult:
     if previous_leader_symbol is None and state_store is not None:
         stored_state = state_store.load()
@@ -399,6 +420,33 @@ def run_once_live(
                 previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
             )
         )
+    if audit_recorder is not None:
+        audit_recorder.record(
+            event_type="tick_result",
+            now=now,
+            payload={
+                "symbol_count": len(snapshots),
+                "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
+                "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
+                "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
+                "previous_leader_symbol": previous_leader_symbol,
+                "next_previous_leader_symbol": result.runtime_result.next_state.previous_leader_symbol,
+                "broker_response_count": len(result.broker_responses),
+                "stop_replacement_count": len(stop_replacements),
+            },
+        )
+        if result.broker_responses:
+            audit_recorder.record(
+                event_type="broker_submit",
+                now=now,
+                payload={"responses": result.broker_responses},
+            )
+        if stop_replacements:
+            audit_recorder.record(
+                event_type="stop_replacements",
+                now=now,
+                payload={"replacements": [(symbol, str(stop_price)) for symbol, stop_price in stop_replacements]},
+            )
     return RunOnceResult(
         runtime_result=result.runtime_result,
         broker_responses=result.broker_responses,
@@ -415,9 +463,11 @@ def run_user_stream(
     now_provider=None,
     stream_client_factory=None,
     reconnect_sleep_fn=None,
+    audit_recorder_path: Path | None = None,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
+    audit_recorder = AuditRecorder(path=audit_recorder_path) if audit_recorder_path is not None else None
     stored_state = state_store.load() if state_store is not None else None
     current_now = now_provider()
     state = StrategyState(
@@ -432,6 +482,20 @@ def run_user_stream(
     def _on_event(event) -> None:
         nonlocal state, processed_event_ids, order_statuses
         logger(f"event={event.event_type} symbol={event.symbol}")
+        if audit_recorder is not None:
+            audit_recorder.record(
+                event_type="user_stream_event",
+                now=event.event_time or now_provider(),
+                payload={
+                    "event_type": event.event_type,
+                    "symbol": event.symbol,
+                    "order_status": event.order_status,
+                    "execution_type": event.execution_type,
+                    "side": event.side,
+                    "order_id": event.order_id,
+                    "trade_id": event.trade_id,
+                },
+            )
         event_id = user_stream_event_id(event)
         if event_id is not None and event_id in processed_event_ids:
             return
@@ -527,6 +591,7 @@ def cli_main(
     run_once_live_parser.add_argument("--state-file")
     run_once_live_parser.add_argument("--testnet", action="store_true")
     run_once_live_parser.add_argument("--submit-orders", action="store_true")
+    run_once_live_parser.add_argument("--audit-log-file")
     poll_parser = subparsers.add_parser("poll")
     poll_parser.add_argument("--symbols", nargs="+")
     poll_parser.add_argument("--previous-leader")
@@ -536,8 +601,24 @@ def cli_main(
     poll_parser.add_argument("--restore-positions", action="store_true")
     poll_parser.add_argument("--execute-stop-replacements", action="store_true")
     poll_parser.add_argument("--max-ticks", type=int)
+    poll_parser.add_argument("--audit-log-file")
     user_stream_parser = subparsers.add_parser("user-stream")
     user_stream_parser.add_argument("--testnet", action="store_true")
+    user_stream_parser.add_argument("--state-file")
+    user_stream_parser.add_argument("--audit-log-file")
+    healthcheck_parser = subparsers.add_parser("healthcheck")
+    healthcheck_parser.add_argument("--state-file", required=True)
+    healthcheck_parser.add_argument("--poll-log-file", required=True)
+    healthcheck_parser.add_argument("--user-stream-log-file", required=True)
+    healthcheck_parser.add_argument("--audit-log-file", required=True)
+    healthcheck_parser.add_argument("--max-state-age-seconds", type=int, default=3600)
+    healthcheck_parser.add_argument("--max-poll-log-age-seconds", type=int, default=180)
+    healthcheck_parser.add_argument("--max-user-stream-log-age-seconds", type=int, default=1800)
+    healthcheck_parser.add_argument("--max-audit-log-age-seconds", type=int, default=1800)
+    audit_report_parser = subparsers.add_parser("audit-report")
+    audit_report_parser.add_argument("--audit-log-file", required=True)
+    audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
+    audit_report_parser.add_argument("--limit", type=int, default=20)
 
     args = parser.parse_args(argv)
     def _default_client_factory(*, testnet: bool = False):
@@ -561,6 +642,7 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         broker = broker_factory(client)
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
+        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store)
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         result = run_once_live(
             symbols=args.symbols,
@@ -570,6 +652,7 @@ def cli_main(
             broker=broker,
             submit_orders=args.submit_orders,
             state_store=state_store,
+            audit_recorder=audit_recorder,
         )
         entry_symbols = [order["symbol"] for order in result.execution_plan.entry_orders]
         print(f"mode={mode}")
@@ -582,6 +665,7 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
+        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store)
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         print(
             "starting poll "
@@ -602,14 +686,57 @@ def cli_main(
             restore_positions=args.restore_positions,
             execute_stop_replacements=args.execute_stop_replacements,
             max_ticks=args.max_ticks,
+            audit_recorder=audit_recorder,
         )
 
     if args.command == "user-stream":
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
+        state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
+        audit_path = resolve_audit_log_path(explicit_path=args.audit_log_file, state_store=state_store)
         print(f"starting user-stream testnet={use_testnet}")
-        return run_user_stream_fn(client=client, testnet=use_testnet, logger=print)
+        try:
+            return run_user_stream_fn(
+                client=client,
+                testnet=use_testnet,
+                logger=print,
+                state_store=state_store,
+                audit_recorder_path=audit_path,
+            )
+        except TypeError:
+            return run_user_stream_fn(client=client, testnet=use_testnet, logger=print)
+
+    if args.command == "healthcheck":
+        report = build_runtime_health_report(
+            now=now_provider(),
+            state_file=Path(os.path.abspath(args.state_file)),
+            poll_log_file=Path(os.path.abspath(args.poll_log_file)),
+            user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
+            audit_log_file=Path(os.path.abspath(args.audit_log_file)),
+            max_state_age_seconds=args.max_state_age_seconds,
+            max_poll_log_age_seconds=args.max_poll_log_age_seconds,
+            max_user_stream_log_age_seconds=args.max_user_stream_log_age_seconds,
+            max_audit_log_age_seconds=args.max_audit_log_age_seconds,
+        )
+        print(f"overall={report.overall_status}")
+        for item in report.items:
+            print(f"{item.name} status={item.status} {item.message}")
+        return 0 if report.overall_status == "OK" else 1
+
+    if args.command == "audit-report":
+        summary = summarize_audit_events(
+            path=Path(os.path.abspath(args.audit_log_file)),
+            now=now_provider(),
+            since_minutes=args.since_minutes,
+            limit=args.limit,
+        )
+        print(f"total_events={summary['total_events']}")
+        for event_type, count in summary["counts"].items():
+            print(f"{event_type}={count}")
+        for event in summary["recent_events"]:
+            print(f"recent timestamp={event['timestamp']} event_type={event['event_type']} payload={event['payload']}")
+        return 0
 
     return 1
 
@@ -629,6 +756,7 @@ def run_forever(
     run_once_live_fn=run_once_live,
     restore_positions: bool = False,
     execute_stop_replacements: bool = False,
+    audit_recorder: AuditRecorder | None = None,
 ) -> int:
     client = client_factory()
     broker = broker_factory(client)
@@ -663,6 +791,7 @@ def run_forever(
                     restore_positions=restore_positions,
                     execute_stop_replacements=execute_stop_replacements,
                     market_data_cache=market_data_cache,
+                    audit_recorder=audit_recorder,
                 )
             except TypeError:
                 run_once_live_fn(
@@ -680,9 +809,21 @@ def run_forever(
             if exc.code == 429:
                 rate_limited_until = now + timedelta(minutes=2)
             raise
+        if audit_recorder is not None:
+            audit_recorder.record(
+                event_type="poll_tick",
+                now=now,
+                payload={"symbol_count": len(resolved_symbols), "rate_limited_until": rate_limited_until},
+            )
 
     def _handle_error(exc, now):
         _log(f"error at {now.isoformat()}: {exc}")
+        if audit_recorder is not None:
+            audit_recorder.record(
+                event_type="poll_error",
+                now=now,
+                payload={"message": str(exc)},
+            )
 
     run_loop(
         run_once=_run_once,
