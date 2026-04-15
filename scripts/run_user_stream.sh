@@ -20,4 +20,4 @@ if [[ "${BINANCE_USE_TESTNET:-0}" == "1" ]]; then
   ARGS+=(--testnet)
 fi
 
-exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"
+exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"

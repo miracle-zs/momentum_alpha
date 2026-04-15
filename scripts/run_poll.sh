@@ -32,4 +32,4 @@ if [[ "${SUBMIT_ORDERS:-0}" == "1" ]]; then
   ARGS+=(--submit-orders)
 fi
 
-exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"
+exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"

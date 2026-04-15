@@ -562,6 +562,17 @@ def run_user_stream(
     reconnect_attempt = 0
     while True:
         _prewarm_state()
+        if audit_recorder is not None:
+            audit_recorder.record(
+                event_type="user_stream_worker_start",
+                now=now_provider(),
+                payload={
+                    "testnet": testnet,
+                    "position_count": len(state.positions),
+                    "tracked_order_status_count": len(order_statuses),
+                    "reconnect_attempt": reconnect_attempt,
+                },
+            )
         stream_client = stream_client_factory(rest_client=client, testnet=testnet)
         try:
             listen_key = stream_client.run_forever(on_event=_on_event)
@@ -771,6 +782,17 @@ def run_forever(
             logger(message)
 
     _log(f"tracking symbols={resolved_symbols}")
+    if audit_recorder is not None:
+        audit_recorder.record(
+            event_type="poll_worker_start",
+            now=now_provider(),
+            payload={
+                "symbol_count": len(resolved_symbols),
+                "submit_orders": submit_orders,
+                "restore_positions": restore_positions,
+                "execute_stop_replacements": execute_stop_replacements,
+            },
+        )
 
     def _run_once(now):
         nonlocal rate_limited_until

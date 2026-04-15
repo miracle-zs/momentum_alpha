@@ -1121,8 +1121,10 @@ class MainTests(unittest.TestCase):
             )
             events = read_audit_events(path=audit_path)
             self.assertEqual(exit_code, 0)
-            self.assertEqual(events[0]["event_type"], "user_stream_event")
-            self.assertEqual(events[0]["payload"]["symbol"], "ETHUSDT")
+            self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
+            self.assertEqual(events[0]["payload"]["testnet"], True)
+            self.assertEqual(events[1]["event_type"], "user_stream_event")
+            self.assertEqual(events[1]["payload"]["symbol"], "ETHUSDT")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream
@@ -2009,6 +2011,49 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(calls), 2)
         self.assertTrue(any("rate-limit-backoff" in message for message in logs))
+
+    def test_run_forever_writes_startup_audit_event_before_first_tick(self) -> None:
+        from momentum_alpha.audit import read_audit_events, AuditRecorder
+        from momentum_alpha.main import run_forever
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                            ],
+                        }
+                    ]
+                }
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "audit.jsonl"
+            exit_code = run_forever(
+                symbols=["BTCUSDT"],
+                previous_leader_symbol=None,
+                submit_orders=True,
+                state_store=None,
+                client_factory=lambda: FakeClient(),
+                broker_factory=lambda client: object(),
+                now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                sleep_fn=lambda seconds: None,
+                logger=lambda message: None,
+                max_ticks=0,
+                audit_recorder=AuditRecorder(path=audit_path),
+            )
+            events = read_audit_events(path=audit_path)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(events[0]["event_type"], "poll_worker_start")
+            self.assertEqual(events[0]["payload"]["symbol_count"], 1)
+            self.assertEqual(events[0]["payload"]["submit_orders"], True)
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever
