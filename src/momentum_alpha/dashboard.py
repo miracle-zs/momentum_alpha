@@ -8,7 +8,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .health import build_runtime_health_report
-from .runtime_store import fetch_recent_audit_events
+from .runtime_store import (
+    fetch_event_pulse_points,
+    fetch_leader_history,
+    fetch_recent_audit_events,
+    fetch_recent_broker_orders,
+    fetch_recent_position_snapshots,
+    fetch_recent_signal_decisions,
+)
 
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
@@ -123,8 +130,14 @@ def load_dashboard_snapshot(
     state_payload, warnings = _load_state_file(path=state_file)
     positions = state_payload.get("positions") or {}
     order_statuses = state_payload.get("order_statuses") or {}
+    recent_signal_decisions: list[dict] = []
+    recent_broker_orders: list[dict] = []
+    recent_position_snapshots: list[dict] = []
     if runtime_db_file is not None and runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
+        recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
+        recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
+        recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
     else:
         events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
         warnings.extend(audit_warnings)
@@ -132,8 +145,19 @@ def load_dashboard_snapshot(
     recent_events = events_for_metrics[:recent_limit]
     event_counts = dict(sorted(Counter(event.get("event_type") for event in events_for_metrics if event.get("event_type")).items()))
     source_counts = _build_source_counts(events_for_metrics)
-    leader_history = _build_leader_history(events_for_metrics)
-    pulse_points = _build_pulse_points(events_for_metrics, now=now)
+    if runtime_db_file is not None and runtime_db_file.exists():
+        leader_history = fetch_leader_history(path=runtime_db_file, limit=8)
+        if not leader_history:
+            leader_history = _build_leader_history(events_for_metrics)
+        pulse_points = fetch_event_pulse_points(path=runtime_db_file, now=now, since_minutes=10, bucket_minutes=1, limit=10)
+        if not pulse_points:
+            pulse_points = _build_pulse_points(events_for_metrics, now=now)
+    else:
+        leader_history = _build_leader_history(events_for_metrics)
+        pulse_points = _build_pulse_points(events_for_metrics, now=now)
+    latest_position_snapshot = recent_position_snapshots[0] if recent_position_snapshots else None
+    latest_signal_decision = recent_signal_decisions[0] if recent_signal_decisions else None
+    latest_broker_order = recent_broker_orders[0] if recent_broker_orders else None
 
     return {
         "health": {
@@ -151,11 +175,17 @@ def load_dashboard_snapshot(
             "latest_tick_result_timestamp": _select_latest_timestamp(recent_events, "tick_result"),
             "latest_poll_worker_start_timestamp": _select_latest_timestamp(recent_events, "poll_worker_start"),
             "latest_user_stream_start_timestamp": _select_latest_timestamp(recent_events, "user_stream_worker_start"),
+            "latest_signal_decision": latest_signal_decision,
+            "latest_broker_order": latest_broker_order,
+            "latest_position_snapshot": latest_position_snapshot,
         },
         "event_counts": event_counts,
         "source_counts": source_counts,
         "leader_history": leader_history,
         "pulse_points": pulse_points,
+        "recent_signal_decisions": recent_signal_decisions,
+        "recent_broker_orders": recent_broker_orders,
+        "recent_position_snapshots": recent_position_snapshots,
         "recent_events": recent_events,
         "warnings": warnings,
     }
@@ -201,6 +231,19 @@ def render_dashboard_html(snapshot: dict) -> str:
         "</div>"
         for point in pulse_points
     ) or "<div class='pulse-bar-wrap'><div class='pulse-bar' style='height:10%;'></div><span>n/a</span></div>"
+    latest_signal = snapshot["runtime"].get("latest_signal_decision") or {}
+    latest_broker_order = snapshot["runtime"].get("latest_broker_order") or {}
+    latest_position_snapshot = snapshot["runtime"].get("latest_position_snapshot") or {}
+    latest_signal_payload = latest_signal.get("payload") or {}
+    blocked_reason = latest_signal_payload.get("blocked_reason")
+    recent_signal_rows = "".join(
+        f"<div class='leader-row'><span>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(str(item.get('timestamp')))}</time></div>"
+        for item in snapshot.get("recent_signal_decisions", [])
+    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
+    recent_broker_rows = "".join(
+        f"<div class='leader-row'><span>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(str(item.get('order_status')))}</time></div>"
+        for item in snapshot.get("recent_broker_orders", [])
+    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
     runtime = snapshot["runtime"]
     return f"""<!doctype html>
 <html lang="en">
@@ -295,6 +338,30 @@ def render_dashboard_html(snapshot: dict) -> str:
         <section>
           <h2>Leader Rotation</h2>
           <div class="leader-rotation">{leader_rows}</div>
+        </section>
+        <section>
+          <h2>Latest Signal</h2>
+          <pre>{escape(json.dumps(latest_signal, ensure_ascii=False, indent=2))}</pre>
+        </section>
+        <section>
+          <h2>Blocked Reason</h2>
+          <div class="leader-rotation"><div class='leader-row'><span>{escape(str(blocked_reason or 'none'))}</span><time>{escape(str(latest_signal.get('timestamp') or 'n/a'))}</time></div></div>
+        </section>
+        <section>
+          <h2>Broker Activity</h2>
+          <pre>{escape(json.dumps(latest_broker_order, ensure_ascii=False, indent=2))}</pre>
+        </section>
+        <section>
+          <h2>Position Snapshot</h2>
+          <pre>{escape(json.dumps(latest_position_snapshot, ensure_ascii=False, indent=2))}</pre>
+        </section>
+        <section>
+          <h2>Recent Signal Decisions</h2>
+          <div class="leader-rotation">{recent_signal_rows}</div>
+        </section>
+        <section>
+          <h2>Recent Broker Orders</h2>
+          <div class="leader-rotation">{recent_broker_rows}</div>
         </section>
         <section>
           <h2>Latest Result</h2>

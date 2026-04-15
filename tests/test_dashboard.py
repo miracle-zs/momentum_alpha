@@ -175,6 +175,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Source Mix", html)
         self.assertIn("Pulse Window", html)
         self.assertIn("setInterval(refreshDashboard, 5000)", html)
+        self.assertIn("Latest Signal", html)
+        self.assertIn("Broker Activity", html)
+        self.assertIn("Position Snapshot", html)
+        self.assertIn("Blocked Reason", html)
 
     def test_build_dashboard_response_json_serializes_snapshot(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_response_json
@@ -240,6 +244,80 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["recent_events"][0]["event_type"], "user_stream_worker_start")
             self.assertEqual(snapshot["source_counts"]["poll"], 1)
             self.assertEqual(snapshot["source_counts"]["user-stream"], 1)
+
+    def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import (
+            insert_broker_order,
+            insert_position_snapshot,
+            insert_signal_decision,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+            state_file = root / "state.json"
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            runtime_db_file = root / "runtime.db"
+
+            state_file.write_text(
+                json.dumps({"previous_leader_symbol": "BLESSUSDT", "positions": {}, "order_statuses": {}}),
+                encoding="utf-8",
+            )
+            for path in (state_file, poll_log_file, user_stream_log_file):
+                if path is not state_file:
+                    path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+
+            insert_signal_decision(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
+                symbol="BLESSUSDT",
+                decision_type="no_action",
+                previous_leader_symbol="ONUSDT",
+                next_leader_symbol="BLESSUSDT",
+                payload={"blocked_reason": "invalid_stop_price"},
+                source="poll",
+            )
+            insert_broker_order(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 1, tzinfo=timezone.utc),
+                symbol="BLESSUSDT",
+                action_type="submit_entry",
+                order_type="MARKET",
+                status="NEW",
+                payload={"quantity": "5"},
+                source="poll",
+            )
+            insert_position_snapshot(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 2, tzinfo=timezone.utc),
+                previous_leader_symbol="BLESSUSDT",
+                position_count=1,
+                order_status_count=2,
+                symbol_count=538,
+                payload={"positions": ["BLESSUSDT"]},
+                source="poll",
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=now,
+                state_file=state_file,
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                audit_log_file=root / "missing-audit.jsonl",
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+            )
+
+            self.assertEqual(snapshot["runtime"]["latest_signal_decision"]["decision_type"], "no_action")
+            self.assertEqual(snapshot["runtime"]["latest_signal_decision"]["symbol"], "BLESSUSDT")
+            self.assertEqual(snapshot["runtime"]["latest_signal_decision"]["payload"]["blocked_reason"], "invalid_stop_price")
+            self.assertEqual(snapshot["runtime"]["latest_broker_order"]["action_type"], "submit_entry")
+            self.assertEqual(snapshot["runtime"]["latest_position_snapshot"]["position_count"], 1)
+            self.assertEqual(snapshot["recent_signal_decisions"][0]["symbol"], "BLESSUSDT")
+            self.assertEqual(snapshot["recent_broker_orders"][0]["order_type"], "MARKET")
 
     def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

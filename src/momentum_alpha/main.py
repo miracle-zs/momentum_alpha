@@ -20,6 +20,11 @@ from momentum_alpha.reconciliation import build_stop_reconciliation_plan, restor
 from momentum_alpha.scheduler import run_loop
 from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
+from momentum_alpha.runtime_store import (
+    insert_broker_order,
+    insert_position_snapshot,
+    insert_signal_decision,
+)
 from momentum_alpha.state_store import FileStateStore, StoredStrategyState
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
@@ -80,6 +85,105 @@ def _build_audit_recorder(
     if path is None and runtime_db_path is None:
         return None
     return AuditRecorder(path=path, runtime_db_path=runtime_db_path, source=source)
+
+
+def _record_position_snapshot(
+    *,
+    audit_recorder: AuditRecorder | None,
+    now: datetime,
+    leader_symbol: str | None,
+    position_count: int,
+    order_status_count: int,
+    symbol_count: int | None = None,
+    submit_orders: bool | None = None,
+    restore_positions: bool | None = None,
+    execute_stop_replacements: bool | None = None,
+    payload: dict | None = None,
+) -> None:
+    if audit_recorder is None or audit_recorder.runtime_db_path is None:
+        return
+    try:
+        insert_position_snapshot(
+            path=audit_recorder.runtime_db_path,
+            timestamp=now,
+            source=audit_recorder.source,
+            leader_symbol=leader_symbol,
+            position_count=position_count,
+            order_status_count=order_status_count,
+            symbol_count=symbol_count,
+            submit_orders=submit_orders,
+            restore_positions=restore_positions,
+            execute_stop_replacements=execute_stop_replacements,
+            payload=payload or {},
+        )
+    except Exception:
+        pass
+
+
+def _record_signal_decision(
+    *,
+    audit_recorder: AuditRecorder | None,
+    now: datetime,
+    decision_type: str,
+    symbol: str | None,
+    previous_leader_symbol: str | None,
+    next_leader_symbol: str | None,
+    position_count: int,
+    order_status_count: int,
+    broker_response_count: int,
+    stop_replacement_count: int,
+    payload: dict | None = None,
+) -> None:
+    if audit_recorder is None or audit_recorder.runtime_db_path is None:
+        return
+    try:
+        insert_signal_decision(
+            path=audit_recorder.runtime_db_path,
+            timestamp=now,
+            source=audit_recorder.source,
+            decision_type=decision_type,
+            symbol=symbol,
+            previous_leader_symbol=previous_leader_symbol,
+            next_leader_symbol=next_leader_symbol,
+            position_count=position_count,
+            order_status_count=order_status_count,
+            broker_response_count=broker_response_count,
+            stop_replacement_count=stop_replacement_count,
+            payload=payload or {},
+        )
+    except Exception:
+        pass
+
+
+def _record_broker_orders(
+    *,
+    audit_recorder: AuditRecorder | None,
+    now: datetime,
+    responses: list[dict],
+    action_type: str,
+) -> None:
+    if audit_recorder is None or audit_recorder.runtime_db_path is None:
+        return
+    for response in responses:
+        try:
+            quantity = response.get("quantity")
+            price = response.get("price") or response.get("stopPrice")
+            insert_broker_order(
+                path=audit_recorder.runtime_db_path,
+                timestamp=now,
+                source=audit_recorder.source,
+                action_type=action_type,
+                symbol=response.get("symbol"),
+                order_id=str(response.get("orderId")) if response.get("orderId") is not None else None,
+                client_order_id=response.get("clientOrderId"),
+                order_status=response.get("status"),
+                side=response.get("side"),
+                quantity=float(quantity) if quantity not in (None, "") else None,
+                price=float(price) if price not in (None, "") else None,
+                payload=response,
+            )
+        except Exception:
+            pass
 
 
 def load_credentials_from_env() -> tuple[str, str]:
@@ -460,11 +564,74 @@ def run_once_live(
                 "stop_replacement_count": len(stop_replacements),
             },
         )
+        position_count = len(result.runtime_result.next_state.positions)
+        order_status_count = 0
+        signal_records = []
+        signal_records.extend(
+            ("base_entry", intent.symbol, {"leg_type": intent.leg_type, "stop_price": str(intent.stop_price)})
+            for intent in result.runtime_result.decision.base_entries
+        )
+        signal_records.extend(
+            ("add_on", intent.symbol, {"leg_type": intent.leg_type, "stop_price": str(intent.stop_price)})
+            for intent in result.runtime_result.decision.add_on_entries
+        )
+        signal_records.extend(
+            ("stop_update", symbol, {"stop_price": str(stop_price)})
+            for symbol, stop_price in sorted(result.runtime_result.decision.updated_stop_prices.items())
+        )
+        if not signal_records:
+            signal_records.append(
+                (
+                    "no_action",
+                    result.runtime_result.next_state.previous_leader_symbol,
+                    (
+                        {"blocked_reason": result.runtime_result.decision.blocked_reason}
+                        if result.runtime_result.decision.blocked_reason is not None
+                        else {}
+                    ),
+                )
+            )
+        for decision_type, symbol, payload in signal_records:
+            _record_signal_decision(
+                audit_recorder=audit_recorder,
+                now=now,
+                decision_type=decision_type,
+                symbol=symbol,
+                previous_leader_symbol=previous_leader_symbol,
+                next_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+                position_count=position_count,
+                order_status_count=order_status_count,
+                broker_response_count=len(result.broker_responses),
+                stop_replacement_count=len(stop_replacements),
+                payload=payload,
+            )
+        _record_position_snapshot(
+            audit_recorder=audit_recorder,
+            now=now,
+            leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            position_count=position_count,
+            order_status_count=order_status_count,
+            symbol_count=len(snapshots),
+            submit_orders=submit_orders,
+            restore_positions=restore_positions,
+            execute_stop_replacements=execute_stop_replacements,
+            payload={
+                "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
+                "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
+                "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
+            },
+        )
         if result.broker_responses:
             audit_recorder.record(
                 event_type="broker_submit",
                 now=now,
                 payload={"responses": result.broker_responses},
+            )
+            _record_broker_orders(
+                audit_recorder=audit_recorder,
+                now=now,
+                responses=result.broker_responses,
+                action_type="submit_order",
             )
         if stop_replacements:
             audit_recorder.record(
@@ -526,6 +693,21 @@ def run_user_stream(
                     "trade_id": event.trade_id,
                 },
             )
+            _record_broker_orders(
+                audit_recorder=audit_recorder,
+                now=event.event_time or now_provider(),
+                responses=[
+                    {
+                        "symbol": event.symbol,
+                        "status": event.order_status,
+                        "side": event.side,
+                        "type": event.original_order_type,
+                        "orderId": event.order_id,
+                        "tradeId": event.trade_id,
+                    }
+                ],
+                action_type="stream_order_update",
+            )
         event_id = user_stream_event_id(event)
         if event_id is not None and event_id in processed_event_ids:
             return
@@ -549,6 +731,14 @@ def run_user_stream(
                     order_statuses=order_statuses,
                 )
             )
+        _record_position_snapshot(
+            audit_recorder=audit_recorder,
+            now=event.event_time or now_provider(),
+            leader_symbol=state.previous_leader_symbol,
+            position_count=len(state.positions),
+            order_status_count=len(order_statuses),
+            payload={"event_type": event.event_type, "symbol": event.symbol},
+        )
 
     def _prewarm_state() -> None:
         nonlocal state, order_statuses
@@ -602,6 +792,14 @@ def run_user_stream(
                     "tracked_order_status_count": len(order_statuses),
                     "reconnect_attempt": reconnect_attempt,
                 },
+            )
+            _record_position_snapshot(
+                audit_recorder=audit_recorder,
+                now=now_provider(),
+                leader_symbol=state.previous_leader_symbol,
+                position_count=len(state.positions),
+                order_status_count=len(order_statuses),
+                payload={"event_type": "user_stream_worker_start", "testnet": testnet},
             )
         stream_client = stream_client_factory(rest_client=client, testnet=testnet)
         try:
@@ -882,6 +1080,18 @@ def run_forever(
                 "restore_positions": restore_positions,
                 "execute_stop_replacements": execute_stop_replacements,
             },
+        )
+        _record_position_snapshot(
+            audit_recorder=audit_recorder,
+            now=now_provider(),
+            leader_symbol=previous_leader_symbol,
+            position_count=0,
+            order_status_count=0,
+            symbol_count=len(resolved_symbols),
+            submit_orders=submit_orders,
+            restore_positions=restore_positions,
+            execute_stop_replacements=execute_stop_replacements,
+            payload={"event_type": "poll_worker_start"},
         )
 
     def _run_once(now):

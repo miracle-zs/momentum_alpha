@@ -251,6 +251,151 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.execution_plan.entry_orders[0]["symbol"], "BTCUSDT")
         self.assertEqual(result.runtime_result.decision.base_entries[0].symbol, "BTCUSDT")
 
+    def test_run_once_live_persists_structured_runtime_records(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.runtime_store import (
+            fetch_recent_broker_orders,
+            fetch_recent_position_snapshots,
+            fetch_recent_signal_decisions,
+        )
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_prices(self):
+                return [{"symbol": "BTCUSDT", "price": "61200"}]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                return [[0, "0", "0", "61000", "0"]]
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return [
+                    {"symbol": "BTCUSDT", "status": "NEW", "type": "MARKET", "side": "BUY", "orderId": 101},
+                    {"symbol": "BTCUSDT", "status": "NEW", "type": "STOP_MARKET", "side": "SELL", "orderId": 102},
+                ]
+
+            def replace_stop_orders(self, replacements):
+                return []
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            result = run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                previous_leader_symbol="ETHUSDT",
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=True,
+                audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
+            )
+
+            signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
+            broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
+            snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
+
+            self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(signal_decisions[0]["decision_type"], "base_entry")
+            self.assertEqual(signal_decisions[0]["symbol"], "BTCUSDT")
+            self.assertEqual(signal_decisions[0]["next_leader_symbol"], "BTCUSDT")
+            self.assertEqual(len(broker_orders), 2)
+            self.assertEqual(broker_orders[0]["symbol"], "BTCUSDT")
+            self.assertEqual(snapshots[0]["leader_symbol"], "BTCUSDT")
+
+    def test_run_once_live_records_blocked_reason_when_leader_switch_does_not_open_position(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.runtime_store import fetch_recent_signal_decisions
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                    ]
+                }
+
+            def fetch_ticker_prices(self):
+                return [
+                    {"symbol": "BTCUSDT", "price": "61200"},
+                    {"symbol": "ETHUSDT", "price": "60000"},
+                ]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                if symbol == "BTCUSDT":
+                    return [[0, "0", "0", "62000", "0"]]
+                return [[0, "0", "0", "59000", "0"]]
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+            def replace_stop_orders(self, replacements):
+                return []
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            result = run_once_live(
+                symbols=["BTCUSDT", "ETHUSDT"],
+                now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                previous_leader_symbol="ETHUSDT",
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=True,
+                audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
+            )
+
+            signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
+
+            self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(result.runtime_result.decision.base_entries, [])
+            self.assertEqual(signal_decisions[0]["decision_type"], "no_action")
+            self.assertEqual(signal_decisions[0]["payload"]["blocked_reason"], "invalid_stop_price")
+
     def test_run_once_live_uses_utc_midnight_minute_as_daily_open_source(self) -> None:
         from momentum_alpha.main import run_once_live
 
@@ -1121,7 +1266,11 @@ class MainTests(unittest.TestCase):
     def test_run_user_stream_writes_audit_events(self) -> None:
         from momentum_alpha.audit import read_audit_events
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.runtime_store import fetch_recent_audit_events
+        from momentum_alpha.runtime_store import (
+            fetch_recent_audit_events,
+            fetch_recent_broker_orders,
+            fetch_recent_position_snapshots,
+        )
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1165,6 +1314,8 @@ class MainTests(unittest.TestCase):
             )
             events = read_audit_events(path=audit_path)
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
+            broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
+            position_snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
             self.assertEqual(events[0]["payload"]["testnet"], True)
@@ -1172,6 +1323,9 @@ class MainTests(unittest.TestCase):
             self.assertEqual(events[1]["payload"]["symbol"], "ETHUSDT")
             self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
             self.assertEqual(db_events[1]["event_type"], "user_stream_event")
+            self.assertEqual(position_snapshots[0]["source"], "user-stream")
+            self.assertEqual(broker_orders[0]["symbol"], "ETHUSDT")
+            self.assertEqual(broker_orders[0]["order_status"], "FILLED")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream
@@ -2062,7 +2216,7 @@ class MainTests(unittest.TestCase):
     def test_run_forever_writes_startup_audit_event_before_first_tick(self) -> None:
         from momentum_alpha.audit import read_audit_events, AuditRecorder
         from momentum_alpha.main import run_forever
-        from momentum_alpha.runtime_store import fetch_recent_audit_events
+        from momentum_alpha.runtime_store import fetch_recent_audit_events, fetch_recent_position_snapshots
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -2100,11 +2254,14 @@ class MainTests(unittest.TestCase):
             )
             events = read_audit_events(path=audit_path)
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
+            snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "poll_worker_start")
             self.assertEqual(events[0]["payload"]["symbol_count"], 1)
             self.assertEqual(events[0]["payload"]["submit_orders"], True)
             self.assertEqual(db_events[0]["event_type"], "poll_worker_start")
+            self.assertEqual(snapshots[0]["leader_symbol"], None)
+            self.assertEqual(snapshots[0]["symbol_count"], 1)
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever

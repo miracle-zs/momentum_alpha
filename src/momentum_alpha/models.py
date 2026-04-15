@@ -63,6 +63,7 @@ class EntryIntent:
 class MinuteCloseDecision:
     base_entries: list[EntryIntent]
     new_previous_leader_symbol: str | None
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class TickDecision:
     add_on_entries: list[EntryIntent]
     updated_stop_prices: dict[str, Decimal]
     new_previous_leader_symbol: str | None
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)

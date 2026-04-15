@@ -39,23 +39,31 @@ def evaluate_minute_close(
 ) -> MinuteCloseDecision:
     leader = _leader_symbol(market)
     if leader is None:
-        return MinuteCloseDecision(base_entries=[], new_previous_leader_symbol=None)
+        return MinuteCloseDecision(base_entries=[], new_previous_leader_symbol=None, blocked_reason="no_tradable_leader")
 
     entries: list[EntryIntent] = []
     snapshot = market[leader]
     leader_changed = leader != state.previous_leader_symbol
     stop_price = _entry_stop_price(snapshot)
-    can_enter = (
-        _in_entry_window(now)
-        and leader_changed
-        and leader not in state.positions
-        and snapshot.has_previous_hour_candle
-        and stop_price < snapshot.latest_price
-    )
+    blocked_reason: str | None = None
+    if not _in_entry_window(now):
+        blocked_reason = "outside_entry_window"
+    elif not leader_changed:
+        blocked_reason = "leader_unchanged"
+    elif leader in state.positions:
+        blocked_reason = "already_holding"
+    elif not snapshot.has_previous_hour_candle:
+        blocked_reason = "missing_previous_hour_candle"
+    elif stop_price >= snapshot.latest_price:
+        blocked_reason = "invalid_stop_price"
+
+    can_enter = blocked_reason is None
     if can_enter:
         entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
+    else:
+        blocked_reason = blocked_reason if leader_changed else None
 
-    return MinuteCloseDecision(base_entries=entries, new_previous_leader_symbol=leader)
+    return MinuteCloseDecision(base_entries=entries, new_previous_leader_symbol=leader, blocked_reason=blocked_reason)
 
 
 def evaluate_hour_close(
@@ -100,4 +108,5 @@ def process_clock_tick(
         add_on_entries=add_on_entries,
         updated_stop_prices=updated_stop_prices,
         new_previous_leader_symbol=minute_close.new_previous_leader_symbol,
+        blocked_reason=minute_close.blocked_reason,
     )

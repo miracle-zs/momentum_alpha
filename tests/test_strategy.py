@@ -101,6 +101,109 @@ class StrategyTests(unittest.TestCase):
         result = evaluate_minute_close(now=now, state=state, market=market)
         self.assertEqual(result.base_entries, [])
         self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(result.blocked_reason, "outside_entry_window")
+
+    def test_reports_blocked_reason_when_leader_already_held(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 4, 14, 1, 5, tzinfo=timezone.utc)
+        leg_time = datetime(2026, 4, 14, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("110"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("1"), Decimal("120"), Decimal("110"), leg_time, "base"),),
+                )
+            },
+        )
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("125"),
+                previous_hour_low=Decimal("110"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("115"),
+                previous_hour_low=Decimal("108"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = evaluate_minute_close(now=now, state=state, market=market)
+        self.assertEqual(result.base_entries, [])
+        self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(result.blocked_reason, "already_holding")
+
+    def test_reports_blocked_reason_when_previous_hour_candle_missing(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 4, 14, 1, 5, tzinfo=timezone.utc)
+        state = StrategyState(current_day=now.date(), previous_leader_symbol="BTCUSDT", positions={})
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("120"),
+                previous_hour_low=Decimal("110"),
+                tradable=True,
+                has_previous_hour_candle=False,
+            ),
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("115"),
+                previous_hour_low=Decimal("108"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = evaluate_minute_close(now=now, state=state, market=market)
+        self.assertEqual(result.base_entries, [])
+        self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(result.blocked_reason, "missing_previous_hour_candle")
+
+    def test_reports_blocked_reason_when_stop_price_is_not_below_latest_price(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 4, 14, 1, 5, tzinfo=timezone.utc)
+        state = StrategyState(current_day=now.date(), previous_leader_symbol="BTCUSDT", positions={})
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("108"),
+                previous_hour_low=Decimal("110"),
+                tradable=True,
+                has_previous_hour_candle=True,
+                current_hour_low=Decimal("109"),
+            ),
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("105"),
+                previous_hour_low=Decimal("103"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = evaluate_minute_close(now=now, state=state, market=market)
+        self.assertEqual(result.base_entries, [])
+        self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(result.blocked_reason, "invalid_stop_price")
 
     def test_hour_close_updates_stops_and_adds_one_leg_per_open_symbol(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
