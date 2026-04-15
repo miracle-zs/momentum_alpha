@@ -26,7 +26,8 @@ This checklist is the shortest path to deciding whether the current codebase is 
 - `SUBMIT_ORDERS=1`
 - `STATE_FILE` points to a persistent writable path
 - `SYMBOLS` matches the symbols you actually want the polling worker to scan
-- `websocket-client` is installed with `python3 -m pip install -e .[live]`
+- Project virtualenv exists at `.venv/`
+- `websocket-client` is installed with `./.venv/bin/python -m pip install -e .[live]`
 - Runtime directories exist:
   - `var/`
   - `var/log/`
@@ -34,6 +35,7 @@ This checklist is the shortest path to deciding whether the current codebase is 
   - polling worker
   - user-stream worker
 - Systemd unit `EnvironmentFile=` paths point to the real env file you intend to use
+- Wrapper scripts can execute `.venv/bin/python` on the server
 
 ## Recommended Cutover Sequence
 

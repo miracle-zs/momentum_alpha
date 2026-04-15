@@ -121,13 +121,15 @@ Relevant artifacts:
 Recommended first-time bootstrap:
 
 ```bash
-python3 -m pip install -e .[live]
+python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -e .[live]
 cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/run_poll.sh scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
 ```
 
-Then edit `deploy/env.local` with your real API key, secret, state file path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist.
+Then edit `deploy/env.local` with your real API key, secret, state file path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
 
 Suggested systemd rollout:
 
@@ -144,7 +146,7 @@ Operational split:
 
 Practical live startup order:
 
-1. Install dependencies with `python3 -m pip install -e .[live]`.
+1. Create `.venv` and install dependencies with `./.venv/bin/python -m pip install -e .[live]`.
 2. Initialize runtime directories with `./scripts/init_runtime_dirs.sh`.
 3. Fill in credentials and runtime flags in your chosen env file.
 4. Start `momentum-alpha-user-stream.service` first so local order/account state begins converging.
