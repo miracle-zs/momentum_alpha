@@ -18,6 +18,9 @@ from .runtime_store import (
 )
 
 
+DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
+
+
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
     if not path.exists():
         return {}, [f"state file missing path={path}"]
@@ -32,6 +35,16 @@ def _select_latest_timestamp(events: list[dict], event_type: str) -> str | None:
         if event.get("event_type") == event_type:
             return event.get("timestamp")
     return None
+
+
+def format_timestamp_for_display(timestamp: str | None) -> str:
+    if not timestamp:
+        return "n/a"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return str(timestamp)
+    return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _load_recent_events(*, path: Path, recent_limit: int) -> tuple[list[dict], list[str]]:
@@ -109,6 +122,33 @@ def _build_pulse_points(events: list[dict], *, now: datetime, minutes: int = 10)
     return [{"bucket": bucket, "event_count": bucket_counts.get(bucket, 0)} for bucket in buckets]
 
 
+def _runtime_summary_from_sources(
+    *,
+    state_payload: dict,
+    latest_position_snapshot: dict | None,
+    latest_signal_decision: dict | None,
+) -> tuple[str | None, int, int]:
+    if latest_position_snapshot is not None:
+        return (
+            latest_position_snapshot.get("leader_symbol"),
+            int(latest_position_snapshot.get("position_count") or 0),
+            int(latest_position_snapshot.get("order_status_count") or 0),
+        )
+    if latest_signal_decision is not None:
+        return (
+            latest_signal_decision.get("next_leader_symbol") or latest_signal_decision.get("symbol"),
+            int(latest_signal_decision.get("position_count") or 0),
+            int(latest_signal_decision.get("order_status_count") or 0),
+        )
+    positions = state_payload.get("positions") or {}
+    order_statuses = state_payload.get("order_statuses") or {}
+    return (
+        state_payload.get("previous_leader_symbol"),
+        len(positions),
+        len(order_statuses),
+    )
+
+
 def load_dashboard_snapshot(
     *,
     now: datetime,
@@ -128,8 +168,6 @@ def load_dashboard_snapshot(
         audit_log_file=audit_log_file,
     )
     state_payload, warnings = _load_state_file(path=state_file)
-    positions = state_payload.get("positions") or {}
-    order_statuses = state_payload.get("order_statuses") or {}
     recent_signal_decisions: list[dict] = []
     recent_broker_orders: list[dict] = []
     recent_position_snapshots: list[dict] = []
@@ -158,6 +196,11 @@ def load_dashboard_snapshot(
     latest_position_snapshot = recent_position_snapshots[0] if recent_position_snapshots else None
     latest_signal_decision = recent_signal_decisions[0] if recent_signal_decisions else None
     latest_broker_order = recent_broker_orders[0] if recent_broker_orders else None
+    previous_leader_symbol, position_count, order_status_count = _runtime_summary_from_sources(
+        state_payload=state_payload,
+        latest_position_snapshot=latest_position_snapshot,
+        latest_signal_decision=latest_signal_decision,
+    )
 
     return {
         "health": {
@@ -168,9 +211,9 @@ def load_dashboard_snapshot(
             ],
         },
         "runtime": {
-            "previous_leader_symbol": state_payload.get("previous_leader_symbol"),
-            "position_count": len(positions),
-            "order_status_count": len(order_statuses),
+            "previous_leader_symbol": previous_leader_symbol,
+            "position_count": position_count,
+            "order_status_count": order_status_count,
             "latest_tick_timestamp": _select_latest_timestamp(recent_events, "poll_tick"),
             "latest_tick_result_timestamp": _select_latest_timestamp(recent_events, "tick_result"),
             "latest_poll_worker_start_timestamp": _select_latest_timestamp(recent_events, "poll_worker_start"),
@@ -204,7 +247,7 @@ def render_dashboard_html(snapshot: dict) -> str:
     warnings = "".join(f"<li>{escape(warning)}</li>" for warning in snapshot["warnings"]) or "<li>none</li>"
     recent_events = "".join(
         "<article class='timeline-event'>"
-        f"<header><strong>{escape(event['event_type'])}</strong><time>{escape(event['timestamp'])}</time></header>"
+        f"<header><strong>{escape(event['event_type'])}</strong><time>{escape(format_timestamp_for_display(event['timestamp']))}</time></header>"
         f"<div class='timeline-source'>{escape(str(event.get('source') or 'unknown'))}</div>"
         f"<pre>{escape(json.dumps(event['payload'], ensure_ascii=False, indent=2))}</pre>"
         "</article>"
@@ -219,7 +262,7 @@ def render_dashboard_html(snapshot: dict) -> str:
         for source, count in sorted(snapshot.get("source_counts", {}).items())
     ) or "<div class='source-chip'><span>none</span><strong>0</strong></div>"
     leader_rows = "".join(
-        f"<div class='leader-row'><span>{escape(item['symbol'])}</span><time>{escape(item['timestamp'])}</time></div>"
+        f"<div class='leader-row'><span>{escape(item['symbol'])}</span><time>{escape(format_timestamp_for_display(item['timestamp']))}</time></div>"
         for item in snapshot.get("leader_history", [])
     ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
     pulse_points = snapshot.get("pulse_points", [])
@@ -227,7 +270,7 @@ def render_dashboard_html(snapshot: dict) -> str:
     pulse_bars = "".join(
         "<div class='pulse-bar-wrap'>"
         f"<div class='pulse-bar' style='height:{max(10, int(100 * point['event_count'] / pulse_max))}%;'></div>"
-        f"<span>{escape(point['bucket'][11:16])}</span>"
+        f"<span>{escape(format_timestamp_for_display(point['bucket'])[11:16])}</span>"
         "</div>"
         for point in pulse_points
     ) or "<div class='pulse-bar-wrap'><div class='pulse-bar' style='height:10%;'></div><span>n/a</span></div>"
@@ -236,12 +279,15 @@ def render_dashboard_html(snapshot: dict) -> str:
     latest_position_snapshot = snapshot["runtime"].get("latest_position_snapshot") or {}
     latest_signal_payload = latest_signal.get("payload") or {}
     blocked_reason = latest_signal_payload.get("blocked_reason")
+    decision_status = latest_signal.get("decision_type") or "none"
+    latest_signal_symbol = latest_signal.get("symbol") or "none"
+    latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
     recent_signal_rows = "".join(
-        f"<div class='leader-row'><span>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(str(item.get('timestamp')))}</time></div>"
+        f"<div class='leader-row'><span>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
         for item in snapshot.get("recent_signal_decisions", [])
     ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
     recent_broker_rows = "".join(
-        f"<div class='leader-row'><span>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(str(item.get('order_status')))}</time></div>"
+        f"<div class='leader-row'><span>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
         for item in snapshot.get("recent_broker_orders", [])
     ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
     runtime = snapshot["runtime"]
@@ -276,7 +322,11 @@ def render_dashboard_html(snapshot: dict) -> str:
     .health-row {{ display: grid; grid-template-columns: 1.1fr 0.4fr 1.8fr; gap: 10px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.02); }}
     .health-ok {{ border: 1px solid rgba(54, 217, 138, 0.2); }}
     .health-fail {{ border: 1px solid rgba(255, 93, 115, 0.2); }}
-    .event-bars, .source-mix, .leader-rotation {{ display: grid; gap: 10px; }}
+    .event-bars, .source-mix, .leader-rotation, .decision-cards {{ display: grid; gap: 10px; }}
+    .decision-cards {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }}
+    .decision-card {{ padding: 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); }}
+    .decision-card .eyebrow {{ color: var(--muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.08em; }}
+    .decision-card .big {{ margin-top: 8px; font-size: 1.05rem; font-weight: 700; word-break: break-word; }}
     .event-bar {{ display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 12px; background: linear-gradient(90deg, rgba(76,201,240,0.16), rgba(76,201,240,0.05)); border: 1px solid rgba(76,201,240,0.18); }}
     .event-bar span {{ color: var(--muted); text-transform: uppercase; font-size: 0.82rem; }}
     .source-chip, .leader-row {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }}
@@ -309,13 +359,22 @@ def render_dashboard_html(snapshot: dict) -> str:
       <article class="metric-card"><div class="label">Leader</div><div class="value">{escape(str(runtime['previous_leader_symbol']))}</div><div class="sub">Current previous leader symbol</div></article>
       <article class="metric-card"><div class="label">Positions</div><div class="value">{runtime['position_count']}</div><div class="sub">Open local positions</div></article>
       <article class="metric-card"><div class="label">Order States</div><div class="value">{runtime['order_status_count']}</div><div class="sub">Tracked order lifecycle entries</div></article>
-      <article class="metric-card"><div class="label">Latest Tick</div><div class="value">{escape(str(runtime['latest_tick_timestamp']))}</div><div class="sub">Most recent poll tick seen</div></article>
+      <article class="metric-card"><div class="label">Latest Tick</div><div class="value">{escape(format_timestamp_for_display(runtime['latest_tick_timestamp']))}</div><div class="sub">Most recent poll tick seen</div></article>
     </div>
     <div class="main-grid">
       <div class="stack">
         <section>
           <h2>Health Matrix</h2>
           <div class="health-list">{health_items}</div>
+        </section>
+        <section>
+          <h2>Decision Overview</h2>
+          <div class="decision-cards">
+            <article class="decision-card"><div class="eyebrow">Latest Decision</div><div class="big">{escape(str(decision_status))}</div></article>
+            <article class="decision-card"><div class="eyebrow">Target Symbol</div><div class="big">{escape(str(latest_signal_symbol))}</div></article>
+            <article class="decision-card"><div class="eyebrow">Blocked Reason</div><div class="big">{escape(str(blocked_reason or 'none'))}</div></article>
+            <article class="decision-card"><div class="eyebrow">Decision Time</div><div class="big">{escape(latest_signal_time)}</div></article>
+          </div>
         </section>
         <section class="warnings">
           <h2>Warnings</h2>
@@ -336,6 +395,10 @@ def render_dashboard_html(snapshot: dict) -> str:
           <div class="source-mix">{source_bars}</div>
         </section>
         <section>
+          <h2>Leader Timeline</h2>
+          <div class="leader-rotation">{leader_rows}</div>
+        </section>
+        <section>
           <h2>Leader Rotation</h2>
           <div class="leader-rotation">{leader_rows}</div>
         </section>
@@ -345,7 +408,7 @@ def render_dashboard_html(snapshot: dict) -> str:
         </section>
         <section>
           <h2>Blocked Reason</h2>
-          <div class="leader-rotation"><div class='leader-row'><span>{escape(str(blocked_reason or 'none'))}</span><time>{escape(str(latest_signal.get('timestamp') or 'n/a'))}</time></div></div>
+          <div class="leader-rotation"><div class='leader-row'><span>{escape(str(blocked_reason or 'none'))}</span><time>{escape(format_timestamp_for_display(latest_signal.get('timestamp')))}</time></div></div>
         </section>
         <section>
           <h2>Broker Activity</h2>

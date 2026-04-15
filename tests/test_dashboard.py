@@ -15,6 +15,14 @@ if str(SRC) not in sys.path:
 
 
 class DashboardTests(unittest.TestCase):
+    def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
+        from momentum_alpha.dashboard import format_timestamp_for_display
+
+        self.assertEqual(
+            format_timestamp_for_display("2026-04-15T08:52:00.734144+00:00"),
+            "2026-04-15 16:52:00",
+        )
+
     def test_load_dashboard_snapshot_combines_health_state_and_recent_audit(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
 
@@ -179,6 +187,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Broker Activity", html)
         self.assertIn("Position Snapshot", html)
         self.assertIn("Blocked Reason", html)
+        self.assertIn("Decision Overview", html)
+        self.assertIn("Leader Timeline", html)
+        self.assertIn("2026-04-15 14:59:00", html)
 
     def test_build_dashboard_response_json_serializes_snapshot(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_response_json
@@ -199,7 +210,12 @@ class DashboardTests(unittest.TestCase):
 
     def test_load_dashboard_snapshot_prefers_sqlite_runtime_store(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
-        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_audit_event
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            insert_audit_event,
+            insert_position_snapshot,
+            insert_signal_decision,
+        )
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -210,11 +226,34 @@ class DashboardTests(unittest.TestCase):
             audit_log_file = root / "audit.jsonl"
             runtime_db_file = root / "runtime.db"
 
-            state_file.write_text(json.dumps({"previous_leader_symbol": "INUSDT", "positions": {}, "order_statuses": {}}), encoding="utf-8")
+            state_file.write_text(
+                json.dumps({"previous_leader_symbol": "INUSDT", "positions": {}, "order_statuses": {}}),
+                encoding="utf-8",
+            )
             for path in (poll_log_file, user_stream_log_file, audit_log_file):
                 path.write_text("", encoding="utf-8")
                 os.utime(path, (now.timestamp(), now.timestamp()))
             bootstrap_runtime_db(path=runtime_db_file)
+            insert_signal_decision(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 58, 59, tzinfo=timezone.utc),
+                source="poll",
+                decision_type="base_entry",
+                symbol="BLESSUSDT",
+                previous_leader_symbol="INUSDT",
+                next_leader_symbol="BLESSUSDT",
+                payload={},
+            )
+            insert_position_snapshot(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 1, tzinfo=timezone.utc),
+                source="poll",
+                leader_symbol="BLESSUSDT",
+                position_count=2,
+                order_status_count=3,
+                symbol_count=538,
+                payload={},
+            )
             insert_audit_event(
                 path=runtime_db_file,
                 timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
@@ -244,6 +283,60 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["recent_events"][0]["event_type"], "user_stream_worker_start")
             self.assertEqual(snapshot["source_counts"]["poll"], 1)
             self.assertEqual(snapshot["source_counts"]["user-stream"], 1)
+            self.assertEqual(snapshot["runtime"]["previous_leader_symbol"], "BLESSUSDT")
+            self.assertEqual(snapshot["runtime"]["position_count"], 2)
+            self.assertEqual(snapshot["runtime"]["order_status_count"], 3)
+
+    def test_load_dashboard_snapshot_uses_sqlite_runtime_summary_when_state_file_missing(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import insert_position_snapshot, insert_signal_decision
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            audit_log_file = root / "audit.jsonl"
+            runtime_db_file = root / "runtime.db"
+
+            for path in (poll_log_file, user_stream_log_file, audit_log_file):
+                path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+
+            insert_signal_decision(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
+                source="poll",
+                decision_type="no_action",
+                symbol="BLESSUSDT",
+                previous_leader_symbol="ONUSDT",
+                next_leader_symbol="BLESSUSDT",
+                payload={"blocked_reason": "invalid_stop_price"},
+            )
+            insert_position_snapshot(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 1, tzinfo=timezone.utc),
+                source="poll",
+                leader_symbol="BLESSUSDT",
+                position_count=1,
+                order_status_count=4,
+                symbol_count=538,
+                payload={},
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=now,
+                state_file=root / "state.json",
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                audit_log_file=audit_log_file,
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+            )
+
+            self.assertEqual(snapshot["runtime"]["previous_leader_symbol"], "BLESSUSDT")
+            self.assertEqual(snapshot["runtime"]["position_count"], 1)
+            self.assertEqual(snapshot["runtime"]["order_status_count"], 4)
 
     def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
