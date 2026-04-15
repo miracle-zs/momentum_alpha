@@ -319,19 +319,19 @@ def _format_metric(value: float | None, *, signed: bool = False) -> str:
     return f"{value:,.2f}"
 
 
-def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str) -> str:
+def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str, show_grid: bool = True) -> str:
     values = [point.get(value_key) for point in points if isinstance(point.get(value_key), (int, float))]
     if not values:
-        return "<div class='chart-empty'>waiting for account samples</div>"
+        return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for data</span></div>"
     if len(values) == 1:
         values = [values[0], values[0]]
     min_value = min(values)
     max_value = max(values)
     spread = max(max_value - min_value, 1e-9)
-    width = 560
-    height = 220
-    pad_x = 18
-    pad_y = 18
+    width = 600
+    height = 200
+    pad_x = 50
+    pad_y = 20
     chart_width = width - pad_x * 2
     chart_height = height - pad_y * 2
     coordinates: list[tuple[float, float]] = []
@@ -341,56 +341,125 @@ def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, f
         coordinates.append((x, y))
     polyline = " ".join(f"{x:.2f},{y:.2f}" for x, y in coordinates)
     area = " ".join([f"{coordinates[0][0]:.2f},{height - pad_y:.2f}", polyline, f"{coordinates[-1][0]:.2f},{height - pad_y:.2f}"])
+    grid_lines = ""
+    if show_grid:
+        for i in range(5):
+            y = pad_y + (chart_height * i / 4)
+            grid_lines += f"<line x1='{pad_x}' y1='{y:.2f}' x2='{width - pad_x}' y2='{y:.2f}' class='grid-line'/>"
+        for i in range(5):
+            x = pad_x + (chart_width * i / 4)
+            grid_lines += f"<line x1='{x:.2f}' y1='{pad_y}' x2='{x:.2f}' y2='{height - pad_y}' class='grid-line'/>"
+    y_labels = ""
+    for i in range(5):
+        y = pad_y + (chart_height * i / 4)
+        val = max_value - (spread * i / 4)
+        y_labels += f"<text x='{pad_x - 8}' y='{y + 4:.2f}' class='axis-label' text-anchor='end'>{val:,.0f}</text>"
+    dots = ""
+    for x, y in coordinates[-3:]:
+        dots += f"<circle cx='{x:.2f}' cy='{y:.2f}' r='4' fill='{stroke}' class='chart-dot'/>"
     return (
         f"<svg viewBox='0 0 {width} {height}' class='chart-svg' role='img' aria-label='{escape(value_key)} chart'>"
-        f"<polygon points='{area}' fill='{fill}'></polygon>"
-        f"<polyline points='{polyline}' fill='none' stroke='{stroke}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'></polyline>"
+        f"<defs><linearGradient id='grad-{escape(value_key)}' x1='0%' y1='0%' x2='0%' y2='100%'>"
+        f"<stop offset='0%' stop-color='{stroke}' stop-opacity='0.3'/><stop offset='100%' stop-color='{stroke}' stop-opacity='0.02'/></linearGradient></defs>"
+        f"{grid_lines}{y_labels}"
+        f"<polygon points='{area}' fill='url(#grad-{escape(value_key)})'></polygon>"
+        f"<polyline points='{polyline}' fill='none' stroke='{stroke}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'></polyline>"
+        f"{dots}"
         f"</svg>"
     )
+
+
+def _render_pie_chart_svg(*, data: dict[str, int], colors: list[str] | None = None) -> str:
+    if not data:
+        return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>no data</span></div>"
+    default_colors = ["#4cc9f0", "#36d98a", "#ffbc42", "#ff5d73", "#a855f7", "#ec4899", "#f97316", "#14b8a6"]
+    colors = colors or default_colors
+    total = sum(data.values())
+    size = 160
+    cx, cy = size / 2, size / 2
+    r = size / 2 - 20
+    paths = ""
+    legend = ""
+    start_angle = -90
+    for i, (label, count) in enumerate(sorted(data.items(), key=lambda x: -x[1])):
+        angle = (count / total) * 360
+        end_angle = start_angle + angle
+        x1 = cx + r * _cos_deg(start_angle)
+        y1 = cy + r * _sin_deg(start_angle)
+        x2 = cx + r * _cos_deg(end_angle)
+        y2 = cy + r * _sin_deg(end_angle)
+        large_arc = 1 if angle > 180 else 0
+        color = colors[i % len(colors)]
+        paths += f"<path d='M{cx},{cy} L{x1:.2f},{y1:.2f} A{r},{r} 0 {large_arc},1 {x2:.2f},{y2:.2f} Z' fill='{color}' class='pie-slice'/>"
+        legend += f"<div class='legend-item'><span class='legend-color' style='background:{color}'></span><span class='legend-label'>{escape(label)}</span><span class='legend-value'>{count}</span></div>"
+        start_angle = end_angle
+    return f"<div class='pie-container'><svg viewBox='0 0 {size} {size}' class='pie-svg'>{paths}</svg><div class='pie-legend'>{legend}</div></div>"
+
+
+def _cos_deg(angle: float) -> float:
+    import math
+    return math.cos(math.radians(angle))
+
+
+def _sin_deg(angle: float) -> float:
+    import math
+    return math.sin(math.radians(angle))
+
+
+def _render_bar_chart_svg(*, data: dict[str, int], color: str = "#4cc9f0") -> str:
+    if not data:
+        return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>no data</span></div>"
+    width = 400
+    height = 180
+    pad_x = 60
+    pad_y = 20
+    bar_width = max(20, (width - pad_x * 2) / len(data) - 8)
+    max_val = max(data.values())
+    bars = ""
+    labels = ""
+    for i, (label, val) in enumerate(sorted(data.items())):
+        x = pad_x + i * (bar_width + 8)
+        bar_height = (val / max_val) * (height - pad_y * 2 - 20) if max_val > 0 else 0
+        y = height - pad_y - bar_height
+        bars += f"<rect x='{x:.2f}' y='{y:.2f}' width='{bar_width:.2f}' height='{bar_height:.2f}' fill='{color}' rx='4' class='bar-rect'/>"
+        bars += f"<text x='{x + bar_width/2:.2f}' y='{y - 6:.2f}' class='bar-value' text-anchor='middle'>{val}</text>"
+        short_label = label[:10] + "..." if len(label) > 10 else label
+        labels += f"<text x='{x + bar_width/2:.2f}' y='{height - 6:.2f}' class='bar-label' text-anchor='middle' transform='rotate(-30 {x + bar_width/2:.2f},{height - 6:.2f})'>{escape(short_label)}</text>"
+    return f"<svg viewBox='0 0 {width} {height}' class='bar-svg'>{bars}{labels}</svg>"
+
+
+def _render_timeline_svg(*, events: list[dict]) -> str:
+    if not events:
+        return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>no events</span></div>"
+    width = 600
+    height = 120
+    pad = 40
+    line_y = height / 2
+    timeline = f"<line x1='{pad}' y1='{line_y}' x2='{width - pad}' y2='{line_y}' class='timeline-line'/>"
+    step = (width - pad * 2) / max(len(events) - 1, 1)
+    for i, event in enumerate(events[:10]):
+        x = pad + i * step
+        symbol = event.get("symbol", "?")
+        timestamp = event.get("timestamp", "")
+        is_current = i == len(events[:10]) - 1
+        color = "#4cc9f0" if is_current else "#36d98a" if i % 2 == 0 else "#ffbc42"
+        radius = 12 if is_current else 8
+        timeline += f"<circle cx='{x:.2f}' cy='{line_y:.2f}' r='{radius}' fill='{color}' class='timeline-dot{' current' if is_current else ''}'/>"
+        timeline += f"<text x='{x:.2f}' y='{line_y - 22:.2f}' class='timeline-label' text-anchor='middle'>{escape(str(symbol))}</text>"
+        if timestamp:
+            short_time = timestamp[11:16] if len(timestamp) > 16 else timestamp[-5:]
+            timeline += f"<text x='{x:.2f}' y='{line_y + 28:.2f}' class='timeline-time' text-anchor='middle'>{escape(short_time)}</text>"
+    return f"<svg viewBox='0 0 {width} {height}' class='timeline-svg'>{timeline}</svg>"
 
 
 def render_dashboard_html(snapshot: dict) -> str:
     summary = build_dashboard_summary_payload(snapshot)
     timeseries = build_dashboard_timeseries_payload(snapshot)
-    health_items = "".join(
-        f"<article class='health-row health-{escape(item['status'].lower())}'><div><strong>{escape(item['name'])}</strong></div>"
-        f"<div>{escape(item['status'])}</div><div>{escape(item['message'])}</div></article>"
-        for item in snapshot["health"]["items"]
-    )
-    warnings = "".join(f"<li>{escape(warning)}</li>" for warning in snapshot["warnings"]) or "<li>none</li>"
-    recent_events = "".join(
-        "<article class='timeline-event'>"
-        f"<header><strong>{escape(event['event_type'])}</strong><time>{escape(format_timestamp_for_display(event['timestamp']))}</time></header>"
-        f"<div class='timeline-source'>{escape(str(event.get('source') or 'unknown'))}</div>"
-        f"<pre>{escape(json.dumps(event['payload'], ensure_ascii=False, indent=2))}</pre>"
-        "</article>"
-        for event in snapshot["recent_events"]
-    ) or "<article class='timeline-event'><header><strong>none</strong></header></article>"
-    event_bars = "".join(
-        f"<div class='event-bar'><span>{escape(event_type)}</span><strong>{count}</strong></div>"
-        for event_type, count in sorted(snapshot.get("event_counts", {}).items())
-    ) or "<div class='event-bar'><span>none</span><strong>0</strong></div>"
-    source_bars = "".join(
-        f"<div class='source-chip'><span>{escape(source)}</span><strong>{count}</strong></div>"
-        for source, count in sorted(snapshot.get("source_counts", {}).items())
-    ) or "<div class='source-chip'><span>none</span><strong>0</strong></div>"
-    leader_rows = "".join(
-        f"<div class='leader-row'><span>{escape(item['symbol'])}</span><time>{escape(format_timestamp_for_display(item['timestamp']))}</time></div>"
-        for item in snapshot.get("leader_history", [])
-    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
-    pulse_points = snapshot.get("pulse_points", [])
-    pulse_max = max((point["event_count"] for point in pulse_points), default=1)
-    pulse_bars = "".join(
-        "<div class='pulse-bar-wrap'>"
-        f"<div class='pulse-bar' style='height:{max(10, int(100 * point['event_count'] / pulse_max))}%;'></div>"
-        f"<span>{escape(format_timestamp_for_display(point['bucket'])[11:16])}</span>"
-        "</div>"
-        for point in pulse_points
-    ) or "<div class='pulse-bar-wrap'><div class='pulse-bar' style='height:10%;'></div><span>n/a</span></div>"
-    latest_signal = snapshot["runtime"].get("latest_signal_decision") or {}
-    latest_broker_order = snapshot["runtime"].get("latest_broker_order") or {}
-    latest_position_snapshot = snapshot["runtime"].get("latest_position_snapshot") or {}
-    latest_account_snapshot = snapshot["runtime"].get("latest_account_snapshot") or {}
+    runtime = snapshot["runtime"]
+    latest_signal = runtime.get("latest_signal_decision") or {}
+    latest_broker_order = runtime.get("latest_broker_order") or {}
+    latest_position_snapshot = runtime.get("latest_position_snapshot") or {}
+    latest_account_snapshot = runtime.get("latest_account_snapshot") or {}
     latest_signal_payload = latest_signal.get("payload") or {}
     blocked_reason = latest_signal_payload.get("blocked_reason")
     decision_status = latest_signal.get("decision_type") or "none"
@@ -400,216 +469,604 @@ def render_dashboard_html(snapshot: dict) -> str:
     available_balance = _format_metric(summary["account"].get("available_balance"))
     equity = _format_metric(summary["account"].get("equity"))
     unrealized_pnl = _format_metric(summary["account"].get("unrealized_pnl"), signed=True)
-    equity_chart = _render_line_chart_svg(
-        points=timeseries["account"],
-        value_key="equity",
-        stroke="#4cc9f0",
-        fill="rgba(76,201,240,0.14)",
+    pnl_positive = not str(unrealized_pnl).startswith("-")
+    equity_chart = _render_line_chart_svg(points=timeseries["account"], value_key="equity", stroke="#4cc9f0", fill="rgba(76,201,240,0.14)")
+    wallet_chart = _render_line_chart_svg(points=timeseries["account"], value_key="wallet_balance", stroke="#36d98a", fill="rgba(54,217,138,0.14)")
+    pnl_chart = _render_line_chart_svg(points=timeseries["account"], value_key="unrealized_pnl", stroke="#a855f7", fill="rgba(168,85,247,0.14)", show_grid=False)
+    event_counts = snapshot.get("event_counts", {})
+    decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
+    pie_chart = _render_pie_chart_svg(data=decision_counts)
+    bar_chart = _render_bar_chart_svg(data=dict(list(event_counts.items())[:6]), color="#4cc9f0")
+    leader_history = snapshot.get("leader_history", [])
+    timeline_chart = _render_timeline_svg(events=leader_history)
+    health_status = snapshot["health"]["overall_status"]
+    health_items_html = "".join(
+        f"<div class='health-item status-{escape(item['status'].lower())}'>"
+        f"<span class='health-status-dot'></span>"
+        f"<span class='health-name'>{escape(item['name'])}</span>"
+        f"<span class='health-status'>{escape(item['status'])}</span>"
+        f"<span class='health-msg'>{escape(item['message'])}</span></div>"
+        for item in snapshot["health"]["items"]
     )
-    wallet_chart = _render_line_chart_svg(
-        points=timeseries["account"],
-        value_key="wallet_balance",
-        stroke="#36d98a",
-        fill="rgba(54,217,138,0.14)",
-    )
-    recent_signal_rows = "".join(
-        f"<div class='leader-row'><span>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
-        for item in snapshot.get("recent_signal_decisions", [])
-    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
-    recent_broker_rows = "".join(
-        f"<div class='leader-row'><span>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
-        for item in snapshot.get("recent_broker_orders", [])
-    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
-    recent_account_rows = "".join(
-        f"<div class='leader-row'><span>{escape(str(item.get('leader_symbol') or 'none'))} · equity {escape(_format_metric(_parse_numeric(item.get('equity'))))}</span><time>{escape(format_timestamp_for_display(item.get('timestamp')))}</time></div>"
-        for item in snapshot.get("recent_account_snapshots", [])[:8]
-    ) or "<div class='leader-row'><span>none</span><time>n/a</time></div>"
-    runtime = snapshot["runtime"]
+    warnings_html = "".join(f"<li>{escape(w)}</li>" for w in snapshot["warnings"]) or "<li class='no-warning'>No warnings</li>"
+    recent_events_html = "".join(
+        f"<div class='event-item'>"
+        f"<span class='event-type'>{escape(e['event_type'])}</span>"
+        f"<span class='event-time'>{escape(format_timestamp_for_display(e['timestamp']))}</span>"
+        f"<span class='event-source'>{escape(str(e.get('source') or '-'))}</span></div>"
+        for e in snapshot["recent_events"][:12]
+    ) or "<div class='event-item empty'>No recent events</div>"
+    signal_rows_html = "".join(
+        f"<div class='data-row'><span class='row-main'>{escape(str(item.get('decision_type')))} · {escape(str(item.get('symbol')))}</span><span class='row-time'>{escape(format_timestamp_for_display(item.get('timestamp')))}</span></div>"
+        for item in snapshot.get("recent_signal_decisions", [])[:5]
+    ) or "<div class='data-row empty'>No signals</div>"
+    broker_rows_html = "".join(
+        f"<div class='data-row'><span class='row-main'>{escape(str(item.get('action_type')))} · {escape(str(item.get('symbol')))}</span><span class='row-time'>{escape(format_timestamp_for_display(item.get('timestamp')))}</span></div>"
+        for item in snapshot.get("recent_broker_orders", [])[:5]
+    ) or "<div class='data-row empty'>No orders</div>"
+    account_rows_html = "".join(
+        f"<div class='data-row'><span class='row-main'>{escape(str(item.get('leader_symbol') or '-'))} · Equity: {escape(_format_metric(_parse_numeric(item.get('equity'))))}</span><span class='row-time'>{escape(format_timestamp_for_display(item.get('timestamp')))}</span></div>"
+        for item in snapshot.get("recent_account_snapshots", [])[:5]
+    ) or "<div class='data-row empty'>No snapshots</div>"
+    pulse_points = snapshot.get("pulse_points", [])
+    pulse_max = max((p["event_count"] for p in pulse_points), default=1)
+    pulse_html = "".join(
+        f"<div class='pulse-col'><div class='pulse-bar' style='height:{max(12, int(100 * p["event_count"] / pulse_max))}%;'></div><span class='pulse-label'>{escape(format_timestamp_for_display(p['bucket'])[11:16])}</span></div>"
+        for p in pulse_points
+    ) or "<div class='pulse-col empty'><div class='pulse-bar' style='height:12%;'></div><span>n/a</span></div>"
+    source_counts = snapshot.get("source_counts", {})
+    source_html = "".join(
+        f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
+        for src, cnt in sorted(source_counts.items())[:4]
+    ) or "<div class='source-tag empty'>No sources</div>"
+
     return f"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Momentum Alpha Dashboard</title>
+  <title>Momentum Alpha | 交易监控面板</title>
   <style>
-    :root {{ color-scheme: dark; --bg: #09111b; --panel: #101b27; --panel-2: #0d1621; --text: #e8f0f8; --muted: #8ea2b7; --line: #223446; --ok: #36d98a; --warn: #ffbc42; --fail: #ff5d73; --accent: #4cc9f0; }}
-    * {{ box-sizing: border-box; }}
-    body {{ margin: 0; font-family: "SFMono-Regular", "Menlo", monospace; background: radial-gradient(circle at top, #122033 0%, var(--bg) 55%); color: var(--text); }}
-    .desk-shell {{ max-width: 1400px; margin: 0 auto; padding: 24px; }}
-    .hero {{ display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }}
-    .hero h1 {{ margin: 0; font-size: 2rem; letter-spacing: 0.04em; text-transform: uppercase; }}
-    .hero p {{ margin: 6px 0 0; color: var(--muted); }}
-    .status-pill {{ padding: 8px 14px; border-radius: 999px; font-weight: 700; border: 1px solid var(--line); }}
-    .status-pill.ok {{ background: rgba(54, 217, 138, 0.14); color: var(--ok); }}
-    .status-pill.fail {{ background: rgba(255, 93, 115, 0.14); color: var(--fail); }}
-    .metrics {{ display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 18px; }}
-    .metric-card, section {{ background: linear-gradient(180deg, rgba(20,33,48,0.96), rgba(13,22,33,0.96)); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 18px 40px rgba(0,0,0,0.25); }}
-    .metric-card {{ padding: 16px; min-height: 110px; }}
-    .metric-card .label {{ color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }}
-    .metric-card .value {{ margin-top: 10px; font-size: 1.75rem; font-weight: 700; }}
-    .metric-card .sub {{ margin-top: 8px; color: var(--muted); font-size: 0.85rem; }}
-    .metric-card.pnl-positive .value {{ color: var(--ok); }}
-    .metric-card.pnl-negative .value {{ color: var(--fail); }}
-    .main-grid {{ display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }}
-    .stack {{ display: grid; gap: 16px; }}
-    section {{ padding: 18px; }}
-    h2 {{ margin: 0 0 14px; font-size: 1rem; letter-spacing: 0.08em; text-transform: uppercase; }}
-    .chart-shell {{ display: grid; gap: 10px; }}
-    .chart-svg {{ width: 100%; height: auto; display: block; border-radius: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); }}
-    .chart-meta {{ display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 0.82rem; }}
-    .chart-empty {{ display: grid; place-items: center; min-height: 220px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.12); color: var(--muted); }}
-    .health-list {{ display: grid; gap: 10px; }}
-    .health-row {{ display: grid; grid-template-columns: 1.1fr 0.4fr 1.8fr; gap: 10px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.02); }}
-    .health-ok {{ border: 1px solid rgba(54, 217, 138, 0.2); }}
-    .health-fail {{ border: 1px solid rgba(255, 93, 115, 0.2); }}
-    .event-bars, .source-mix, .leader-rotation, .decision-cards {{ display: grid; gap: 10px; }}
-    .decision-cards {{ grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }}
-    .decision-card {{ padding: 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); }}
-    .decision-card .eyebrow {{ color: var(--muted); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.08em; }}
-    .decision-card .big {{ margin-top: 8px; font-size: 1.05rem; font-weight: 700; word-break: break-word; }}
-    .event-bar {{ display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: 12px; background: linear-gradient(90deg, rgba(76,201,240,0.16), rgba(76,201,240,0.05)); border: 1px solid rgba(76,201,240,0.18); }}
-    .event-bar span {{ color: var(--muted); text-transform: uppercase; font-size: 0.82rem; }}
-    .source-chip, .leader-row {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); }}
-    .source-chip span, .leader-row span {{ color: var(--muted); text-transform: uppercase; font-size: 0.82rem; }}
-    .pulse-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(32px, 1fr)); gap: 8px; align-items: end; min-height: 180px; }}
-    .pulse-bar-wrap {{ display: grid; gap: 8px; justify-items: center; align-items: end; }}
-    .pulse-bar {{ width: 100%; max-width: 28px; border-radius: 999px 999px 4px 4px; background: linear-gradient(180deg, #4cc9f0, #2a7a9a); min-height: 10px; }}
-    .pulse-bar-wrap span {{ color: var(--muted); font-size: 0.75rem; }}
-    .timeline {{ display: grid; gap: 12px; max-height: 640px; overflow: auto; }}
-    .timeline-event {{ border-left: 3px solid var(--accent); padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 0 12px 12px 0; }}
-    .timeline-event header {{ display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }}
-    .timeline-event time {{ color: var(--muted); font-size: 0.85rem; }}
-    .timeline-source {{ margin-bottom: 10px; color: var(--accent); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; }}
-    .warnings ul {{ margin: 0; padding-left: 18px; }}
-    .warnings li {{ margin: 8px 0; color: #ffd7a1; }}
-    pre {{ margin: 0; white-space: pre-wrap; word-break: break-word; background: rgba(3, 10, 18, 0.72); color: #c8f1ff; padding: 12px; border-radius: 12px; overflow: auto; }}
-    @media (max-width: 980px) {{ .main-grid {{ grid-template-columns: 1fr; }} .hero {{ flex-direction: column; align-items: start; }} }}
+    :root {{
+      --bg-deep: #060a10;
+      --bg: #0c1018;
+      --bg-panel: linear-gradient(145deg, rgba(16,24,40,0.95), rgba(10,16,28,0.98));
+      --bg-card: rgba(18,28,45,0.8);
+      --fg: #e4eaf2;
+      --fg-muted: #6b7d95;
+      --accent: #00d4ff;
+      --accent-glow: rgba(0,212,255,0.25);
+      --success: #00ff88;
+      --success-bg: rgba(0,255,136,0.1);
+      --warning: #ffb800;
+      --danger: #ff4466;
+      --danger-bg: rgba(255,68,102,0.1);
+      --border: rgba(100,130,170,0.15);
+      --border-accent: rgba(0,212,255,0.3);
+      --shadow: 0 8px 32px rgba(0,0,0,0.4);
+      --radius: 16px;
+      --radius-sm: 8px;
+    }}
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
+      background: var(--bg-deep);
+      color: var(--fg);
+      min-height: 100vh;
+      line-height: 1.5;
+    }}
+    .app {{
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 24px;
+    }}
+    .header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .header-left {{
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }}
+    .logo {{
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent), #0088cc);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }}
+    .title-group h1 {{
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: linear-gradient(90deg, var(--fg), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }}
+    .title-group p {{
+      font-size: 0.8rem;
+      color: var(--fg-muted);
+      margin-top: 2px;
+    }}
+    .status-badge {{
+      padding: 10px 20px;
+      border-radius: 100px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid;
+    }}
+    .status-badge.ok {{
+      background: var(--success-bg);
+      color: var(--success);
+      border-color: rgba(0,255,136,0.3);
+    }}
+    .status-badge.fail {{
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: rgba(255,68,102,0.3);
+      animation: pulse-danger 2s infinite;
+    }}
+    @keyframes pulse-danger {{
+      0%, 100% {{ box-shadow: 0 0 0 0 rgba(255,68,102,0.4); }}
+      50% {{ box-shadow: 0 0 0 10px rgba(255,68,102,0); }}
+    }}
+    .metrics-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }}
+    .metric {{
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }}
+    .metric:hover {{
+      transform: translateY(-2px);
+      box-shadow: var(--shadow);
+    }}
+    .metric::before {{
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), transparent);
+    }}
+    .metric-label {{
+      font-size: 0.72rem;
+      color: var(--fg-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }}
+    .metric-value {{
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--fg);
+    }}
+    .metric-value.positive {{ color: var(--success); }}
+    .metric-value.negative {{ color: var(--danger); }}
+    .metric-sub {{
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      margin-top: 6px;
+    }}
+    .main-layout {{
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+    }}
+    .left-panel, .right-panel {{
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }}
+    .card {{
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }}
+    .card-header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .card-title {{
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--fg-muted);
+    }}
+    .card-title::before {{
+      content: '■';
+      margin-right: 8px;
+      color: var(--accent);
+    }}
+    .chart-container {{
+      background: rgba(0,0,0,0.2);
+      border-radius: var(--radius-sm);
+      padding: 12px;
+      margin-top: 8px;
+    }}
+    .chart-svg, .bar-svg, .timeline-svg, .pie-svg {{
+      width: 100%;
+      height: auto;
+      display: block;
+    }}
+    .chart-svg .grid-line {{ stroke: rgba(100,130,170,0.1); stroke-width: 1; }}
+    .chart-svg .axis-label {{ font-size: 9px; fill: var(--fg-muted); }}
+    .chart-svg .chart-dot {{ filter: drop-shadow(0 0 4px currentColor); }}
+    .chart-empty {{
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 160px;
+      color: var(--fg-muted);
+      font-size: 0.85rem;
+      gap: 8px;
+    }}
+    .chart-empty-icon {{ font-size: 2rem; opacity: 0.3; }}
+    .pie-container {{ display: flex; align-items: center; gap: 20px; }}
+    .pie-svg {{ width: 140px; height: 140px; flex-shrink: 0; }}
+    .pie-slice {{ transition: transform 0.2s; transform-origin: center; }}
+    .pie-slice:hover {{ transform: scale(1.05); }}
+    .pie-legend {{ display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }}
+    .legend-item {{ display: flex; align-items: center; gap: 8px; }}
+    .legend-color {{ width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }}
+    .legend-label {{ color: var(--fg-muted); flex: 1; }}
+    .legend-value {{ font-weight: 600; }}
+    .bar-svg .bar-rect {{ transition: opacity 0.2s; }}
+    .bar-svg .bar-rect:hover {{ opacity: 0.8; }}
+    .bar-svg .bar-value {{ font-size: 9px; fill: var(--fg); font-weight: 600; }}
+    .bar-svg .bar-label {{ font-size: 8px; fill: var(--fg-muted); }}
+    .timeline-svg .timeline-line {{ stroke: var(--border); stroke-width: 2; stroke-dasharray: 4 4; }}
+    .timeline-svg .timeline-dot {{ filter: drop-shadow(0 0 6px currentColor); transition: r 0.2s; }}
+    .timeline-svg .timeline-dot.current {{ animation: pulse-dot 1.5s infinite; }}
+    @keyframes pulse-dot {{
+      0%, 100% {{ r: 12; }}
+      50% {{ r: 16; }}
+    }}
+    .timeline-svg .timeline-label {{ font-size: 10px; fill: var(--fg); font-weight: 600; }}
+    .timeline-svg .timeline-time {{ font-size: 8px; fill: var(--fg-muted); }}
+    .health-grid {{ display: flex; flex-direction: column; gap: 10px; }}
+    .health-item {{
+      display: grid;
+      grid-template-columns: 8px 1fr 80px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      background: rgba(0,0,0,0.2);
+      border-radius: var(--radius-sm);
+      border-left: 3px solid transparent;
+    }}
+    .health-item.status-ok {{ border-left-color: var(--success); }}
+    .health-item.status-fail {{ border-left-color: var(--danger); }}
+    .health-status-dot {{
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--fg-muted);
+    }}
+    .status-ok .health-status-dot {{ background: var(--success); box-shadow: 0 0 8px var(--success); }}
+    .status-fail .health-status-dot {{ background: var(--danger); box-shadow: 0 0 8px var(--danger); }}
+    .health-name {{ font-size: 0.8rem; font-weight: 500; }}
+    .health-status {{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .status-ok .health-status {{ color: var(--success); }}
+    .status-fail .health-status {{ color: var(--danger); }}
+    .health-msg {{ font-size: 0.75rem; color: var(--fg-muted); }}
+    .decision-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }}
+    .decision-item {{
+      background: rgba(0,0,0,0.25);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+    }}
+    .decision-label {{
+      font-size: 0.68rem;
+      color: var(--fg-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }}
+    .decision-value {{
+      font-size: 1rem;
+      font-weight: 600;
+      word-break: break-word;
+    }}
+    .pulse-container {{
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      height: 140px;
+      padding: 16px 0;
+      gap: 4px;
+    }}
+    .pulse-col {{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100%;
+      justify-content: flex-end;
+    }}
+    .pulse-bar {{
+      width: 100%;
+      max-width: 28px;
+      background: linear-gradient(180deg, var(--accent), #0066aa);
+      border-radius: 4px 4px 0 0;
+      min-height: 12px;
+      transition: height 0.3s;
+    }}
+    .pulse-label {{
+      font-size: 0.65rem;
+      color: var(--fg-muted);
+      margin-top: 6px;
+    }}
+    .data-list {{ display: flex; flex-direction: column; gap: 8px; }}
+    .data-row {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.2);
+      border-radius: var(--radius-sm);
+      font-size: 0.8rem;
+      border-left: 2px solid var(--accent);
+    }}
+    .data-row.empty {{ border-left-color: var(--border); color: var(--fg-muted); }}
+    .row-main {{ flex: 1; }}
+    .row-time {{ color: var(--fg-muted); font-size: 0.72rem; }}
+    .source-tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .source-tag {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(0,212,255,0.08);
+      border: 1px solid rgba(0,212,255,0.2);
+      border-radius: 100px;
+      font-size: 0.75rem;
+    }}
+    .source-tag span {{ color: var(--fg-muted); }}
+    .source-tag b {{ color: var(--accent); }}
+    .event-list {{ max-height: 320px; overflow-y: auto; }}
+    .event-item {{
+      display: grid;
+      grid-template-columns: 1fr 130px 80px;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+    }}
+    .event-item:last-child {{ border-bottom: none; }}
+    .event-item.empty {{ color: var(--fg-muted); }}
+    .event-type {{ font-weight: 500; color: var(--accent); }}
+    .event-time, .event-source {{ color: var(--fg-muted); font-size: 0.72rem; }}
+    .warnings-list {{ list-style: none; }}
+    .warnings-list li {{
+      padding: 10px 12px;
+      background: rgba(255,184,0,0.1);
+      border-left: 3px solid var(--warning);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin-bottom: 8px;
+      font-size: 0.8rem;
+      color: var(--warning);
+    }}
+    .warnings-list li.no-warning {{
+      background: rgba(0,255,136,0.05);
+      border-left-color: var(--success);
+      color: var(--success);
+    }}
+    .json-view {{
+      background: rgba(0,0,0,0.3);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      font-size: 0.72rem;
+      color: #8be9fd;
+      overflow-x: auto;
+      max-height: 200px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }}
+    .refresh-indicator {{
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      font-size: 0.75rem;
+      color: var(--fg-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .refresh-dot {{
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      animation: blink 1s infinite;
+    }}
+    @keyframes blink {{
+      0%, 100% {{ opacity: 1; }}
+      50% {{ opacity: 0.3; }}
+    }}
+    @media (max-width: 1200px) {{
+      .main-layout {{ grid-template-columns: 1fr; }}
+      .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
+    }}
+    @media (max-width: 768px) {{
+      .metrics-grid {{ grid-template-columns: 1fr; }}
+      .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
+      .decision-grid {{ grid-template-columns: 1fr; }}
+    }}
   </style>
 </head>
 <body>
-  <main class="desk-shell">
-    <div class="hero">
-      <div>
-        <h1>Momentum Alpha Dashboard</h1>
-        <p>Trade desk view with live health, state, and event flow. Auto refresh every 5 seconds.</p>
+  <div class="app">
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">M</div>
+        <div class="title-group">
+          <h1>Momentum Alpha</h1>
+          <p>Leader Rotation Strategy · Real-time Trading Monitor</p>
+        </div>
       </div>
-      <div class="status-pill {'ok' if snapshot['health']['overall_status'] == 'OK' else 'fail'}">overall={escape(snapshot['health']['overall_status'])}</div>
-    </div>
-    <div class="metrics">
-      <article class="metric-card"><div class="label">Leader</div><div class="value">{escape(str(runtime['previous_leader_symbol']))}</div><div class="sub">Current previous leader symbol</div></article>
-      <article class="metric-card"><div class="label">Positions</div><div class="value">{runtime['position_count']}</div><div class="sub">Open local positions</div></article>
-      <article class="metric-card"><div class="label">Order States</div><div class="value">{runtime['order_status_count']}</div><div class="sub">Tracked order lifecycle entries</div></article>
-      <article class="metric-card"><div class="label">Latest Tick</div><div class="value">{escape(format_timestamp_for_display(runtime['latest_tick_timestamp']))}</div><div class="sub">Most recent poll tick seen</div></article>
-      <article class="metric-card"><div class="label">Wallet Balance</div><div class="value">{escape(wallet_balance)}</div><div class="sub">Futures wallet balance</div></article>
-      <article class="metric-card"><div class="label">Available Balance</div><div class="value">{escape(available_balance)}</div><div class="sub">Available collateral</div></article>
-      <article class="metric-card"><div class="label">Equity</div><div class="value">{escape(equity)}</div><div class="sub">Current net value</div></article>
-      <article class="metric-card {'pnl-negative' if str(unrealized_pnl).startswith('-') else 'pnl-positive'}"><div class="label">Unrealized PnL</div><div class="value">{escape(unrealized_pnl)}</div><div class="sub">Mark-to-market drift</div></article>
-    </div>
-    <div class="main-grid">
-      <div class="stack">
-        <section>
-          <h2>Account Equity Curve</h2>
-          <div class="chart-shell">
-            {equity_chart}
-            <div class="chart-meta"><span>Net value curve from SQLite snapshots</span><span>{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span></div>
-          </div>
-        </section>
-        <section>
-          <h2>Wallet Balance Curve</h2>
-          <div class="chart-shell">
-            {wallet_chart}
-            <div class="chart-meta"><span>Wallet balance accumulation</span><span>{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span></div>
-          </div>
-        </section>
-        <section>
-          <h2>Health Matrix</h2>
-          <div class="health-list">{health_items}</div>
-        </section>
-        <section>
-          <h2>Decision Overview</h2>
-          <div class="decision-cards">
-            <article class="decision-card"><div class="eyebrow">Latest Decision</div><div class="big">{escape(str(decision_status))}</div></article>
-            <article class="decision-card"><div class="eyebrow">Target Symbol</div><div class="big">{escape(str(latest_signal_symbol))}</div></article>
-            <article class="decision-card"><div class="eyebrow">Blocked Reason</div><div class="big">{escape(str(blocked_reason or 'none'))}</div></article>
-            <article class="decision-card"><div class="eyebrow">Decision Time</div><div class="big">{escape(latest_signal_time)}</div></article>
-          </div>
-        </section>
-        <section class="warnings">
-          <h2>Warnings</h2>
-          <ul>{warnings}</ul>
-        </section>
+      <div class="status-badge {'ok' if health_status == 'OK' else 'fail'}">{escape(health_status)}</div>
+    </header>
+    <div class="metrics-grid">
+      <div class="metric">
+        <div class="metric-label">Current Leader</div>
+        <div class="metric-value">{escape(str(runtime['previous_leader_symbol'] or '-'))}</div>
+        <div class="metric-sub">Highest daily gain symbol</div>
       </div>
-      <div class="stack">
-        <section>
-          <h2>Event Pulse</h2>
-          <div class="event-bars">{event_bars}</div>
-        </section>
-        <section>
-          <h2>Pulse Window</h2>
-          <div class="pulse-grid">{pulse_bars}</div>
-        </section>
-        <section>
-          <h2>Source Mix</h2>
-          <div class="source-mix">{source_bars}</div>
-        </section>
-        <section>
-          <h2>Leader Timeline</h2>
-          <div class="leader-rotation">{leader_rows}</div>
-        </section>
-        <section>
-          <h2>Leader Rotation</h2>
-          <div class="leader-rotation">{leader_rows}</div>
-        </section>
-        <section>
-          <h2>Latest Signal</h2>
-          <pre>{escape(json.dumps(latest_signal, ensure_ascii=False, indent=2))}</pre>
-        </section>
-        <section>
-          <h2>Blocked Reason</h2>
-          <div class="leader-rotation"><div class='leader-row'><span>{escape(str(blocked_reason or 'none'))}</span><time>{escape(format_timestamp_for_display(latest_signal.get('timestamp')))}</time></div></div>
-        </section>
-        <section>
-          <h2>Broker Activity</h2>
-          <pre>{escape(json.dumps(latest_broker_order, ensure_ascii=False, indent=2))}</pre>
-        </section>
-        <section>
-          <h2>Position Snapshot</h2>
-          <pre>{escape(json.dumps(latest_position_snapshot, ensure_ascii=False, indent=2))}</pre>
-        </section>
-        <section>
-          <h2>Recent Signal Decisions</h2>
-          <div class="leader-rotation">{recent_signal_rows}</div>
-        </section>
-        <section>
-          <h2>Recent Broker Orders</h2>
-          <div class="leader-rotation">{recent_broker_rows}</div>
-        </section>
-        <section>
-          <h2>Account Snapshots</h2>
-          <div class="leader-rotation">{recent_account_rows}</div>
-        </section>
-        <section>
-          <h2>Latest Result</h2>
-          <pre>{escape(json.dumps(runtime, ensure_ascii=False, indent=2))}</pre>
-        </section>
+      <div class="metric">
+        <div class="metric-label">Positions</div>
+        <div class="metric-value">{runtime['position_count']}</div>
+        <div class="metric-sub">{runtime['order_status_count']} tracked orders</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Wallet Balance</div>
+        <div class="metric-value">{escape(wallet_balance)}</div>
+        <div class="metric-sub">USDT futures wallet</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Unrealized PnL</div>
+        <div class="metric-value {'positive' if pnl_positive else 'negative'}">{escape(unrealized_pnl)}</div>
+        <div class="metric-sub">Mark-to-market</div>
       </div>
     </div>
-    <section style="margin-top: 16px;">
-      <h2>Recent Event Timeline</h2>
-      <div class="timeline">{recent_events}</div>
-    </section>
-  </main>
+    <div class="main-layout">
+      <div class="left-panel">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Account Equity Curve</span>
+            <span style="font-size:0.75rem;color:var(--fg-muted)">{escape(format_timestamp_for_display(latest_account_snapshot.get('timestamp')))}</span>
+          </div>
+          <div class="chart-container">{equity_chart}</div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Wallet Balance History</span>
+          </div>
+          <div class="chart-container">{wallet_chart}</div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Leader Rotation Timeline</span>
+          </div>
+          <div class="chart-container">{timeline_chart}</div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">System Health</span>
+          </div>
+          <div class="health-grid">{health_items_html}</div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Decision Status</span>
+          </div>
+          <div class="decision-grid">
+            <div class="decision-item">
+              <div class="decision-label">Latest Decision</div>
+              <div class="decision-value">{escape(str(decision_status))}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Target Symbol</div>
+              <div class="decision-value">{escape(str(latest_signal_symbol))}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Blocked Reason</div>
+              <div class="decision-value">{escape(str(blocked_reason or 'None'))}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Decision Time</div>
+              <div class="decision-value">{escape(latest_signal_time)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="right-panel">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Event Distribution</span></div>
+          <div class="chart-container">{pie_chart}</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Event Activity (10min)</span></div>
+          <div class="pulse-container">{pulse_html}</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Signal Decisions</span></div>
+          <div class="data-list">{signal_rows_html}</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Broker Orders</span></div>
+          <div class="data-list">{broker_rows_html}</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Account Snapshots</span></div>
+          <div class="data-list">{account_rows_html}</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Warnings</span></div>
+          <ul class="warnings-list">{warnings_html}</ul>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Source Distribution</span></div>
+          <div class="source-tags">{source_html}</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header"><span class="card-title">Recent Events</span></div>
+      <div class="event-list">{recent_events_html}</div>
+    </div>
+  </div>
+  <div class="refresh-indicator">
+    <div class="refresh-dot"></div>
+    <span>Auto refresh: 5s</span>
+  </div>
   <script>
     async function refreshDashboard() {{
       try {{
-        const response = await fetch('/api/dashboard', {{ cache: 'no-store' }});
-        if (!response.ok) return;
-        const payload = await response.json();
-        document.title = `Momentum Alpha Dashboard · ${{payload.health.overall_status}}`;
+        const res = await fetch('/api/dashboard', {{ cache: 'no-store' }});
+        if (!res.ok) return;
+        const data = await res.json();
+        document.title = `Momentum Alpha | ${{data.health.overall_status}}`;
         window.location.reload();
-      }} catch (error) {{
-        console.error(error);
-      }}
+      }} catch (e) {{ console.error(e); }}
     }}
     setInterval(refreshDashboard, 5000);
   </script>
