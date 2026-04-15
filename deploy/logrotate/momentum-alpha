@@ -1,4 +1,4 @@
-/root/momentum_alpha/var/log/momentum-alpha.log /root/momentum_alpha/var/log/momentum-alpha-user-stream.log {
+/root/momentum_alpha/var/log/momentum-alpha.log /root/momentum_alpha/var/log/momentum-alpha-user-stream.log /root/momentum_alpha/var/log/momentum-alpha-dashboard.log {
     daily
     rotate 14
     compress

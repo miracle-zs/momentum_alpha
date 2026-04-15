@@ -1,0 +1,17 @@
+[Unit]
+Description=Momentum Alpha Dashboard Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
+ExecStart=%h/momentum_alpha/scripts/run_dashboard.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log
+
+[Install]
+WantedBy=multi-user.target

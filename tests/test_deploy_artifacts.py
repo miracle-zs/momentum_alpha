@@ -24,12 +24,24 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('deploy/logrotate/momentum-alpha', content)
         self.assertIn('/etc/logrotate.d/momentum-alpha', content)
 
+    def test_install_systemd_script_installs_dashboard_service(self) -> None:
+        content = (ROOT / "scripts" / "install_systemd.sh").read_text()
+        self.assertIn('deploy/systemd/momentum-alpha-dashboard.service', content)
+        self.assertIn('enable --now momentum-alpha-dashboard.service', content)
+
     def test_logrotate_policy_rotates_project_logs(self) -> None:
         content = (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text()
         self.assertIn('/var/log/momentum-alpha.log', content)
         self.assertIn('/var/log/momentum-alpha-user-stream.log', content)
+        self.assertIn('/var/log/momentum-alpha-dashboard.log', content)
         self.assertIn('daily', content)
         self.assertIn('rotate 14', content)
+
+    def test_dashboard_systemd_unit_executes_dashboard_script(self) -> None:
+        content = (ROOT / "deploy" / "systemd" / "momentum-alpha-dashboard.service").read_text()
+        self.assertIn('ExecStart=%h/momentum_alpha/scripts/run_dashboard.sh', content)
+        self.assertIn('StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log', content)
+        self.assertIn('StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log', content)
 
     def test_check_health_script_invokes_healthcheck_command(self) -> None:
         content = (ROOT / "scripts" / "check_health.sh").read_text()
