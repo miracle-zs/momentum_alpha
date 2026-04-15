@@ -7,6 +7,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from dataclasses import dataclass
+from momentum_alpha.state_store import StoredStrategyState, _deserialize_state, _serialize_state
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -99,8 +102,58 @@ CREATE INDEX IF NOT EXISTS idx_account_snapshots_timestamp
     ON account_snapshots(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_account_snapshots_leader_timestamp
     ON account_snapshots(leader_symbol, timestamp DESC);
-"""
 
+CREATE TABLE IF NOT EXISTS strategy_state (
+    id INTEGER PRIMARY KEY,
+    payload_json TEXT NOT NULL
+);
+"""
+@dataclass(frozen=True)
+class RuntimeStateStore:
+    path: Path
+
+    def load(self) -> StoredStrategyState | None:
+        if not self.path.exists():
+            return None
+        with _connect(self.path) as connection:
+            row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
+        if not row:
+            return None
+        return _deserialize_state(json.loads(row[0]))
+
+    def save(self, state: StoredStrategyState) -> None:
+        bootstrap_runtime_db(path=self.path)
+        with _connect(self.path) as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
+                (_json_dumps(_serialize_state(state)),),
+            )
+
+    def merge_save(self, state: StoredStrategyState) -> None:
+        bootstrap_runtime_db(path=self.path)
+        with _connect(self.path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
+            existing = _deserialize_state(json.loads(row[0])) if row else None
+            merged = StoredStrategyState(
+                current_day=state.current_day,
+                previous_leader_symbol=state.previous_leader_symbol,
+                positions=state.positions if state.positions is not None else (existing.positions if existing is not None else None),
+                processed_event_ids=(
+                    state.processed_event_ids
+                    if state.processed_event_ids is not None
+                    else (existing.processed_event_ids if existing is not None else None)
+                ),
+                order_statuses=(
+                    state.order_statuses
+                    if state.order_statuses is not None
+                    else (existing.order_statuses if existing is not None else None)
+                ),
+            )
+            connection.execute(
+                "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
+                (_json_dumps(_serialize_state(merged)),),
+            )
 
 def _json_dumps(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)

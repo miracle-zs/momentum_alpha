@@ -51,3 +51,30 @@ class BinanceOrderPayloadTests(unittest.TestCase):
         self.assertEqual(payload["workingType"], "CONTRACT_PRICE")
         self.assertEqual(payload["quantity"], "0.123")
         self.assertEqual(payload["stopPrice"], "61234.50")
+
+    def test_order_payloads_include_client_order_id_when_provided(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.orders import build_market_entry_order, build_stop_market_order
+
+        symbol = ExchangeSymbol(
+            symbol="BTCUSDT",
+            status="TRADING",
+            filters=SymbolFilters(step_size=Decimal("0.001"), min_qty=Decimal("0.001"), tick_size=Decimal("0.10")),
+            min_notional=Decimal("5"),
+        )
+
+        entry_payload = build_market_entry_order(
+            symbol=symbol,
+            quantity=Decimal("0.1234"),
+            client_order_id="ma_260415120200_BTCUSDT_b00e",
+        )
+        stop_payload = build_stop_market_order(
+            symbol=symbol,
+            quantity=Decimal("0.1234"),
+            stop_price=Decimal("61234.567"),
+            client_order_id="ma_260415120200_BTCUSDT_b00s",
+        )
+
+        self.assertEqual(entry_payload["newClientOrderId"], "ma_260415120200_BTCUSDT_b00e")
+        self.assertEqual(stop_payload["newClientOrderId"], "ma_260415120200_BTCUSDT_b00s")

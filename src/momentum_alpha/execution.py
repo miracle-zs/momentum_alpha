@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.exchange_info import ExchangeSymbol
 from momentum_alpha.models import EntryIntent, MarketSnapshot, Position, PositionLeg, StrategyState, TickDecision
-from momentum_alpha.orders import build_market_entry_order, build_stop_market_order
+from momentum_alpha.orders import build_client_order_id, build_market_entry_order, build_stop_market_order
 from momentum_alpha.sizing import size_from_stop_budget
 
 
@@ -19,6 +19,8 @@ class ExecutionPlan:
 def _build_orders_for_intent(
     *,
     intent: EntryIntent,
+    now: datetime,
+    sequence: int,
     symbols: dict[str, ExchangeSymbol],
     market: dict[str, MarketSnapshot],
     stop_budget: Decimal,
@@ -37,11 +39,29 @@ def _build_orders_for_intent(
     if quantity is None:
         return None
 
-    entry_order = build_market_entry_order(symbol=exchange_symbol, quantity=quantity)
+    opened_at = now.astimezone(timezone.utc)
+    entry_order = build_market_entry_order(
+        symbol=exchange_symbol,
+        quantity=quantity,
+        client_order_id=build_client_order_id(
+            symbol=intent.symbol,
+            opened_at=opened_at,
+            leg_type=intent.leg_type,
+            order_kind="entry",
+            sequence=sequence,
+        ),
+    )
     stop_order = build_stop_market_order(
         symbol=exchange_symbol,
         quantity=quantity,
         stop_price=intent.stop_price,
+        client_order_id=build_client_order_id(
+            symbol=intent.symbol,
+            opened_at=opened_at,
+            leg_type=intent.leg_type,
+            order_kind="stop",
+            sequence=sequence,
+        ),
     )
     return entry_order, stop_order
 
@@ -52,12 +72,20 @@ def build_execution_plan(
     market: dict[str, MarketSnapshot],
     decision: TickDecision,
     stop_budget: Decimal,
+    now: datetime,
 ) -> ExecutionPlan:
     entry_orders: list[dict[str, str]] = []
     stop_orders: list[dict[str, str]] = []
     intents = [*decision.base_entries, *decision.add_on_entries]
-    for intent in intents:
-        built = _build_orders_for_intent(intent=intent, symbols=symbols, market=market, stop_budget=stop_budget)
+    for sequence, intent in enumerate(intents):
+        built = _build_orders_for_intent(
+            intent=intent,
+            now=now,
+            sequence=sequence,
+            symbols=symbols,
+            market=market,
+            stop_budget=stop_budget,
+        )
         if built is None:
             continue
         entry_order, stop_order = built

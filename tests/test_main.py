@@ -255,11 +255,13 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
         from momentum_alpha.runtime_store import (
+            RuntimeStateStore,
             fetch_recent_account_snapshots,
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
         )
+        from momentum_alpha.state_store import FileStateStore
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -307,6 +309,7 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
             runtime_db_path = Path(tmpdir) / "runtime.db"
             result = run_once_live(
                 symbols=["BTCUSDT"],
@@ -315,6 +318,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=True,
+                state_store=FileStateStore(path=state_path),
                 audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
             )
 
@@ -334,6 +338,8 @@ class MainTests(unittest.TestCase):
             self.assertEqual(account_snapshots[0]["available_balance"], "1200.00")
             self.assertEqual(account_snapshots[0]["equity"], "1260.12")
             self.assertEqual(account_snapshots[0]["open_order_count"], 0)
+            mirrored_state = RuntimeStateStore(path=runtime_db_path).load()
+            self.assertEqual(mirrored_state.previous_leader_symbol, "BTCUSDT")
 
     def test_run_once_live_records_blocked_reason_when_leader_switch_does_not_open_position(self) -> None:
         from momentum_alpha.audit import AuditRecorder

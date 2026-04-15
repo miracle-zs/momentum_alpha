@@ -10,6 +10,7 @@ from dataclasses import replace
 from momentum_alpha.binance_client import BINANCE_FSTREAM_WS_URL, BINANCE_TESTNET_FSTREAM_WS_URL
 from momentum_alpha.execution import apply_fill
 from momentum_alpha.models import Position, PositionLeg, StrategyState
+from momentum_alpha.orders import is_strategy_client_order_id
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class UserStreamEvent:
     event_time: datetime | None = None
     order_id: int | None = None
     trade_id: int | None = None
+    client_order_id: str | None = None
 
 
 def parse_user_stream_event(payload: dict) -> UserStreamEvent:
@@ -57,6 +59,7 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
         event_time=datetime.fromtimestamp(int(event_time_ms) / 1000, tz=timezone.utc) if event_time_ms is not None else None,
         order_id=order_payload.get("i"),
         trade_id=order_payload.get("t"),
+        client_order_id=order_payload.get("c"),
     )
 
 
@@ -89,6 +92,7 @@ def extract_order_status_update(event: UserStreamEvent) -> tuple[str, dict | Non
             "status": event.order_status,
             "execution_type": event.execution_type,
             "side": event.side,
+            "client_order_id": event.client_order_id,
             "original_order_type": event.original_order_type,
             "stop_price": str(event.stop_price) if event.stop_price is not None else None,
             "event_time": event.event_time.isoformat() if event.event_time is not None else None,
@@ -137,6 +141,7 @@ def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[
     if not order_statuses:
         return None
     active_statuses = {"NEW", "PARTIALLY_FILLED"}
+    fallback_stop_price: Decimal | None = None
     for order_snapshot in order_statuses.values():
         if order_snapshot.get("symbol") != symbol:
             continue
@@ -150,10 +155,14 @@ def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[
         if stop_price in (None, ""):
             continue
         try:
-            return Decimal(str(stop_price))
+            parsed = Decimal(str(stop_price))
         except (InvalidOperation, TypeError):
             continue
-    return None
+        if is_strategy_client_order_id(order_snapshot.get("client_order_id")):
+            return parsed
+        if fallback_stop_price is None:
+            fallback_stop_price = parsed
+    return fallback_stop_price
 
 
 def apply_user_stream_event_to_state(

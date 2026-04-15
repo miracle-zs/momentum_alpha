@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .health import build_runtime_health_report
 from .runtime_store import (
+    RuntimeStateStore,
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_recent_audit_events,
@@ -21,7 +22,6 @@ from .runtime_store import (
 
 
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
-
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
     if not path.exists():
@@ -391,6 +391,16 @@ def load_dashboard_snapshot(
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=30)
+        if not state_payload:
+            runtime_state = RuntimeStateStore(path=runtime_db_file).load()
+            if runtime_state is not None:
+                state_payload = {
+                    "current_day": runtime_state.current_day,
+                    "previous_leader_symbol": runtime_state.previous_leader_symbol,
+                    "positions": runtime_state.positions or {},
+                    "processed_event_ids": runtime_state.processed_event_ids or [],
+                    "order_statuses": runtime_state.order_statuses or {},
+                }
     else:
         events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
         warnings.extend(audit_warnings)

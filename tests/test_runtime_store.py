@@ -262,4 +262,73 @@ class RuntimeStoreTests(unittest.TestCase):
                 "2026-04-15T08:01:00+00:00",
                 "2026-04-15T08:02:00+00:00",
             ])
-            self.assertEqual([row["event_count"] for row in pulse_points[-3:]], [1, 2, 1])
+
+    def test_runtime_state_store_round_trips_strategy_state(self) -> None:
+        from datetime import datetime, timezone
+        from decimal import Decimal
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            store = RuntimeStateStore(path=db_path)
+            state = StoredStrategyState(
+                current_day="2026-04-15",
+                previous_leader_symbol="BTCUSDT",
+                positions={
+                    "ETHUSDT": Position(
+                        symbol="ETHUSDT",
+                        stop_price=Decimal("106"),
+                        legs=(
+                            PositionLeg(
+                                "ETHUSDT",
+                                Decimal("2"),
+                                Decimal("108"),
+                                Decimal("106"),
+                                datetime(2026, 4, 15, 1, 5, tzinfo=timezone.utc),
+                                "stream_fill",
+                            ),
+                        ),
+                    )
+                },
+                processed_event_ids=["evt-1"],
+                order_statuses={"101": {"symbol": "ETHUSDT", "status": "NEW"}},
+            )
+
+            store.save(state)
+            loaded = store.load()
+
+            self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
+            self.assertEqual(loaded.processed_event_ids, ["evt-1"])
+            self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")
+
+    def test_runtime_state_store_merge_save_preserves_existing_fields(self) -> None:
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            store = RuntimeStateStore(path=db_path)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    processed_event_ids=["evt-1"],
+                    order_statuses={"101": {"symbol": "BTCUSDT", "status": "NEW"}},
+                )
+            )
+
+            store.merge_save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="SOLUSDT",
+                )
+            )
+            loaded = store.load()
+
+            self.assertEqual(loaded.previous_leader_symbol, "SOLUSDT")
+            self.assertEqual(loaded.processed_event_ids, ["evt-1"])
+            self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")

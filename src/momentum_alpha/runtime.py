@@ -61,6 +61,7 @@ def process_runtime_tick(
         market=runtime.market,
         decision=decision,
         stop_budget=Decimal(runtime.config.stop_budget_usdt),
+        now=now,
     )
     next_state = replace(state, previous_leader_symbol=decision.new_previous_leader_symbol)
     return RuntimeTickResult(

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.models import Position, PositionLeg, StrategyState, TickDecision
+from momentum_alpha.orders import is_strategy_client_order_id
 
 
 def _parse_day(current_day: str):
@@ -18,11 +19,19 @@ def restore_state(
     position_risk: list[dict],
     open_orders: list[dict],
 ) -> StrategyState:
-    stop_prices = {
-        order["symbol"]: Decimal(order["stopPrice"])
-        for order in open_orders
-        if order.get("type") == "STOP_MARKET" and order.get("stopPrice") is not None
-    }
+    stop_prices: dict[str, Decimal] = {}
+    fallback_stop_prices: dict[str, Decimal] = {}
+    for order in open_orders:
+        if order.get("type") != "STOP_MARKET" or order.get("stopPrice") is None:
+            continue
+        symbol = order["symbol"]
+        stop_price = Decimal(order["stopPrice"])
+        if is_strategy_client_order_id(order.get("clientOrderId")):
+            stop_prices[symbol] = stop_price
+        elif symbol not in stop_prices:
+            fallback_stop_prices[symbol] = stop_price
+    for symbol, stop_price in fallback_stop_prices.items():
+        stop_prices.setdefault(symbol, stop_price)
 
     positions: dict[str, Position] = {}
     for item in position_risk:

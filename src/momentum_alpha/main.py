@@ -21,6 +21,7 @@ from momentum_alpha.scheduler import run_loop
 from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
 from momentum_alpha.runtime_store import (
+    RuntimeStateStore,
     insert_account_snapshot,
     insert_broker_order,
     insert_position_snapshot,
@@ -86,6 +87,24 @@ def _build_audit_recorder(
     if path is None and runtime_db_path is None:
         return None
     return AuditRecorder(path=path, runtime_db_path=runtime_db_path, source=source)
+
+
+def _build_runtime_state_store(*, audit_recorder: AuditRecorder | None) -> RuntimeStateStore | None:
+    if audit_recorder is None or audit_recorder.runtime_db_path is None:
+        return None
+    return RuntimeStateStore(path=audit_recorder.runtime_db_path)
+
+
+def _merge_save_strategy_state(
+    *,
+    state_store,
+    runtime_state_store: RuntimeStateStore | None,
+    state: StoredStrategyState,
+) -> None:
+    if state_store is not None:
+        state_store.merge_save(state)
+    if runtime_state_store is not None:
+        runtime_state_store.merge_save(state)
 
 
 def _record_position_snapshot(
@@ -515,6 +534,7 @@ def run_once_live(
     market_data_cache: LiveMarketDataCache | None = None,
     audit_recorder: AuditRecorder | None = None,
 ) -> RunOnceResult:
+    runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
     if previous_leader_symbol is None and state_store is not None:
         stored_state = state_store.load()
         if stored_state is not None:
@@ -574,11 +594,13 @@ def run_once_live(
                 ]
             )
     if state_store is not None:
-        state_store.merge_save(
-            StoredStrategyState(
+        _merge_save_strategy_state(
+            state_store=state_store,
+            runtime_state_store=runtime_state_store,
+            state=StoredStrategyState(
                 current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
                 previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
-            )
+            ),
         )
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
@@ -712,6 +734,7 @@ def run_user_stream(
         if audit_recorder_path is not None
         else None
     )
+    runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
     stored_state = state_store.load() if state_store is not None else None
     current_now = now_provider()
     state = StrategyState(
@@ -769,14 +792,16 @@ def run_user_stream(
         if event_id is not None:
             processed_event_ids.add(event_id)
         if state_store is not None:
-            state_store.merge_save(
-                StoredStrategyState(
+            _merge_save_strategy_state(
+                state_store=state_store,
+                runtime_state_store=runtime_state_store,
+                state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
                     previous_leader_symbol=state.previous_leader_symbol,
                     positions=state.positions,
                     processed_event_ids=sorted(processed_event_ids),
                     order_statuses=order_statuses,
-                )
+                ),
             )
         _record_position_snapshot(
             audit_recorder=audit_recorder,
@@ -816,14 +841,16 @@ def run_user_stream(
             if order.get("orderId") not in (None, "")
         }
         if state_store is not None:
-            state_store.merge_save(
-                StoredStrategyState(
+            _merge_save_strategy_state(
+                state_store=state_store,
+                runtime_state_store=runtime_state_store,
+                state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
                     previous_leader_symbol=state.previous_leader_symbol,
                     positions=state.positions,
                     processed_event_ids=sorted(processed_event_ids),
                     order_statuses=order_statuses,
-                )
+                ),
             )
 
     reconnect_attempt = 0

@@ -286,7 +286,8 @@ class DashboardTests(unittest.TestCase):
 
     def test_load_dashboard_snapshot_uses_sqlite_runtime_summary_when_state_file_missing(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
-        from momentum_alpha.runtime_store import insert_position_snapshot, insert_signal_decision
+        from momentum_alpha.runtime_store import RuntimeStateStore, insert_position_snapshot, insert_signal_decision
+        from momentum_alpha.state_store import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -320,6 +321,14 @@ class DashboardTests(unittest.TestCase):
                 symbol_count=538,
                 payload={},
             )
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BLESSUSDT",
+                    processed_event_ids=["evt-1"],
+                    order_statuses={"101": {"symbol": "BLESSUSDT", "status": "NEW"}},
+                )
+            )
 
             snapshot = load_dashboard_snapshot(
                 now=now,
@@ -334,6 +343,7 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["runtime"]["previous_leader_symbol"], "BLESSUSDT")
             self.assertEqual(snapshot["runtime"]["position_count"], 1)
             self.assertEqual(snapshot["runtime"]["order_status_count"], 4)
+            self.assertTrue(any("state file missing" in warning for warning in snapshot["warnings"]))
 
     def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
