@@ -470,7 +470,7 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIsNotNone(request.body)
         assert request.body is not None
         self.assertIn("algoType=CONDITIONAL", request.body)
-        self.assertIn("orderType=STOP_MARKET", request.body)
+        self.assertIn("type=STOP_MARKET", request.body)
         self.assertIn("triggerPrice=61000", request.body)
         self.assertIn("clientAlgoId=ma_foo", request.body)
         self.assertIn("positionSide=LONG", request.body)

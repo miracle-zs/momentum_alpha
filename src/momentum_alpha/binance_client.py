@@ -131,7 +131,6 @@ class BinanceRestClient:
     def new_algo_order(self, **params: str) -> BinanceRequest:
         algo_params = dict(params)
         algo_params["algoType"] = algo_params.get("algoType", "CONDITIONAL")
-        algo_params["orderType"] = algo_params.pop("type")
         if "stopPrice" in algo_params:
             algo_params["triggerPrice"] = algo_params.pop("stopPrice")
         if "newClientOrderId" in algo_params:
