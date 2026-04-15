@@ -220,6 +220,37 @@ def build_position_details(position_snapshot: dict) -> list[dict]:
     return details
 
 
+def render_trade_history_table(orders: list[dict]) -> str:
+    """Render HTML table for trade history."""
+    if not orders:
+        return "<div class='trade-history-empty'>No orders</div>"
+
+    rows = ""
+    for order in orders[:10]:
+        timestamp = order.get("timestamp") or ""
+        time_str = timestamp[11:19] if len(timestamp) >= 19 else timestamp
+        symbol = escape(str(order.get("symbol") or "-"))
+        action = escape(str(order.get("action_type") or "-"))
+        side = order.get("side") or "-"
+        side_class = "side-buy" if side == "BUY" else "side-sell"
+        qty = order.get("quantity") or 0
+        status = order.get("order_status") or "-"
+        status_class = "status-filled" if status == "FILLED" else "status-pending"
+
+        rows += (
+            f"<div class='trade-row'>"
+            f"<span class='trade-time'>{escape(time_str)}</span>"
+            f"<span class='trade-symbol'>{symbol}</span>"
+            f"<span class='trade-action'>{action}</span>"
+            f"<span class='trade-side {side_class}'>{escape(side)}</span>"
+            f"<span class='trade-qty'>{qty}</span>"
+            f"<span class='trade-status {status_class}'>{escape(status)}</span>"
+            f"</div>"
+        )
+
+    return f"<div class='trade-history'>{rows}</div>"
+
+
 def build_dashboard_summary_payload(snapshot: dict) -> dict:
     latest_account = snapshot.get("runtime", {}).get("latest_account_snapshot") or {}
     return {

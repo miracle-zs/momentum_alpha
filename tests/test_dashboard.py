@@ -597,3 +597,44 @@ class DashboardTests(unittest.TestCase):
 
         details = build_position_details({"payload": {}})
         self.assertEqual(details, [])
+
+    def test_render_trade_history_table_generates_html_rows(self) -> None:
+        from momentum_alpha.dashboard import render_trade_history_table
+
+        orders = [
+            {
+                "timestamp": "2026-04-15T09:15:23+00:00",
+                "symbol": "BTCUSDT",
+                "action_type": "base_entry",
+                "side": "BUY",
+                "quantity": 0.015,
+                "order_status": "FILLED",
+            },
+            {
+                "timestamp": "2026-04-15T08:30:15+00:00",
+                "symbol": "ETHUSDT",
+                "action_type": "add_on_entry",
+                "side": "BUY",
+                "quantity": 0.12,
+                "order_status": "NEW",
+            },
+        ]
+
+        html = render_trade_history_table(orders)
+
+        self.assertIn("BTCUSDT", html)
+        self.assertIn("ETHUSDT", html)
+        self.assertIn("base_entry", html)
+        self.assertIn("add_on_entry", html)
+        self.assertIn("09:15:23", html)
+        self.assertIn("08:30:15", html)
+        self.assertIn("0.015", html)
+        self.assertIn("0.12", html)
+        self.assertIn("FILLED", html)
+        self.assertIn("NEW", html)
+
+    def test_render_trade_history_table_shows_empty_message(self) -> None:
+        from momentum_alpha.dashboard import render_trade_history_table
+
+        html = render_trade_history_table([])
+        self.assertIn("No orders", html)
