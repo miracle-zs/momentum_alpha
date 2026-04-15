@@ -37,7 +37,18 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("momentum-alpha.log", content)
         self.assertIn("momentum-alpha-user-stream.log", content)
 
+    def test_check_health_and_notify_script_invokes_serverchan_helper(self) -> None:
+        content = (ROOT / "scripts" / "check_health_and_notify.sh").read_text()
+        self.assertIn("check_health.sh", content)
+        self.assertIn("-m momentum_alpha.serverchan", content)
+        self.assertIn("SERVERCHAN_SENDKEY", content)
+
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
         self.assertIn("audit-report", content)
         self.assertIn('AUDIT_LOG_FILE', content)
+
+    def test_env_example_contains_serverchan_settings(self) -> None:
+        content = (ROOT / "deploy" / "env.example").read_text()
+        self.assertIn("SERVERCHAN_SENDKEY=", content)
+        self.assertIn("SERVERCHAN_STATUS_FILE=", content)

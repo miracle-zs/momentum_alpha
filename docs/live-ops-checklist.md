@@ -15,6 +15,7 @@ Use this checklist during the first production session and any later restart or 
   - `/root/momentum_alpha/var/log`
 - Confirm log rotation is installed at `/etc/logrotate.d/momentum-alpha`
 - Confirm `AUDIT_LOG_FILE` points to a persistent writable path
+- If you want push alerts, confirm `SERVERCHAN_SENDKEY` is set
 
 ## Start Order
 
@@ -32,6 +33,7 @@ Use this checklist during the first production session and any later restart or 
   - `tail -f /root/momentum_alpha/var/log/momentum-alpha-user-stream.log`
   - `tail -f /root/momentum_alpha/var/log/momentum-alpha.log`
 - Run `bash scripts/check_health.sh` after both services are up
+- Optionally run `bash scripts/check_health_and_notify.sh` from cron/systemd timer to push FAIL and recovery alerts through Server酱
 - Reject the session if you see any of:
   - `HTTP Error 403`
   - `HTTP Error 429`
@@ -62,6 +64,7 @@ Use this checklist during the first production session and any later restart or 
   - `truncate -s 0 /root/momentum_alpha/var/log/momentum-alpha.log`
   - `systemctl restart momentum-alpha.service`
 - Use `bash scripts/audit_report.sh` to review the latest structured decision and fill history
+- Use `bash scripts/check_health_and_notify.sh` when you want a deduplicated alert plus recovery notification
 
 ## Daily Checks
 
