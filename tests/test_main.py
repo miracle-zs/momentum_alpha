@@ -2791,6 +2791,71 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
         self.assertEqual(broker.replacements[0], [("BTCUSDT", "0.010", "61000")])
 
+    def test_run_once_live_replaces_missing_stop_for_restored_position_outside_hour_boundary(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                return {"symbol": symbol, "price": "61200"}
+
+            def fetch_klines(self, *, symbol, interval, limit):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                return [[0, "0", "0", "61000", "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return [{"symbol": "BTCUSDT", "positionAmt": "0.010", "entryPrice": "61100", "updateTime": 1700000000000}]
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return []
+
+            def fetch_open_algo_orders(self, *, symbol=None, timestamp_ms=None):
+                return []
+
+        class FakeBroker:
+            def __init__(self) -> None:
+                self.replacements = []
+
+            def submit_execution_plan(self, plan):
+                return []
+
+            def replace_stop_orders(self, *, replacements):
+                self.replacements.append(replacements)
+                return [{"status": "NEW", "type": "STOP_MARKET"}]
+
+        broker = FakeBroker()
+        result = run_once_live(
+            symbols=["BTCUSDT"],
+            now=datetime(2026, 4, 15, 2, 5, tzinfo=timezone.utc),
+            previous_leader_symbol="BTCUSDT",
+            client=FakeClient(),
+            broker=broker,
+            submit_orders=False,
+            restore_positions=True,
+            execute_stop_replacements=True,
+        )
+
+        self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
+        self.assertEqual(broker.replacements[0], [("BTCUSDT", "0.010", "61000")])
+
     def test_run_once_live_executes_hourly_stop_replacement_before_add_on_orders(self) -> None:
         from momentum_alpha.main import run_once_live
 

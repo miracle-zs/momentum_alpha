@@ -16,7 +16,11 @@ from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.exchange_info import parse_exchange_info
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.models import StrategyState
-from momentum_alpha.reconciliation import build_stop_reconciliation_plan, restore_state
+from momentum_alpha.reconciliation import (
+    build_missing_stop_reconciliation_plan,
+    build_stop_reconciliation_plan,
+    restore_state,
+)
 from momentum_alpha.scheduler import run_loop
 from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
@@ -597,6 +601,15 @@ def run_once_live(
             state=initial_state,
             decision=result.runtime_result.decision,
         )
+        runtime_market = build_runtime_from_snapshots(snapshots=snapshots).market
+        missing_stop_replacements = build_missing_stop_reconciliation_plan(
+            state=initial_state,
+            market=runtime_market,
+        )
+        merged_replacements = {symbol: stop_price for symbol, stop_price in stop_replacements}
+        for symbol, stop_price in missing_stop_replacements:
+            merged_replacements.setdefault(symbol, stop_price)
+        stop_replacements = sorted(merged_replacements.items())
         if execute_stop_replacements and stop_replacements:
             broker.replace_stop_orders(
                 replacements=[

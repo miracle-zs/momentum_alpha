@@ -151,3 +151,43 @@ class ReconciliationTests(unittest.TestCase):
 
         plan = build_stop_reconciliation_plan(state=state, decision=decision)
         self.assertEqual(plan, [])
+
+    def test_build_missing_stop_reconciliation_plan_targets_restored_position_without_stop(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.reconciliation import build_missing_stop_reconciliation_plan
+
+        state = StrategyState(
+            current_day=datetime(2026, 4, 15, tzinfo=timezone.utc).date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("0"),
+                    legs=(
+                        PositionLeg(
+                            symbol="BTCUSDT",
+                            quantity=Decimal("0.010"),
+                            entry_price=Decimal("61100"),
+                            stop_price=Decimal("0"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                )
+            },
+        )
+        market = {
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("60000"),
+                latest_price=Decimal("61200"),
+                previous_hour_low=Decimal("61000"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            )
+        }
+
+        plan = build_missing_stop_reconciliation_plan(state=state, market=market)
+        self.assertEqual(plan, [("BTCUSDT", Decimal("61000"))])

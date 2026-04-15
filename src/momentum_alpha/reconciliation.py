@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from momentum_alpha.models import Position, PositionLeg, StrategyState, TickDecision
+from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState, TickDecision
 from momentum_alpha.orders import is_strategy_client_order_id
 
 
@@ -72,4 +72,27 @@ def build_stop_reconciliation_plan(
             continue
         if position.stop_price != target_stop_price:
             replacements.append((symbol, target_stop_price))
+    return replacements
+
+
+def build_missing_stop_reconciliation_plan(
+    *,
+    state: StrategyState,
+    market: dict[str, MarketSnapshot],
+) -> list[tuple[str, Decimal]]:
+    replacements: list[tuple[str, Decimal]] = []
+    for symbol, position in sorted(state.positions.items()):
+        if position.stop_price > Decimal("0"):
+            continue
+        snapshot = market.get(symbol)
+        if snapshot is None or not snapshot.has_previous_hour_candle:
+            continue
+        target_stop_price = (
+            snapshot.current_hour_low
+            if snapshot.latest_price < snapshot.previous_hour_low
+            else snapshot.previous_hour_low
+        )
+        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
+            continue
+        replacements.append((symbol, target_stop_price))
     return replacements
