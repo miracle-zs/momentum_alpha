@@ -4,6 +4,7 @@ __all__ = [
     "binance_client",
     "broker",
     "config",
+    "dashboard",
     "diagnostics",
     "execution",
     "exchange_info",

@@ -43,6 +43,12 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("-m momentum_alpha.serverchan", content)
         self.assertIn("SERVERCHAN_SENDKEY", content)
 
+    def test_run_dashboard_script_prefers_project_venv_python(self) -> None:
+        content = (ROOT / "scripts" / "run_dashboard.sh").read_text()
+        self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
+        self.assertIn("dashboard", content)
+        self.assertIn("--state-file", content)
+
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
         self.assertIn("audit-report", content)
@@ -52,3 +58,8 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "deploy" / "env.example").read_text()
         self.assertIn("SERVERCHAN_SENDKEY=", content)
         self.assertIn("SERVERCHAN_STATUS_FILE=", content)
+
+    def test_readme_mentions_dashboard_script(self) -> None:
+        content = (ROOT / "README.md").read_text()
+        self.assertIn("scripts/run_dashboard.sh", content)
+        self.assertIn("dashboard", content)

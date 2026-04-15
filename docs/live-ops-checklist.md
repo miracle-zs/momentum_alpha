@@ -34,6 +34,7 @@ Use this checklist during the first production session and any later restart or 
   - `tail -f /root/momentum_alpha/var/log/momentum-alpha.log`
 - Run `bash scripts/check_health.sh` after both services are up
 - Optionally run `bash scripts/check_health_and_notify.sh` from cron/systemd timer to push FAIL and recovery alerts through Server酱
+- If you need a quick read-only overview, run `bash scripts/run_dashboard.sh` and inspect `http://127.0.0.1:8080/`
 - Reject the session if you see any of:
   - `HTTP Error 403`
   - `HTTP Error 429`

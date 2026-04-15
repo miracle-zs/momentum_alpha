@@ -1021,6 +1021,38 @@ class MainTests(unittest.TestCase):
             self.assertIn("total_events=1", out.getvalue())
             self.assertIn("tick_result=1", out.getvalue())
 
+    def test_cli_main_supports_dashboard_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        def fake_run_dashboard(**kwargs):
+            calls.append(kwargs)
+            return 0
+
+        exit_code = cli_main(
+            argv=[
+                "dashboard",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8080",
+                "--state-file",
+                "/tmp/state.json",
+                "--poll-log-file",
+                "/tmp/poll.log",
+                "--user-stream-log-file",
+                "/tmp/user-stream.log",
+                "--audit-log-file",
+                "/tmp/audit.jsonl",
+            ],
+            run_dashboard_fn=fake_run_dashboard,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["host"], "127.0.0.1")
+        self.assertEqual(calls[0]["port"], 8080)
+        self.assertEqual(str(calls[0]["state_file"]), "/tmp/state.json")
+
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "momentum_alpha.main", "--help"],

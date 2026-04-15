@@ -12,6 +12,7 @@ from urllib.error import HTTPError
 from momentum_alpha.audit import AuditRecorder, summarize_audit_events
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.binance_client import BINANCE_TESTNET_FAPI_BASE_URL, BinanceRestClient
+from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.exchange_info import parse_exchange_info
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.models import StrategyState
@@ -593,6 +594,7 @@ def cli_main(
     now_provider=None,
     run_forever_fn=None,
     run_user_stream_fn=None,
+    run_dashboard_fn=None,
 ) -> int:
     parser = argparse.ArgumentParser(prog="momentum_alpha")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -630,6 +632,13 @@ def cli_main(
     audit_report_parser.add_argument("--audit-log-file", required=True)
     audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
     audit_report_parser.add_argument("--limit", type=int, default=20)
+    dashboard_parser = subparsers.add_parser("dashboard")
+    dashboard_parser.add_argument("--host", default="127.0.0.1")
+    dashboard_parser.add_argument("--port", type=int, default=8080)
+    dashboard_parser.add_argument("--state-file", required=True)
+    dashboard_parser.add_argument("--poll-log-file", required=True)
+    dashboard_parser.add_argument("--user-stream-log-file", required=True)
+    dashboard_parser.add_argument("--audit-log-file", required=True)
 
     args = parser.parse_args(argv)
     def _default_client_factory(*, testnet: bool = False):
@@ -646,6 +655,7 @@ def cli_main(
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     run_forever_fn = run_forever_fn or run_forever
     run_user_stream_fn = run_user_stream_fn or run_user_stream
+    run_dashboard_fn = run_dashboard_fn or run_dashboard_server
 
     if args.command == "run-once-live":
         runtime_settings = load_runtime_settings_from_env()
@@ -748,6 +758,17 @@ def cli_main(
         for event in summary["recent_events"]:
             print(f"recent timestamp={event['timestamp']} event_type={event['event_type']} payload={event['payload']}")
         return 0
+
+    if args.command == "dashboard":
+        return run_dashboard_fn(
+            host=args.host,
+            port=args.port,
+            state_file=Path(os.path.abspath(args.state_file)),
+            poll_log_file=Path(os.path.abspath(args.poll_log_file)),
+            user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
+            audit_log_file=Path(os.path.abspath(args.audit_log_file)),
+            now_provider=now_provider,
+        )
 
     return 1
 

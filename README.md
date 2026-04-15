@@ -106,6 +106,7 @@ chmod +x scripts/install_logrotate.sh
 chmod +x scripts/check_health.sh
 chmod +x scripts/check_health_and_notify.sh
 chmod +x scripts/audit_report.sh
+chmod +x scripts/run_dashboard.sh
 chmod +x scripts/run_poll.sh
 chmod +x scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
@@ -119,6 +120,7 @@ Relevant artifacts:
 - `scripts/check_health.sh`
 - `scripts/check_health_and_notify.sh`
 - `scripts/audit_report.sh`
+- `scripts/run_dashboard.sh`
 - `scripts/run_poll.sh`
 - `scripts/run_user_stream.sh`
 - `deploy/systemd/momentum-alpha.service`
@@ -136,7 +138,7 @@ python3 -m venv .venv
 ./.venv/bin/python -m pip install -e .[live]
 cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/install_logrotate.sh scripts/run_poll.sh scripts/run_user_stream.sh
-chmod +x scripts/check_health.sh scripts/check_health_and_notify.sh scripts/audit_report.sh
+chmod +x scripts/check_health.sh scripts/check_health_and_notify.sh scripts/audit_report.sh scripts/run_dashboard.sh
 ./scripts/init_runtime_dirs.sh
 ```
 
@@ -166,6 +168,28 @@ Practical live startup order:
 6. Watch `var/log/momentum-alpha-user-stream.log` and `var/log/momentum-alpha.log` for reconnects, keepalive activity, and order flow.
 7. Install log rotation so the two service logs do not grow without bound.
 8. Use `./scripts/check_health.sh` for a scriptable health verdict, `./scripts/check_health_and_notify.sh` for deduplicated Server酱 alerts, and `./scripts/audit_report.sh` for structured replay summaries.
+
+## Dashboard
+
+Start the read-only runtime dashboard locally:
+
+```bash
+./scripts/run_dashboard.sh
+```
+
+Then open:
+
+- `http://127.0.0.1:8080/`
+- `http://127.0.0.1:8080/api/dashboard`
+
+The dashboard reads:
+
+- `state.json`
+- `audit.jsonl`
+- `momentum-alpha.log`
+- `momentum-alpha-user-stream.log`
+
+It is intentionally read-only in this first version.
 
 Pre-go-live review:
 
