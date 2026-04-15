@@ -15,3 +15,15 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "run_user_stream.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"', content)
+
+    def test_install_logrotate_script_installs_project_policy(self) -> None:
+        content = (ROOT / "scripts" / "install_logrotate.sh").read_text()
+        self.assertIn('deploy/logrotate/momentum-alpha', content)
+        self.assertIn('/etc/logrotate.d/momentum-alpha', content)
+
+    def test_logrotate_policy_rotates_project_logs(self) -> None:
+        content = (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text()
+        self.assertIn('/var/log/momentum-alpha.log', content)
+        self.assertIn('/var/log/momentum-alpha-user-stream.log', content)
+        self.assertIn('daily', content)
+        self.assertIn('rotate 14', content)

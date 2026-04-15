@@ -1,0 +1,68 @@
+# Live Ops Checklist
+
+Use this checklist during the first production session and any later restart or incident review.
+
+## Before Starting
+
+- Confirm `deploy/env.local` has the intended production values:
+  - `BINANCE_USE_TESTNET=0`
+  - `SUBMIT_ORDERS=1`
+  - `STATE_FILE=/root/momentum_alpha/var/state.json`
+  - `SYMBOLS=` unless you intentionally want a whitelist
+- Confirm the virtualenv exists and the current code is installed with `./.venv/bin/python -m pip install -e .[live]`
+- Confirm runtime directories exist:
+  - `/root/momentum_alpha/var`
+  - `/root/momentum_alpha/var/log`
+- Confirm log rotation is installed at `/etc/logrotate.d/momentum-alpha`
+
+## Start Order
+
+1. Start `momentum-alpha-user-stream.service`.
+2. Confirm it is `active (running)`.
+3. Start `momentum-alpha.service`.
+4. Confirm it is `active (running)`.
+
+## First 15 Minutes
+
+- Watch both services:
+  - `systemctl status momentum-alpha-user-stream.service -l --no-pager`
+  - `systemctl status momentum-alpha.service -l --no-pager`
+- Watch logs:
+  - `tail -f /root/momentum_alpha/var/log/momentum-alpha-user-stream.log`
+  - `tail -f /root/momentum_alpha/var/log/momentum-alpha.log`
+- Reject the session if you see any of:
+  - `HTTP Error 403`
+  - `HTTP Error 429`
+  - `Traceback`
+  - repeated websocket reconnect failures
+  - repeated service restarts in `journalctl`
+
+## Healthy Signals
+
+- `momentum-alpha-user-stream.service` remains `active (running)` without restart churn
+- `momentum-alpha.service` remains `active (running)` for multiple minute ticks
+- `momentum-alpha.log` shows periodic `tick ...` lines without new errors
+- `momentum-alpha-user-stream.log` does not show repeated prewarm or listen-key failures
+- `/root/momentum_alpha/var/state.json` exists and updates over time
+
+## If Something Breaks
+
+- Check recent service logs first:
+  - `journalctl -u momentum-alpha.service -n 100 --no-pager`
+  - `journalctl -u momentum-alpha-user-stream.service -n 100 --no-pager`
+- Re-run private API diagnostics from the same env file:
+  - `cd /root/momentum_alpha`
+  - `set -a`
+  - `source deploy/env.local`
+  - `set +a`
+  - `bash scripts/diagnose_private_api.sh`
+- If the poll worker fails, clear only the worker log and restart only that service before changing code:
+  - `truncate -s 0 /root/momentum_alpha/var/log/momentum-alpha.log`
+  - `systemctl restart momentum-alpha.service`
+
+## Daily Checks
+
+- Confirm both services are still `active`
+- Confirm log files are rotating instead of growing without bound
+- Confirm there is no repeated error pattern in the latest 100 log lines
+- Confirm `state.json` is still writable and current

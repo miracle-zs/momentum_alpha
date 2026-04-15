@@ -31,6 +31,9 @@ This checklist is the shortest path to deciding whether the current codebase is 
 - Runtime directories exist:
   - `var/`
   - `var/log/`
+- Log rotation is installed for:
+  - `var/log/momentum-alpha.log`
+  - `var/log/momentum-alpha-user-stream.log`
 - Both long-lived workers are enabled:
   - polling worker
   - user-stream worker
@@ -47,9 +50,11 @@ This checklist is the shortest path to deciding whether the current codebase is 
    - stop orders appear in tracked `order_statuses`
    - user stream reconnect logs are visible
    - keepalive loop does not crash
+   - log files rotate cleanly under the installed logrotate policy
 5. Switch the env file from Testnet to production.
 6. Start `user-stream` first.
 7. Start `poll` second.
+8. Keep `docs/live-ops-checklist.md` open for the first live session.
 
 ## Residual Risks Not Yet Eliminated
 
@@ -70,3 +75,4 @@ This checklist is the shortest path to deciding whether the current codebase is 
   - stop order placement
   - user-stream order-state update
   - restart and state restoration
+- Verify `/etc/logrotate.d/momentum-alpha` exists on the server

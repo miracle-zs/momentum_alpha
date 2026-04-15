@@ -102,6 +102,7 @@ cp deploy/env.example .env.local
 cp deploy/env.example deploy/env.local
 chmod +x scripts/init_runtime_dirs.sh
 chmod +x scripts/install_systemd.sh
+chmod +x scripts/install_logrotate.sh
 chmod +x scripts/run_poll.sh
 chmod +x scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
@@ -111,12 +112,15 @@ Relevant artifacts:
 
 - `scripts/init_runtime_dirs.sh`
 - `scripts/install_systemd.sh`
+- `scripts/install_logrotate.sh`
 - `scripts/run_poll.sh`
 - `scripts/run_user_stream.sh`
 - `deploy/systemd/momentum-alpha.service`
 - `deploy/systemd/momentum-alpha-user-stream.service`
+- `deploy/logrotate/momentum-alpha`
 - `deploy/env.example`
 - `docs/live-deployment-checklist.md`
+- `docs/live-ops-checklist.md`
 
 Recommended first-time bootstrap:
 
@@ -125,7 +129,7 @@ python3 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install -e .[live]
 cp deploy/env.example deploy/env.local
-chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/run_poll.sh scripts/run_user_stream.sh
+chmod +x scripts/init_runtime_dirs.sh scripts/install_systemd.sh scripts/install_logrotate.sh scripts/run_poll.sh scripts/run_user_stream.sh
 ./scripts/init_runtime_dirs.sh
 ```
 
@@ -135,6 +139,7 @@ Suggested systemd rollout:
 
 ```bash
 ./scripts/install_systemd.sh
+./scripts/install_logrotate.sh
 ```
 
 The provided unit files already point to `deploy/env.local`.
@@ -152,10 +157,12 @@ Practical live startup order:
 4. Start `momentum-alpha-user-stream.service` first so local order/account state begins converging.
 5. Start `momentum-alpha.service` second so minute polling runs against a warmed state file.
 6. Watch `var/log/momentum-alpha-user-stream.log` and `var/log/momentum-alpha.log` for reconnects, keepalive activity, and order flow.
+7. Install log rotation so the two service logs do not grow without bound.
 
 Pre-go-live review:
 
 - Read `docs/live-deployment-checklist.md` before switching `BINANCE_USE_TESTNET=0` and `SUBMIT_ORDERS=1`.
+- Keep `docs/live-ops-checklist.md` open during the first production session.
 
 ## Safety Notes
 

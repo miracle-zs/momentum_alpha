@@ -1,0 +1,10 @@
+/root/momentum_alpha/var/log/momentum-alpha.log /root/momentum_alpha/var/log/momentum-alpha-user-stream.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0640 root root
+}
