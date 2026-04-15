@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.error import HTTPError
 
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.binance_client import BINANCE_TESTNET_FAPI_BASE_URL, BinanceRestClient
@@ -74,9 +75,10 @@ def run_once(
     broker: BinanceBroker,
     submit_orders: bool,
     initial_state: StrategyState | None = None,
+    exchange_symbols: dict | None = None,
 ) -> RunOnceResult:
     runtime = build_runtime_from_snapshots(snapshots=snapshots).with_exchange_symbols(
-        parse_exchange_info(client.fetch_exchange_info())
+        exchange_symbols if exchange_symbols is not None else parse_exchange_info(client.fetch_exchange_info())
     )
     state = initial_state or StrategyState(
         current_day=date(now.year, now.month, now.day),
@@ -165,29 +167,153 @@ def _fetch_current_hour_klines(*, client, symbol: str, now: datetime):
         return client.fetch_klines(symbol=symbol, interval="1h", limit=1)
 
 
-def _build_live_snapshots(*, symbols: list[str], client, now: datetime) -> list[dict]:
-    snapshots: list[dict] = []
-    for symbol in symbols:
-        ticker = client.fetch_ticker_price(symbol=symbol)
+class LiveMarketDataCache:
+    def __init__(self) -> None:
+        self.exchange_symbols: dict[str, object] | None = None
+        self.daily_open_day: date | None = None
+        self.daily_open_prices: dict[str, Decimal] = {}
+        self.previous_hour_window: tuple[int, int] | None = None
+        self.previous_hour_lows: dict[str, tuple[bool, Decimal]] = {}
+        self.current_hour_window: tuple[int, int] | None = None
+        self.current_hour_lows: dict[str, Decimal] = {}
+
+    def resolve_symbols(self, *, symbols: list[str] | None, client) -> list[str]:
+        requested_symbols = [symbol for symbol in (symbols or []) if symbol]
+        if requested_symbols:
+            return list(dict.fromkeys(requested_symbols))
+        return list(self._exchange_symbols(client=client).keys())
+
+    def exchange_symbol_map(self, *, client) -> dict[str, object]:
+        return self._exchange_symbols(client=client)
+
+    def _exchange_symbols(self, *, client) -> dict[str, object]:
+        if self.exchange_symbols is None:
+            self.exchange_symbols = parse_exchange_info(client.fetch_exchange_info())
+        return self.exchange_symbols
+
+    def latest_prices(self, *, symbols: list[str], client) -> dict[str, Decimal]:
         try:
-            latest_price = Decimal(ticker["price"])
-        except (KeyError, InvalidOperation, TypeError):
+            tickers = client.fetch_ticker_prices()
+            prices: dict[str, Decimal] = {}
+            for ticker in tickers:
+                symbol = ticker.get("symbol")
+                if symbol not in symbols:
+                    continue
+                try:
+                    prices[symbol] = Decimal(ticker["price"])
+                except (KeyError, InvalidOperation, TypeError):
+                    continue
+            return prices
+        except AttributeError:
+            prices = {}
+            for symbol in symbols:
+                ticker = client.fetch_ticker_price(symbol=symbol)
+                try:
+                    prices[symbol] = Decimal(ticker["price"])
+                except (KeyError, InvalidOperation, TypeError):
+                    continue
+            return prices
+
+    def ensure_daily_open_prices(self, *, symbols: list[str], client, now: datetime) -> None:
+        utc_day = now.astimezone(timezone.utc).date()
+        if self.daily_open_day != utc_day:
+            self.daily_open_day = utc_day
+            self.daily_open_prices = {}
+        for symbol in symbols:
+            if symbol in self.daily_open_prices:
+                continue
+            day_open_klines = _fetch_daily_open_klines(client=client, symbol=symbol, now=now)
+            if not day_open_klines:
+                continue
+            self.daily_open_prices[symbol] = Decimal(day_open_klines[0][1])
+
+    def ensure_previous_hour_lows(self, *, symbols: set[str], client, now: datetime) -> None:
+        window = _previous_closed_hour_window_ms(now=now)
+        if self.previous_hour_window != window:
+            self.previous_hour_window = window
+            self.previous_hour_lows = {}
+        for symbol in symbols:
+            if symbol in self.previous_hour_lows:
+                continue
+            hour_klines = _fetch_previous_hour_klines(client=client, symbol=symbol, now=now)
+            if hour_klines:
+                self.previous_hour_lows[symbol] = (True, Decimal(hour_klines[0][3]))
+            else:
+                self.previous_hour_lows[symbol] = (False, Decimal("0"))
+
+    def ensure_current_hour_lows(self, *, symbols: set[str], client, now: datetime) -> None:
+        window = _current_hour_window_ms(now=now)
+        if self.current_hour_window != window:
+            self.current_hour_window = window
+            self.current_hour_lows = {}
+        for symbol in symbols:
+            if symbol in self.current_hour_lows:
+                continue
+            current_hour_klines = _fetch_current_hour_klines(client=client, symbol=symbol, now=now)
+            if current_hour_klines:
+                self.current_hour_lows[symbol] = Decimal(current_hour_klines[0][3])
+
+
+def _build_live_snapshots(
+    *,
+    symbols: list[str],
+    held_symbols: set[str],
+    client,
+    now: datetime,
+    market_data_cache: LiveMarketDataCache | None = None,
+) -> list[dict]:
+    cache = market_data_cache or LiveMarketDataCache()
+    latest_prices = cache.latest_prices(symbols=symbols, client=client)
+    cache.ensure_daily_open_prices(symbols=symbols, client=client, now=now)
+
+    provisional_snapshots: list[dict] = []
+    for symbol in symbols:
+        latest_price = latest_prices.get(symbol)
+        daily_open_price = cache.daily_open_prices.get(symbol)
+        if latest_price is None or daily_open_price is None:
             continue
-        day_open_klines = _fetch_daily_open_klines(client=client, symbol=symbol, now=now)
-        if not day_open_klines:
-            continue
-        hour_klines = _fetch_previous_hour_klines(client=client, symbol=symbol, now=now)
-        current_hour_klines = _fetch_current_hour_klines(client=client, symbol=symbol, now=now)
-        has_previous_hour_candle = len(hour_klines) > 0
-        previous_hour_low = Decimal(hour_klines[0][3]) if has_previous_hour_candle else Decimal("0")
-        current_hour_low = Decimal(current_hour_klines[0][3]) if current_hour_klines else previous_hour_low
-        snapshots.append(
+        provisional_snapshots.append(
             {
                 "symbol": symbol,
-                "daily_open_price": Decimal(day_open_klines[0][1]),
+                "daily_open_price": daily_open_price,
                 "latest_price": latest_price,
-                "previous_hour_low": previous_hour_low,
+                "previous_hour_low": Decimal("0"),
                 "tradable": True,
+                "has_previous_hour_candle": False,
+                "current_hour_low": Decimal("0"),
+            }
+        )
+
+    if not provisional_snapshots:
+        return []
+
+    leader_runtime = build_runtime_from_snapshots(snapshots=provisional_snapshots)
+    leader_snapshot = max(leader_runtime.market.values(), key=lambda item: item.daily_change_pct, default=None)
+    symbols_requiring_hour_data = set(held_symbols)
+    if leader_snapshot is not None:
+        symbols_requiring_hour_data.add(leader_snapshot.symbol)
+
+    cache.ensure_previous_hour_lows(symbols=symbols_requiring_hour_data, client=client, now=now)
+    current_hour_symbols = {
+        symbol
+        for symbol in symbols_requiring_hour_data
+        if cache.previous_hour_lows.get(symbol, (False, Decimal("0")))[0]
+        and latest_prices.get(symbol, Decimal("0")) < cache.previous_hour_lows[symbol][1]
+    }
+    cache.ensure_current_hour_lows(symbols=current_hour_symbols, client=client, now=now)
+
+    snapshots: list[dict] = []
+    for snapshot in provisional_snapshots:
+        symbol = snapshot["symbol"]
+        has_previous_hour_candle, previous_hour_low = cache.previous_hour_lows.get(
+            symbol,
+            (False, Decimal("0")),
+        )
+        current_hour_low = cache.current_hour_lows.get(symbol, previous_hour_low)
+        snapshots.append(
+            {
+                **snapshot,
+                "previous_hour_low": previous_hour_low,
                 "has_previous_hour_candle": has_previous_hour_candle,
                 "current_hour_low": current_hour_low,
             }
@@ -206,14 +332,13 @@ def run_once_live(
     restore_positions: bool = False,
     execute_stop_replacements: bool = False,
     state_store=None,
+    market_data_cache: LiveMarketDataCache | None = None,
 ) -> RunOnceResult:
     if previous_leader_symbol is None and state_store is not None:
         stored_state = state_store.load()
         if stored_state is not None:
             previous_leader_symbol = stored_state.previous_leader_symbol
 
-    resolved_symbols = _resolve_symbols(symbols=symbols, client=client)
-    snapshots = _build_live_snapshots(symbols=resolved_symbols, client=client, now=now)
     initial_state = None
     if restore_positions:
         initial_state = restore_state(
@@ -223,6 +348,20 @@ def run_once_live(
             open_orders=client.fetch_open_orders(),
         )
 
+    resolved_symbols = (
+        market_data_cache.resolve_symbols(symbols=symbols, client=client)
+        if market_data_cache is not None
+        else _resolve_symbols(symbols=symbols, client=client)
+    )
+    held_symbols = set(initial_state.positions) if initial_state is not None else set()
+    snapshots = _build_live_snapshots(
+        symbols=resolved_symbols,
+        held_symbols=held_symbols,
+        client=client,
+        now=now,
+        market_data_cache=market_data_cache,
+    )
+
     result = run_once(
         snapshots=snapshots,
         now=now,
@@ -231,6 +370,9 @@ def run_once_live(
         broker=broker,
         submit_orders=submit_orders,
         initial_state=initial_state,
+        exchange_symbols=(
+            market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
+        ),
     )
     stop_replacements: list[tuple[str, Decimal]] = []
     if restore_positions and initial_state is not None:
@@ -274,7 +416,7 @@ def run_user_stream(
     stream_client_factory=None,
     reconnect_sleep_fn=None,
 ) -> int:
-    now_provider = now_provider or (lambda: datetime.utcnow().replace(tzinfo=timezone.utc))
+    now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
     stored_state = state_store.load() if state_store is not None else None
     current_now = now_provider()
@@ -409,7 +551,7 @@ def cli_main(
 
     client_factory = client_factory or _default_client_factory
     broker_factory = broker_factory or (lambda client: BinanceBroker(client=client))
-    now_provider = now_provider or (lambda: datetime.utcnow())
+    now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     run_forever_fn = run_forever_fn or run_forever
     run_user_stream_fn = run_user_stream_fn or run_user_stream
 
@@ -490,7 +632,9 @@ def run_forever(
 ) -> int:
     client = client_factory()
     broker = broker_factory(client)
-    resolved_symbols = _resolve_symbols(symbols=symbols, client=client)
+    market_data_cache = LiveMarketDataCache()
+    resolved_symbols = market_data_cache.resolve_symbols(symbols=symbols, client=client)
+    rate_limited_until = None
 
     def _log(message: str) -> None:
         if hasattr(logger, "info"):
@@ -501,18 +645,41 @@ def run_forever(
     _log(f"tracking symbols={resolved_symbols}")
 
     def _run_once(now):
+        nonlocal rate_limited_until
+        if rate_limited_until is not None and now < rate_limited_until:
+            _log(f"rate-limit-backoff until={rate_limited_until.isoformat()}")
+            return
         _log(f"tick {now.isoformat()}")
-        run_once_live_fn(
-            symbols=resolved_symbols,
-            now=now,
-            previous_leader_symbol=previous_leader_symbol,
-            client=client,
-            broker=broker,
-            submit_orders=submit_orders,
-            state_store=state_store,
-            restore_positions=restore_positions,
-            execute_stop_replacements=execute_stop_replacements,
-        )
+        try:
+            try:
+                run_once_live_fn(
+                    symbols=resolved_symbols,
+                    now=now,
+                    previous_leader_symbol=previous_leader_symbol,
+                    client=client,
+                    broker=broker,
+                    submit_orders=submit_orders,
+                    state_store=state_store,
+                    restore_positions=restore_positions,
+                    execute_stop_replacements=execute_stop_replacements,
+                    market_data_cache=market_data_cache,
+                )
+            except TypeError:
+                run_once_live_fn(
+                    symbols=resolved_symbols,
+                    now=now,
+                    previous_leader_symbol=previous_leader_symbol,
+                    client=client,
+                    broker=broker,
+                    submit_orders=submit_orders,
+                    state_store=state_store,
+                    restore_positions=restore_positions,
+                    execute_stop_replacements=execute_stop_replacements,
+                )
+        except HTTPError as exc:
+            if exc.code == 429:
+                rate_limited_until = now + timedelta(minutes=2)
+            raise
 
     def _handle_error(exc, now):
         _log(f"error at {now.isoformat()}: {exc}")

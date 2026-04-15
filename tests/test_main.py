@@ -9,6 +9,7 @@ from io import StringIO
 from pathlib import Path
 from contextlib import redirect_stdout
 from tempfile import TemporaryDirectory
+from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1844,6 +1845,65 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertEqual(recorded[0]["symbols"], ["BTCUSDT", "ETHUSDT"])
+
+    def test_run_forever_applies_rate_limit_backoff_after_http_429(self) -> None:
+        from momentum_alpha.main import run_forever
+
+        calls = []
+        logs = []
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                            ],
+                        }
+                    ]
+                }
+
+        def fake_run_once_live(**kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise HTTPError(
+                    url="https://fapi.binance.com/fapi/v1/ticker/price",
+                    code=429,
+                    msg="Too Many Requests",
+                    hdrs=None,
+                    fp=None,
+                )
+
+        times = iter(
+            [
+                datetime(2026, 4, 15, 1, 1, 0, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 2, 0, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 3, 0, tzinfo=timezone.utc),
+            ]
+        )
+        exit_code = run_forever(
+            symbols=["BTCUSDT"],
+            previous_leader_symbol=None,
+            submit_orders=True,
+            state_store=None,
+            client_factory=lambda: FakeClient(),
+            broker_factory=lambda client: object(),
+            now_provider=lambda: next(times),
+            sleep_fn=lambda seconds: None,
+            logger=lambda message: logs.append(message),
+            max_ticks=3,
+            run_once_live_fn=fake_run_once_live,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(any("rate-limit-backoff" in message for message in logs))
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever

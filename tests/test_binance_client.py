@@ -215,6 +215,23 @@ class BinanceClientTests(unittest.TestCase):
         self.assertEqual(payload["symbol"], "BTCUSDT")
         self.assertIn("symbol=BTCUSDT", client.requests[0].url)
 
+    def test_fetch_ticker_prices_without_symbol_uses_batch_endpoint(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeClient(BinanceRestClient):
+            def __init__(self) -> None:
+                super().__init__(api_key="key", api_secret="secret")
+                self.requests = []
+
+            def send(self, request):
+                self.requests.append(request)
+                return [{"symbol": "BTCUSDT", "price": "61234.56"}]
+
+        client = FakeClient()
+        payload = client.fetch_ticker_prices()
+        self.assertEqual(payload[0]["symbol"], "BTCUSDT")
+        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v1/ticker/price")
+
     def test_fetch_klines_uses_interval_and_limit(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
 

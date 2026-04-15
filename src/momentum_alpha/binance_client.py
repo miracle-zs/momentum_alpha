@@ -145,6 +145,13 @@ class BinanceRestClient:
             )
         )
 
+    def fetch_ticker_prices(self) -> list[dict]:
+        return self.send(
+            self.build_public_request(
+                path="/fapi/v1/ticker/price",
+            )
+        )
+
     def fetch_klines(
         self,
         *,
