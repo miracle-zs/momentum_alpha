@@ -51,11 +51,25 @@ def resolve_audit_log_path(*, explicit_path: str | None, state_store) -> Path | 
     return None
 
 
-def _build_audit_recorder(*, explicit_path: str | None, state_store) -> AuditRecorder | None:
+def resolve_runtime_db_path(*, explicit_path: str | None, state_store, audit_log_path: Path | None = None) -> Path | None:
+    if explicit_path:
+        return Path(os.path.abspath(explicit_path))
+    env_path = os.environ.get("RUNTIME_DB_FILE")
+    if env_path:
+        return Path(os.path.abspath(env_path))
+    if audit_log_path is not None:
+        return audit_log_path.parent / "runtime.db"
+    if state_store is not None:
+        return state_store.path.parent / "runtime.db"
+    return None
+
+
+def _build_audit_recorder(*, explicit_path: str | None, state_store, source: str | None = None) -> AuditRecorder | None:
     path = resolve_audit_log_path(explicit_path=explicit_path, state_store=state_store)
     if path is None:
         return None
-    return AuditRecorder(path=path)
+    runtime_db_path = resolve_runtime_db_path(explicit_path=None, state_store=state_store, audit_log_path=path)
+    return AuditRecorder(path=path, runtime_db_path=runtime_db_path, source=source)
 
 
 def load_credentials_from_env() -> tuple[str, str]:
@@ -465,10 +479,15 @@ def run_user_stream(
     stream_client_factory=None,
     reconnect_sleep_fn=None,
     audit_recorder_path: Path | None = None,
+    runtime_db_path: Path | None = None,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
-    audit_recorder = AuditRecorder(path=audit_recorder_path) if audit_recorder_path is not None else None
+    audit_recorder = (
+        AuditRecorder(path=audit_recorder_path, runtime_db_path=runtime_db_path, source="user-stream")
+        if audit_recorder_path is not None
+        else None
+    )
     stored_state = state_store.load() if state_store is not None else None
     current_now = now_provider()
     state = StrategyState(
@@ -663,7 +682,7 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         broker = broker_factory(client)
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
-        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store)
+        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store, source="run-once-live")
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         result = run_once_live(
             symbols=args.symbols,
@@ -686,7 +705,7 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
-        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store)
+        audit_recorder = _build_audit_recorder(explicit_path=args.audit_log_file, state_store=state_store, source="poll")
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         print(
             "starting poll "
@@ -716,6 +735,7 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
         audit_path = resolve_audit_log_path(explicit_path=args.audit_log_file, state_store=state_store)
+        runtime_db_path = resolve_runtime_db_path(explicit_path=None, state_store=state_store, audit_log_path=audit_path)
         print(f"starting user-stream testnet={use_testnet}")
         try:
             return run_user_stream_fn(
@@ -724,6 +744,7 @@ def cli_main(
                 logger=print,
                 state_store=state_store,
                 audit_recorder_path=audit_path,
+                runtime_db_path=runtime_db_path,
             )
         except TypeError:
             return run_user_stream_fn(client=client, testnet=use_testnet, logger=print)
@@ -767,6 +788,11 @@ def cli_main(
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
             audit_log_file=Path(os.path.abspath(args.audit_log_file)),
+            runtime_db_file=resolve_runtime_db_path(
+                explicit_path=None,
+                state_store=None,
+                audit_log_path=Path(os.path.abspath(args.audit_log_file)),
+            ),
             now_provider=now_provider,
         )
 

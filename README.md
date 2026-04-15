@@ -142,7 +142,7 @@ chmod +x scripts/check_health.sh scripts/check_health_and_notify.sh scripts/audi
 ./scripts/init_runtime_dirs.sh
 ```
 
-Then edit `deploy/env.local` with your real API key, secret, state file path, audit log path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. If you want health notifications through Server酱, also set `SERVERCHAN_SENDKEY` and optionally `SERVERCHAN_STATUS_FILE`. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
+Then edit `deploy/env.local` with your real API key, secret, state file path, audit log path, runtime DB path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. If you want health notifications through Server酱, also set `SERVERCHAN_SENDKEY` and optionally `SERVERCHAN_STATUS_FILE`. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
 
 Suggested systemd rollout:
 
@@ -185,7 +185,8 @@ Then open:
 The dashboard reads:
 
 - `state.json`
-- `audit.jsonl`
+- `runtime.db` for event queries
+- `audit.jsonl` during the migration window
 - `momentum-alpha.log`
 - `momentum-alpha-user-stream.log`
 

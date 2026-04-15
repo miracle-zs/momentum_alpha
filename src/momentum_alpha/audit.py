@@ -5,6 +5,9 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
+
+from .runtime_store import insert_audit_event
 
 
 def _coerce_json_value(value):
@@ -25,6 +28,9 @@ def _coerce_json_value(value):
 @dataclass(frozen=True)
 class AuditRecorder:
     path: Path
+    runtime_db_path: Path | None = None
+    source: str | None = None
+    db_insert_fn: Callable = insert_audit_event
 
     def record(self, *, event_type: str, now: datetime, payload: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,6 +42,17 @@ class AuditRecorder:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False))
             handle.write("\n")
+        if self.runtime_db_path is not None:
+            try:
+                self.db_insert_fn(
+                    path=self.runtime_db_path,
+                    timestamp=now,
+                    event_type=event_type,
+                    payload=event["payload"],
+                    source=self.source,
+                )
+            except Exception:
+                pass
 
 
 def read_audit_events(*, path: Path) -> list[dict]:

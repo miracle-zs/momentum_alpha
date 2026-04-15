@@ -48,6 +48,7 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn("dashboard", content)
         self.assertIn("--state-file", content)
+        self.assertIn("RUNTIME_DB_FILE", content)
 
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
@@ -58,8 +59,10 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "deploy" / "env.example").read_text()
         self.assertIn("SERVERCHAN_SENDKEY=", content)
         self.assertIn("SERVERCHAN_STATUS_FILE=", content)
+        self.assertIn("RUNTIME_DB_FILE=", content)
 
     def test_readme_mentions_dashboard_script(self) -> None:
         content = (ROOT / "README.md").read_text()
         self.assertIn("scripts/run_dashboard.sh", content)
         self.assertIn("dashboard", content)
+        self.assertIn("runtime.db", content)

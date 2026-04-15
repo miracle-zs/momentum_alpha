@@ -12,10 +12,14 @@ fi
 
 STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
 AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-${PROJECT_ROOT}/var/audit.jsonl}"
+RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 POLL_LOG_FILE="${POLL_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha.log}"
 USER_STREAM_LOG_FILE="${USER_STREAM_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha-user-stream.log}"
 DASHBOARD_HOST="${DASHBOARD_HOST:-127.0.0.1}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-8080}"
+
+mkdir -p "$(dirname "${RUNTIME_DB_FILE}")"
+touch "${RUNTIME_DB_FILE}"
 
 exec "${VENV_PYTHON}" -u -m momentum_alpha.main dashboard \
   --host "${DASHBOARD_HOST}" \

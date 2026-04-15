@@ -1112,6 +1112,7 @@ class MainTests(unittest.TestCase):
     def test_run_user_stream_writes_audit_events(self) -> None:
         from momentum_alpha.audit import read_audit_events
         from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1143,6 +1144,7 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             audit_path = Path(tmpdir) / "audit.jsonl"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
@@ -1150,13 +1152,17 @@ class MainTests(unittest.TestCase):
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
                 audit_recorder_path=audit_path,
+                runtime_db_path=runtime_db_path,
             )
             events = read_audit_events(path=audit_path)
+            db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
             self.assertEqual(events[0]["payload"]["testnet"], True)
             self.assertEqual(events[1]["event_type"], "user_stream_event")
             self.assertEqual(events[1]["payload"]["symbol"], "ETHUSDT")
+            self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
+            self.assertEqual(db_events[1]["event_type"], "user_stream_event")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream
@@ -2047,6 +2053,7 @@ class MainTests(unittest.TestCase):
     def test_run_forever_writes_startup_audit_event_before_first_tick(self) -> None:
         from momentum_alpha.audit import read_audit_events, AuditRecorder
         from momentum_alpha.main import run_forever
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -2068,6 +2075,7 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             audit_path = Path(tmpdir) / "audit.jsonl"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
             exit_code = run_forever(
                 symbols=["BTCUSDT"],
                 previous_leader_symbol=None,
@@ -2079,13 +2087,15 @@ class MainTests(unittest.TestCase):
                 sleep_fn=lambda seconds: None,
                 logger=lambda message: None,
                 max_ticks=0,
-                audit_recorder=AuditRecorder(path=audit_path),
+                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
             )
             events = read_audit_events(path=audit_path)
+            db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "poll_worker_start")
             self.assertEqual(events[0]["payload"]["symbol_count"], 1)
             self.assertEqual(events[0]["payload"]["submit_orders"], True)
+            self.assertEqual(db_events[0]["event_type"], "poll_worker_start")
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever
