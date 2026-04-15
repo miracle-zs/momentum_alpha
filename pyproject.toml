@@ -2,7 +2,7 @@
 name = "momentum-alpha"
 version = "0.1.0"
 description = "Binance leader rotation strategy core"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
