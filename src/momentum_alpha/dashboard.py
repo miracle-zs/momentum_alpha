@@ -251,6 +251,23 @@ def render_trade_history_table(orders: list[dict]) -> str:
     return f"<div class='trade-history'>{rows}</div>"
 
 
+def build_strategy_config(
+    *,
+    stop_budget_usdt: str | None = None,
+    entry_start_hour_utc: int = 1,
+    entry_end_hour_utc: int = 23,
+    testnet: bool = False,
+    submit_orders: bool = False,
+) -> dict:
+    """Build strategy config dict for display."""
+    return {
+        "stop_budget_usdt": stop_budget_usdt or "n/a",
+        "entry_window": f"{entry_start_hour_utc:02d}:00-{entry_end_hour_utc:02d}:00 UTC",
+        "testnet": testnet,
+        "submit_orders": submit_orders,
+    }
+
+
 def build_dashboard_summary_payload(snapshot: dict) -> dict:
     latest_account = snapshot.get("runtime", {}).get("latest_account_snapshot") or {}
     return {

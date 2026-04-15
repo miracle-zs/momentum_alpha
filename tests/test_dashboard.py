@@ -638,3 +638,19 @@ class DashboardTests(unittest.TestCase):
 
         html = render_trade_history_table([])
         self.assertIn("No orders", html)
+
+    def test_build_strategy_config_extracts_from_runtime_config(self) -> None:
+        from momentum_alpha.dashboard import build_strategy_config
+
+        config = build_strategy_config(
+            stop_budget_usdt="10",
+            entry_start_hour_utc=1,
+            entry_end_hour_utc=23,
+            testnet=True,
+            submit_orders=False,
+        )
+
+        self.assertEqual(config["stop_budget_usdt"], "10")
+        self.assertEqual(config["entry_window"], "01:00-23:00 UTC")
+        self.assertEqual(config["testnet"], True)
+        self.assertEqual(config["submit_orders"], False)
