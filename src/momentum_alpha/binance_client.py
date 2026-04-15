@@ -109,12 +109,20 @@ class BinanceRestClient:
         signed_params["timestamp"] = str(timestamp_ms if timestamp_ms is not None else int(time.time() * 1000))
         query = urlencode(signed_params)
         signature = sign_query(secret=self.api_secret, query=query)
-        body = f"{query}&signature={signature}"
+        signed_query = f"{query}&signature={signature}"
+        upper_method = method.upper()
+        if upper_method in {"GET", "DELETE"}:
+            return BinanceRequest(
+                method=upper_method,
+                url=f"{self.base_url}{path}?{signed_query}",
+                headers=self._headers(),
+                body=None,
+            )
         return BinanceRequest(
-            method=method,
+            method=upper_method,
             url=f"{self.base_url}{path}",
             headers=self._headers(),
-            body=body,
+            body=signed_query,
         )
 
     def new_order(self, **params: str) -> BinanceRequest:

@@ -320,9 +320,10 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         payload = client.fetch_position_risk(symbol="BTCUSDT", timestamp_ms=1700000000000)
         self.assertEqual(payload[0]["symbol"], "BTCUSDT")
-        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v3/positionRisk")
-        self.assertIn("symbol=BTCUSDT", client.requests[0].body)
-        self.assertIn("signature=", client.requests[0].body)
+        self.assertIn("https://fapi.binance.com/fapi/v3/positionRisk?", client.requests[0].url)
+        self.assertIn("symbol=BTCUSDT", client.requests[0].url)
+        self.assertIn("signature=", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
 
     def test_fetch_open_orders_uses_signed_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -339,8 +340,9 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         payload = client.fetch_open_orders(symbol="BTCUSDT", timestamp_ms=1700000000000)
         self.assertEqual(payload[0]["type"], "STOP_MARKET")
-        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v1/openOrders")
-        self.assertIn("timestamp=1700000000000", client.requests[0].body)
+        self.assertIn("https://fapi.binance.com/fapi/v1/openOrders?", client.requests[0].url)
+        self.assertIn("timestamp=1700000000000", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
 
     def test_cancel_open_orders_uses_delete_signed_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -357,8 +359,11 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         payload = client.cancel_open_orders(symbol="BTCUSDT", timestamp_ms=1700000000000)
         self.assertEqual(payload[0]["status"], "CANCELED")
-        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v1/allOpenOrders")
+        self.assertIn("https://fapi.binance.com/fapi/v1/allOpenOrders?", client.requests[0].url)
+        self.assertIn("symbol=BTCUSDT", client.requests[0].url)
+        self.assertIn("signature=", client.requests[0].url)
         self.assertEqual(client.requests[0].method, "DELETE")
+        self.assertIsNone(client.requests[0].body)
 
     def test_cancel_order_uses_delete_signed_endpoint_with_order_id(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -375,9 +380,11 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         payload = client.cancel_order(symbol="BTCUSDT", order_id=123, timestamp_ms=1700000000000)
         self.assertEqual(payload["orderId"], 123)
-        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v1/order")
+        self.assertIn("https://fapi.binance.com/fapi/v1/order?", client.requests[0].url)
         self.assertEqual(client.requests[0].method, "DELETE")
-        self.assertIn("orderId=123", client.requests[0].body)
+        self.assertIn("orderId=123", client.requests[0].url)
+        self.assertIn("signature=", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
 
     def test_create_listen_key_uses_api_key_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
