@@ -600,7 +600,8 @@ def _render_timeline_svg(*, events: list[dict]) -> str:
         timeline += f"<circle cx='{x:.2f}' cy='{line_y:.2f}' r='{radius}' fill='{color}' class='timeline-dot{' current' if is_current else ''}'/>"
         timeline += f"<text x='{x:.2f}' y='{line_y - 22:.2f}' class='timeline-label' text-anchor='middle'>{escape(str(symbol))}</text>"
         if timestamp:
-            short_time = timestamp[11:16] if len(timestamp) > 16 else timestamp[-5:]
+            formatted_time = format_timestamp_for_display(timestamp)
+            short_time = formatted_time[11:16] if len(formatted_time) >= 16 else formatted_time[-5:]
             timeline += f"<text x='{x:.2f}' y='{line_y + 28:.2f}' class='timeline-time' text-anchor='middle'>{escape(short_time)}</text>"
     return f"<svg viewBox='0 0 {width} {height}' class='timeline-svg'>{timeline}</svg>"
 
@@ -630,7 +631,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
     pie_chart = _render_pie_chart_svg(data=decision_counts)
     bar_chart = _render_bar_chart_svg(data=dict(list(event_counts.items())[:6]), color="#4cc9f0")
-    leader_history = snapshot.get("leader_history", [])
+    leader_history = list(reversed(snapshot.get("leader_history", [])))
     timeline_chart = _render_timeline_svg(events=leader_history)
     health_status = snapshot["health"]["overall_status"]
     # Build position cards
