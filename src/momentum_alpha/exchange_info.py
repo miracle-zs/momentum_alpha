@@ -25,6 +25,8 @@ def parse_exchange_info(payload: dict) -> dict[str, ExchangeSymbol]:
             continue
         if item.get("quoteAsset") != "USDT":
             continue
+        if item.get("status") != "TRADING":
+            continue
 
         filters = _filters_by_type(item.get("filters", []))
         lot_size = filters.get("LOT_SIZE")

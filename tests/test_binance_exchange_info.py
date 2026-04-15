@@ -61,3 +61,35 @@ class BinanceExchangeInfoTests(unittest.TestCase):
         }
 
         self.assertEqual(parse_exchange_info(payload), {})
+
+    def test_ignores_symbols_that_are_not_trading(self) -> None:
+        from momentum_alpha.exchange_info import parse_exchange_info
+
+        payload = {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "contractType": "PERPETUAL",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "filters": [
+                        {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                        {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                        {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                    ],
+                },
+                {
+                    "symbol": "PAUSEDUSDT",
+                    "contractType": "PERPETUAL",
+                    "quoteAsset": "USDT",
+                    "status": "PENDING_TRADING",
+                    "filters": [
+                        {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                        {"filterType": "LOT_SIZE", "minQty": "1", "stepSize": "1"},
+                        {"filterType": "MARKET_LOT_SIZE", "minQty": "1", "stepSize": "1"},
+                    ],
+                },
+            ]
+        }
+
+        self.assertEqual(list(parse_exchange_info(payload)), ["BTCUSDT"])
