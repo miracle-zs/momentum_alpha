@@ -57,6 +57,7 @@ def restore_state(
         current_day=_parse_day(current_day),
         previous_leader_symbol=previous_leader_symbol,
         positions=positions,
+        recent_stop_loss_exits={},
     )
 
 

@@ -294,7 +294,9 @@ def apply_user_stream_event_to_state(
     if event.side == "SELL" and event.original_order_type == "STOP_MARKET":
         positions = dict(state.positions)
         positions.pop(event.symbol, None)
-        return replace(state, positions=positions)
+        recent_stop_loss_exits = dict(state.recent_stop_loss_exits)
+        recent_stop_loss_exits[event.symbol] = event.event_time or datetime.now(timezone.utc)
+        return replace(state, positions=positions, recent_stop_loss_exits=recent_stop_loss_exits)
 
     return state
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from momentum_alpha.models import (
@@ -45,11 +45,14 @@ def evaluate_minute_close(
     snapshot = market[leader]
     leader_changed = leader != state.previous_leader_symbol
     stop_price = _entry_stop_price(snapshot)
+    cooldown_expires_at = state.recent_stop_loss_exits.get(leader)
     blocked_reason: str | None = None
     if not _in_entry_window(now):
         blocked_reason = "outside_entry_window"
     elif not leader_changed:
         blocked_reason = "leader_unchanged"
+    elif cooldown_expires_at is not None and now < cooldown_expires_at + STOP_LOSS_COOLDOWN:
+        blocked_reason = "stop_loss_cooldown"
     elif leader in state.positions:
         blocked_reason = "already_holding"
     elif not snapshot.has_previous_hour_candle:
@@ -125,3 +128,4 @@ def process_clock_tick(
         new_last_add_on_hour=new_last_add_on_hour,
         blocked_reason=minute_close.blocked_reason,
     )
+STOP_LOSS_COOLDOWN = timedelta(minutes=60)

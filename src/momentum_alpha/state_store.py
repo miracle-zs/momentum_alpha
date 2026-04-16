@@ -21,6 +21,7 @@ class StoredStrategyState:
     positions: dict[str, Position] | None = None
     processed_event_ids: list[str] | None = None
     order_statuses: dict[str, dict] | None = None
+    recent_stop_loss_exits: dict[str, str] | None = None
 
 
 def _serialize_position(position: Position) -> dict:
@@ -70,6 +71,7 @@ def _serialize_state(state: StoredStrategyState) -> dict:
         },
         "processed_event_ids": list(state.processed_event_ids or []),
         "order_statuses": dict(state.order_statuses or {}),
+        "recent_stop_loss_exits": dict(state.recent_stop_loss_exits or {}),
     }
 
 
@@ -83,6 +85,7 @@ def _deserialize_state(payload: dict) -> StoredStrategyState:
         },
         processed_event_ids=payload.get("processed_event_ids", []),
         order_statuses=payload.get("order_statuses", {}),
+        recent_stop_loss_exits=payload.get("recent_stop_loss_exits", {}),
     )
 
 
@@ -149,6 +152,11 @@ class FileStateStore:
                     state.order_statuses
                     if state.order_statuses is not None
                     else (existing.order_statuses if existing is not None else None)
+                ),
+                recent_stop_loss_exits=(
+                    state.recent_stop_loss_exits
+                    if state.recent_stop_loss_exits is not None
+                    else (existing.recent_stop_loss_exits if existing is not None else None)
                 ),
             )
             self._save_unlocked(merged)

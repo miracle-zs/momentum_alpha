@@ -292,6 +292,7 @@ def run_once(
         current_day=date(now.year, now.month, now.day),
         previous_leader_symbol=previous_leader_symbol,
         positions={},
+        recent_stop_loss_exits={},
     )
     runtime_result = process_runtime_tick(runtime=runtime, state=state, now=now, position_side=position_side, last_add_on_hour=last_add_on_hour)
     broker_responses = broker.submit_execution_plan(runtime_result.execution_plan) if submit_orders else []
@@ -572,6 +573,16 @@ def run_once_live(
             position_risk=client.fetch_position_risk(),
             open_orders=open_orders,
         )
+        if state_store is not None:
+            stored_state = state_store.load()
+            if stored_state is not None:
+                initial_state = replace(
+                    initial_state,
+                    recent_stop_loss_exits={
+                        symbol: datetime.fromisoformat(timestamp)
+                        for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
+                    },
+                )
 
     resolved_symbols = (
         market_data_cache.resolve_symbols(symbols=symbols, client=client)
@@ -646,11 +657,15 @@ def run_once_live(
         _merge_save_strategy_state(
             state_store=state_store,
             runtime_state_store=runtime_state_store,
-            state=StoredStrategyState(
-                current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
-                previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
-            ),
-        )
+                state=StoredStrategyState(
+                    current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
+                    previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+                    recent_stop_loss_exits={
+                        symbol: timestamp.isoformat()
+                        for symbol, timestamp in result.runtime_result.next_state.recent_stop_loss_exits.items()
+                    },
+                ),
+            )
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
@@ -790,6 +805,12 @@ def run_user_stream(
         current_day=current_now.date(),
         previous_leader_symbol=stored_state.previous_leader_symbol if stored_state is not None else None,
         positions=stored_state.positions or {} if stored_state is not None else {},
+        recent_stop_loss_exits={
+            symbol: datetime.fromisoformat(timestamp)
+            for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
+        }
+        if stored_state is not None
+        else {},
     )
     processed_event_ids = set(stored_state.processed_event_ids or []) if stored_state is not None else set()
     order_statuses = dict(stored_state.order_statuses or {}) if stored_state is not None else {}
@@ -884,6 +905,10 @@ def run_user_stream(
                     positions=state.positions,
                     processed_event_ids=sorted(processed_event_ids),
                     order_statuses=order_statuses,
+                    recent_stop_loss_exits={
+                        symbol: timestamp.isoformat()
+                        for symbol, timestamp in state.recent_stop_loss_exits.items()
+                    },
                 ),
             )
         _record_position_snapshot(
@@ -955,6 +980,10 @@ def run_user_stream(
                     positions=state.positions,
                     processed_event_ids=sorted(processed_event_ids),
                     order_statuses=order_statuses,
+                    recent_stop_loss_exits={
+                        symbol: timestamp.isoformat()
+                        for symbol, timestamp in state.recent_stop_loss_exits.items()
+                    },
                 ),
             )
 

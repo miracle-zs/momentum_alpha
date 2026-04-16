@@ -177,6 +177,11 @@ class RuntimeStateStore:
                     if state.order_statuses is not None
                     else (existing.order_statuses if existing is not None else None)
                 ),
+                recent_stop_loss_exits=(
+                    state.recent_stop_loss_exits
+                    if state.recent_stop_loss_exits is not None
+                    else (existing.recent_stop_loss_exits if existing is not None else None)
+                ),
             )
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",

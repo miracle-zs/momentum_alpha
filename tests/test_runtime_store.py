@@ -332,6 +332,7 @@ class RuntimeStoreTests(unittest.TestCase):
                 },
                 processed_event_ids=["evt-1"],
                 order_statuses={"101": {"symbol": "ETHUSDT", "status": "NEW"}},
+                recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
             )
 
             store.save(state)
@@ -341,6 +342,7 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
             self.assertEqual(loaded.processed_event_ids, ["evt-1"])
             self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")
+            self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
 
     def test_runtime_state_store_merge_save_preserves_existing_fields(self) -> None:
         from momentum_alpha.runtime_store import RuntimeStateStore
@@ -355,6 +357,7 @@ class RuntimeStoreTests(unittest.TestCase):
                     previous_leader_symbol="BTCUSDT",
                     processed_event_ids=["evt-1"],
                     order_statuses={"101": {"symbol": "BTCUSDT", "status": "NEW"}},
+                    recent_stop_loss_exits={"BTCUSDT": "2026-04-15T01:05:00+00:00"},
                 )
             )
 
@@ -369,3 +372,4 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(loaded.previous_leader_symbol, "SOLUSDT")
             self.assertEqual(loaded.processed_event_ids, ["evt-1"])
             self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")
+            self.assertEqual(loaded.recent_stop_loss_exits["BTCUSDT"], "2026-04-15T01:05:00+00:00")

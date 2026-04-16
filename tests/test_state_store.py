@@ -148,6 +148,24 @@ class StateStoreTests(unittest.TestCase):
             self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")
             self.assertEqual(loaded.order_statuses["101"]["symbol"], "BTCUSDT")
 
+    def test_save_and_load_recent_stop_loss_exits_round_trip(self) -> None:
+        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "state.json"
+            store = FileStateStore(path=path)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+                )
+            )
+
+            loaded = store.load()
+
+            self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
+
     def test_merge_save_preserves_order_statuses_when_new_state_omits_them(self) -> None:
         from momentum_alpha.state_store import FileStateStore, StoredStrategyState
 

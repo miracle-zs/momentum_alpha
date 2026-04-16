@@ -87,3 +87,4 @@ class StrategyState:
     current_day: date
     previous_leader_symbol: str | None
     positions: dict[str, Position] = field(default_factory=dict)
+    recent_stop_loss_exits: dict[str, datetime] = field(default_factory=dict)

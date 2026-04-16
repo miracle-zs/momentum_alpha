@@ -265,6 +265,10 @@ class UserStreamTests(unittest.TestCase):
         )
         updated = apply_user_stream_event_to_state(state=state, event=event)
         self.assertNotIn("ETHUSDT", updated.positions)
+        self.assertEqual(
+            updated.recent_stop_loss_exits["ETHUSDT"],
+            datetime(2026, 4, 15, 1, 6, tzinfo=timezone.utc),
+        )
 
     def test_apply_account_update_flat_position_removes_position(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
