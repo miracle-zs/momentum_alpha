@@ -490,6 +490,8 @@ class DashboardTests(unittest.TestCase):
             "recent_signal_decisions": [{"timestamp": "2026-04-15T08:49:00+00:00", "decision_type": "base_entry"}],
             "recent_broker_orders": [{"timestamp": "2026-04-15T08:49:01+00:00", "action_type": "submit_order"}],
             "recent_trade_fills": [{"timestamp": "2026-04-15T08:49:01+00:00", "trade_id": "2002", "symbol": "BLESSUSDT"}],
+            "recent_trade_round_trips": [{"round_trip_id": "PLAYUSDT:1", "symbol": "PLAYUSDT", "net_pnl": "-43.85"}],
+            "recent_stop_exit_summaries": [{"timestamp": "2026-04-15T08:49:02+00:00", "symbol": "PLAYUSDT", "slippage_pct": "4.99"}],
             "recent_position_snapshots": [{"timestamp": "2026-04-15T08:49:00+00:00", "leader_symbol": "BLESSUSDT"}],
             "recent_account_snapshots": [
                 {
@@ -527,6 +529,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(timeseries["account"][1]["equity"], 1260.12)
         self.assertEqual(tables["recent_signal_decisions"][0]["decision_type"], "base_entry")
         self.assertEqual(tables["recent_trade_fills"][0]["trade_id"], "2002")
+        self.assertEqual(tables["recent_trade_round_trips"][0]["round_trip_id"], "PLAYUSDT:1")
+        self.assertEqual(tables["recent_stop_exit_summaries"][0]["symbol"], "PLAYUSDT")
         self.assertEqual(tables["recent_account_snapshots"][1]["leader_symbol"], "BLESSUSDT")
 
     def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:
@@ -724,6 +728,54 @@ class DashboardTests(unittest.TestCase):
 
         html = render_position_cards([])
         self.assertIn("No positions", html)
+
+    def test_render_dashboard_html_includes_closed_trades_and_stop_slippage_sections(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html({
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "PLAYUSDT",
+                "position_count": 1,
+                "order_status_count": 0,
+                "latest_position_snapshot": {"payload": {}},
+                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
+                "latest_signal_decision": {},
+            },
+            "recent_broker_orders": [],
+            "recent_trade_round_trips": [
+                {
+                    "round_trip_id": "PLAYUSDT:1",
+                    "symbol": "PLAYUSDT",
+                    "opened_at": "2026-04-15T20:48:00+00:00",
+                    "closed_at": "2026-04-15T21:18:19+00:00",
+                    "net_pnl": "-43.85",
+                    "exit_reason": "stop_loss",
+                }
+            ],
+            "recent_stop_exit_summaries": [
+                {
+                    "timestamp": "2026-04-15T21:18:19+00:00",
+                    "symbol": "PLAYUSDT",
+                    "trigger_price": "0.17687",
+                    "average_exit_price": "0.16804",
+                    "slippage_pct": "4.99",
+                    "net_pnl": "-43.85",
+                }
+            ],
+            "recent_account_snapshots": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "leader_history": [],
+            "pulse_points": [],
+            "warnings": [],
+        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True})
+
+        self.assertIn("CLOSED TRADES", html)
+        self.assertIn("STOP SLIPPAGE ANALYSIS", html)
+        self.assertIn("PLAYUSDT:1", html)
+        self.assertIn("0.17687", html)
 
     def test_render_dashboard_html_includes_positions_section(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

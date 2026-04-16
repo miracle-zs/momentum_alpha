@@ -258,6 +258,55 @@ def render_trade_history_table(orders: list[dict]) -> str:
     return f"<div class='trade-history'>{rows}</div>"
 
 
+def render_closed_trades_table(round_trips: list[dict]) -> str:
+    if not round_trips:
+        return "<div class='trade-history-empty'>No closed trades</div>"
+
+    rows = ""
+    for trip in round_trips[:10]:
+        symbol = escape(str(trip.get("symbol") or "-"))
+        round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
+        opened_at = format_timestamp_for_display(trip.get("opened_at"))
+        closed_at = format_timestamp_for_display(trip.get("closed_at"))
+        net_pnl = escape(str(trip.get("net_pnl") or "-"))
+        exit_reason = escape(str(trip.get("exit_reason") or "-"))
+        pnl_class = "side-buy" if not str(net_pnl).startswith("-") else "side-sell"
+        rows += (
+            f"<div class='analytics-row'>"
+            f"<span class='analytics-main'><b>{symbol}</b> · {round_trip_id}</span>"
+            f"<span>{escape(opened_at[11:19] if len(opened_at) >= 19 else opened_at)}</span>"
+            f"<span>{escape(closed_at[11:19] if len(closed_at) >= 19 else closed_at)}</span>"
+            f"<span>{exit_reason}</span>"
+            f"<span class='{pnl_class}'>{net_pnl}</span>"
+            f"</div>"
+        )
+    return f"<div class='analytics-table'>{rows}</div>"
+
+
+def render_stop_slippage_table(stop_exits: list[dict]) -> str:
+    if not stop_exits:
+        return "<div class='trade-history-empty'>No stop exits</div>"
+
+    rows = ""
+    for item in stop_exits[:10]:
+        symbol = escape(str(item.get("symbol") or "-"))
+        trigger_price = escape(str(item.get("trigger_price") or "-"))
+        average_exit_price = escape(str(item.get("average_exit_price") or "-"))
+        slippage_pct = escape(str(item.get("slippage_pct") or "-"))
+        net_pnl = escape(str(item.get("net_pnl") or "-"))
+        pnl_class = "side-buy" if not str(net_pnl).startswith("-") else "side-sell"
+        rows += (
+            f"<div class='analytics-row'>"
+            f"<span class='analytics-main'><b>{symbol}</b></span>"
+            f"<span>{trigger_price}</span>"
+            f"<span>{average_exit_price}</span>"
+            f"<span>{slippage_pct}%</span>"
+            f"<span class='{pnl_class}'>{net_pnl}</span>"
+            f"</div>"
+        )
+    return f"<div class='analytics-table'>{rows}</div>"
+
+
 def build_strategy_config(
     *,
     stop_budget_usdt: str | None = None,
@@ -677,6 +726,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     # Build trade history
     broker_orders = snapshot.get("recent_broker_orders") or []
     trade_history_html = render_trade_history_table(broker_orders)
+    closed_trades_html = render_closed_trades_table(snapshot.get("recent_trade_round_trips") or [])
+    stop_slippage_html = render_stop_slippage_table(snapshot.get("recent_stop_exit_summaries") or [])
     # Build strategy config
     config = strategy_config or {}
     config_html = (
@@ -1142,6 +1193,11 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .trade-history-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
     .trade-row {{ display: grid; grid-template-columns: 80px 100px 100px 60px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }}
     .trade-row:last-child {{ border-bottom: none; }}
+    .analytics-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+    .analytics-table {{ max-height: 220px; overflow-y: auto; }}
+    .analytics-row {{ display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr 0.7fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; align-items: center; }}
+    .analytics-row:last-child {{ border-bottom: none; }}
+    .analytics-main {{ color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     .trade-time {{ color: var(--fg-muted); }}
     .trade-symbol {{ color: var(--accent); font-weight: 500; }}
     .side-buy {{ color: var(--success); }}
@@ -1174,6 +1230,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       .decision-grid {{ grid-template-columns: 1fr; }}
       .positions-grid {{ grid-template-columns: 1fr; }}
       .trade-row {{ grid-template-columns: 60px 80px 80px 50px 60px; font-size: 0.7rem; }}
+      .analytics-grid {{ grid-template-columns: 1fr; }}
+      .analytics-row {{ grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
     }}
   </style>
 </head>
@@ -1262,6 +1320,19 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     <section class="dashboard-section">
       <div class="section-header">TRADE HISTORY</div>
       {trade_history_html}
+    </section>
+    <section class="dashboard-section">
+      <div class="section-header">CLOSED TRADES</div>
+      <div class="analytics-grid">
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Round Trips</div>
+          {closed_trades_html}
+        </div>
+        <div class="chart-card">
+          <div class="section-header" style="margin-bottom:10px;">STOP SLIPPAGE ANALYSIS</div>
+          {stop_slippage_html}
+        </div>
+      </div>
     </section>
     <section class="dashboard-section bottom-row">
       <div class="bottom-col">
