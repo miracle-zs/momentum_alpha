@@ -675,8 +675,11 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("BTCUSDT", html)
         self.assertIn("ETHUSDT", html)
-        self.assertIn("09:15:23", html)
-        self.assertIn("08:30:15", html)
+        # Timestamps should be converted to UTC+8 (Asia/Shanghai)
+        # 09:15:23 UTC -> 17:15:23 UTC+8
+        # 08:30:15 UTC -> 16:30:15 UTC+8
+        self.assertIn("17:15:23", html)
+        self.assertIn("16:30:15", html)
         self.assertIn("0.015", html)
         self.assertIn("0.12", html)
         self.assertIn("82166.5", html)

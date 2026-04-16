@@ -26,6 +26,7 @@ from .runtime_store import (
 )
 
 
+DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
@@ -52,6 +53,28 @@ def format_timestamp_for_display(timestamp: str | None) -> str:
     except ValueError:
         return str(timestamp)
     return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_time_only(timestamp: str | None) -> str:
+    """Format timestamp to show only HH:MM:SS in display timezone."""
+    if not timestamp:
+        return "n/a"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+        return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%H:%M:%S")
+    except ValueError:
+        return str(timestamp)[:8] if len(str(timestamp)) >= 8 else str(timestamp)
+
+
+def _format_time_short(timestamp: str | None) -> str:
+    """Format timestamp to show only HH:MM in display timezone."""
+    if not timestamp:
+        return "n/a"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+        return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%H:%M")
+    except ValueError:
+        return str(timestamp)[:5] if len(str(timestamp)) >= 5 else str(timestamp)
 
 
 def _load_recent_events(*, path: Path, recent_limit: int) -> tuple[list[dict], list[str]]:
@@ -236,8 +259,7 @@ def render_trade_history_table(fills: list[dict]) -> str:
 
     rows = ""
     for fill in fills[:10]:
-        timestamp = fill.get("timestamp") or ""
-        time_str = timestamp[11:19] if len(timestamp) >= 19 else timestamp
+        time_str = _format_time_only(fill.get("timestamp"))
         symbol = escape(str(fill.get("symbol") or "-"))
         side = fill.get("side") or "-"
         side_class = "side-buy" if side == "BUY" else "side-sell"
@@ -270,16 +292,16 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
     for trip in round_trips[:10]:
         symbol = escape(str(trip.get("symbol") or "-"))
         round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
-        opened_at = format_timestamp_for_display(trip.get("opened_at"))
-        closed_at = format_timestamp_for_display(trip.get("closed_at"))
+        opened_at = _format_time_only(trip.get("opened_at"))
+        closed_at = _format_time_only(trip.get("closed_at"))
         net_pnl = escape(str(trip.get("net_pnl") or "-"))
         exit_reason = escape(str(trip.get("exit_reason") or "-"))
         pnl_class = "side-buy" if not str(net_pnl).startswith("-") else "side-sell"
         rows += (
             f"<div class='analytics-row'>"
             f"<span class='analytics-main'><b>{symbol}</b> · {round_trip_id}</span>"
-            f"<span>{escape(opened_at[11:19] if len(opened_at) >= 19 else opened_at)}</span>"
-            f"<span>{escape(closed_at[11:19] if len(closed_at) >= 19 else closed_at)}</span>"
+            f"<span>{escape(opened_at)}</span>"
+            f"<span>{escape(closed_at)}</span>"
             f"<span>{exit_reason}</span>"
             f"<span class='{pnl_class}'>{net_pnl}</span>"
             f"</div>"
@@ -728,8 +750,7 @@ def _render_timeline_svg(*, events: list[dict]) -> str:
         timeline += f"<circle cx='{x:.2f}' cy='{line_y:.2f}' r='{radius}' fill='{color}' class='timeline-dot{' current' if is_current else ''}'/>"
         timeline += f"<text x='{x:.2f}' y='{line_y - 22:.2f}' class='timeline-label' text-anchor='middle'>{escape(str(symbol))}</text>"
         if timestamp:
-            formatted_time = format_timestamp_for_display(timestamp)
-            short_time = formatted_time[11:16] if len(formatted_time) >= 16 else formatted_time[-5:]
+            short_time = _format_time_short(timestamp)
             timeline += f"<text x='{x:.2f}' y='{line_y + 28:.2f}' class='timeline-time' text-anchor='middle'>{escape(short_time)}</text>"
     return f"<svg viewBox='0 0 {width} {height}' class='timeline-svg'>{timeline}</svg>"
 
@@ -917,7 +938,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     pulse_points = snapshot.get("pulse_points", [])
     pulse_max = max((p["event_count"] for p in pulse_points), default=1)
     pulse_html = "".join(
-        f"<div class='pulse-col'><div class='pulse-bar' style='height:{max(12, int(100 * p["event_count"] / pulse_max))}%;'></div><span class='pulse-label'>{escape(format_timestamp_for_display(p['bucket'])[11:16])}</span></div>"
+        f"<div class='pulse-col'><div class='pulse-bar' style='height:{max(12, int(100 * p["event_count"] / pulse_max))}%;'></div><span class='pulse-label'>{escape(_format_time_short(p['bucket']))}</span></div>"
         for p in pulse_points
     ) or "<div class='pulse-col empty'><div class='pulse-bar' style='height:12%;'></div><span>n/a</span></div>"
     source_counts = snapshot.get("source_counts", {})
