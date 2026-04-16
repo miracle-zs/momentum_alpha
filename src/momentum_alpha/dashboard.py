@@ -501,37 +501,52 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
         if not isinstance(position, Mapping) and not hasattr(position, "__dict__") and not hasattr(type(position), "__dataclass_fields__"):
             continue
         legs = _object_field(position, "legs") or []
-        if not isinstance(legs, (list, tuple)) or not legs:
-            continue
-
+        stop_price = _parse_decimal(_object_field(position, "stop_price"))
+        latest_price = _parse_numeric(_object_field(position, "latest_price"))
+        direction = str(_object_field(position, "side") or _object_field(position, "direction") or "LONG").upper()
         total_quantity = Decimal("0")
         weighted_sum = Decimal("0")
-        stop_price = _parse_decimal(_object_field(position, "stop_price"))
         leg_info: list[dict] = []
         valid_leg_opened_ats: list[str] = []
+        if isinstance(legs, (list, tuple)) and legs:
+            for leg in legs:
+                if not isinstance(leg, Mapping) and not hasattr(leg, "__dict__") and not hasattr(type(leg), "__dataclass_fields__"):
+                    continue
+                qty = _parse_decimal(_object_field(leg, "quantity")) or Decimal("0")
+                entry = _parse_decimal(_object_field(leg, "entry_price")) or Decimal("0")
+                total_quantity += qty
+                weighted_sum += qty * entry
+                leg_opened_at = _object_field(leg, "opened_at")
+                if leg_opened_at is not None:
+                    valid_leg_opened_ats.append(str(leg_opened_at))
+                leg_info.append({
+                    "type": _object_field(leg, "leg_type") or "unknown",
+                    "time": str(leg_opened_at) if leg_opened_at is not None else "",
+                })
+        else:
+            total_quantity = _parse_decimal(_object_field(position, "total_quantity")) or Decimal("0")
+            avg_entry = _parse_decimal(_object_field(position, "weighted_avg_entry_price"))
+            if avg_entry is None:
+                avg_entry = _parse_decimal(_object_field(position, "entry_price"))
+            if total_quantity > 0 and avg_entry is not None:
+                weighted_sum = total_quantity * avg_entry
 
-        for leg in legs:
-            if not isinstance(leg, Mapping) and not hasattr(leg, "__dict__") and not hasattr(type(leg), "__dataclass_fields__"):
-                continue
-            qty = _parse_decimal(_object_field(leg, "quantity")) or Decimal("0")
-            entry = _parse_decimal(_object_field(leg, "entry_price")) or Decimal("0")
-            total_quantity += qty
-            weighted_sum += qty * entry
-            leg_opened_at = _object_field(leg, "opened_at")
-            if leg_opened_at is not None:
-                valid_leg_opened_ats.append(str(leg_opened_at))
-            leg_info.append({
-                "type": _object_field(leg, "leg_type") or "unknown",
-                "time": str(leg_opened_at) if leg_opened_at is not None else "",
-            })
-
-        if not leg_info:
+        if total_quantity <= 0:
             continue
+        if weighted_sum <= 0 and not leg_info:
+            avg_entry = _parse_decimal(_object_field(position, "weighted_avg_entry_price"))
+            if avg_entry is None:
+                avg_entry = _parse_decimal(_object_field(position, "entry_price"))
+            if avg_entry is None:
+                continue
+            weighted_sum = total_quantity * avg_entry
 
         avg_entry = weighted_sum / total_quantity if total_quantity > 0 else Decimal("0")
         risk = None
         if stop_price is not None:
             risk = total_quantity * (avg_entry - stop_price)
+            if direction == "SHORT":
+                risk = total_quantity * (stop_price - avg_entry)
         opened_at = _object_field(position, "opened_at")
         if not opened_at:
             parsed_leg_opened_ats: list[tuple[datetime, str]] = []
@@ -547,10 +562,30 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
         risk_pct_of_equity = None
         if risk is not None and equity_decimal not in (None, Decimal("0")):
             risk_pct_of_equity = f"{((risk / equity_decimal) * Decimal('100')):.2f}"
+        notional_exposure = None
+        mtm_pnl = None
+        pnl_pct = None
+        distance_to_stop_pct = None
+        r_multiple = None
+        if latest_price is not None:
+            notional_exposure = float(total_quantity * Decimal(str(latest_price)))
+            if direction == "SHORT":
+                mtm_pnl = float((avg_entry - Decimal(str(latest_price))) * total_quantity)
+                if stop_price is not None:
+                    distance_to_stop_pct = float(((stop_price - Decimal(str(latest_price))) / Decimal(str(latest_price))) * Decimal("100"))
+            else:
+                mtm_pnl = float((Decimal(str(latest_price)) - avg_entry) * total_quantity)
+                if stop_price is not None:
+                    distance_to_stop_pct = float(((Decimal(str(latest_price)) - stop_price) / Decimal(str(latest_price))) * Decimal("100"))
+            entry_notional = total_quantity * avg_entry
+            if entry_notional not in (None, Decimal("0")):
+                pnl_pct = float((Decimal(str(mtm_pnl)) / entry_notional) * Decimal("100"))
+            if risk not in (None, Decimal("0")):
+                r_multiple = float(Decimal(str(mtm_pnl)) / risk)
 
         details.append({
             "symbol": symbol,
-            "direction": "LONG",
+            "direction": direction,
             "total_quantity": str(total_quantity),
             "entry_price": f"{avg_entry:.2f}",
             "stop_price": str(stop_price) if stop_price is not None else None,
@@ -558,8 +593,12 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
             "risk_pct_of_equity": risk_pct_of_equity,
             "leg_count": len(leg_info),
             "opened_at": opened_at,
-            "mtm_pnl": None,
-            "distance_to_stop_pct": None,
+            "latest_price": latest_price,
+            "mtm_pnl": mtm_pnl,
+            "pnl_pct": pnl_pct,
+            "distance_to_stop_pct": distance_to_stop_pct,
+            "notional_exposure": notional_exposure,
+            "r_multiple": r_multiple,
             "legs": leg_info,
         })
 
@@ -684,7 +723,9 @@ def render_position_cards(positions: list[dict]) -> str:
 
     def _display_live_price_metric(value: object | None, *, suffix: str = "") -> str:
         if value in (None, ""):
-            return "n/a <span class='metric-note'>waiting for live price data</span>"
+            return "n/a"
+        if isinstance(value, (int, float)):
+            return f"{_format_metric(float(value))}{suffix}"
         return f"{escape(str(value))}{suffix}"
 
     cards = ""
@@ -698,8 +739,12 @@ def render_position_cards(positions: list[dict]) -> str:
         risk_pct = _display_metric_value(pos.get("risk_pct_of_equity"), suffix="%")
         leg_count = _display_metric_value(pos.get("leg_count"))
         opened_at = _display_metric_value(format_timestamp_for_display(pos.get("opened_at")))
+        latest_price = _display_live_price_metric(pos.get("latest_price"))
+        notional_exposure = _display_live_price_metric(pos.get("notional_exposure"), suffix=" USDT")
         mtm_pnl = _display_live_price_metric(pos.get("mtm_pnl"))
+        pnl_pct = _display_live_price_metric(pos.get("pnl_pct"), suffix="%")
         distance_to_stop_pct = _display_live_price_metric(pos.get("distance_to_stop_pct"), suffix="%")
+        r_multiple = _display_live_price_metric(pos.get("r_multiple"))
         legs = pos.get("legs") or []
 
         legs_str = " | ".join(
@@ -721,8 +766,12 @@ def render_position_cards(positions: list[dict]) -> str:
             f"<div class='position-metric'><span class='metric-label'>Risk %</span><span class='metric-value'>{risk_pct}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Legs</span><span class='metric-value'>{leg_count}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Opened</span><span class='metric-value'>{opened_at}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Last</span><span class='metric-value'>{latest_price}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Notional</span><span class='metric-value'>{notional_exposure}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>PnL %</span><span class='metric-value'>{pnl_pct}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Dist to Stop</span><span class='metric-value'>{distance_to_stop_pct}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>R</span><span class='metric-value'>{r_multiple}</span></div>"
             f"</div>"
             f"<div class='position-legs'>{escape(legs_str)}</div>"
             f"</div>"

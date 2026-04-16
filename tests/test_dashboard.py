@@ -381,7 +381,7 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("waiting for live price data", html)
+        self.assertNotIn("waiting for live price data", html)
         self.assertIn("n/a", html)
 
     def test_render_dashboard_html_uses_snapshot_strategy_config_without_explicit_argument(self) -> None:
@@ -1234,6 +1234,34 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(details[0]["mtm_pnl"])
         self.assertIsNone(details[0]["distance_to_stop_pct"])
 
+    def test_build_position_details_computes_live_price_diagnostics(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BASEUSDT": {
+                        "symbol": "BASEUSDT",
+                        "side": "LONG",
+                        "total_quantity": "100",
+                        "weighted_avg_entry_price": "10",
+                        "stop_price": "9",
+                        "latest_price": "12",
+                        "legs": [],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+
+        self.assertEqual(details[0]["latest_price"], 12.0)
+        self.assertEqual(details[0]["mtm_pnl"], 200.0)
+        self.assertEqual(details[0]["pnl_pct"], 20.0)
+        self.assertAlmostEqual(details[0]["distance_to_stop_pct"], 25.0)
+        self.assertEqual(details[0]["notional_exposure"], 1200.0)
+        self.assertEqual(details[0]["r_multiple"], 2.0)
+
     def test_build_position_details_uses_earliest_leg_opened_at_when_position_timestamp_missing(self) -> None:
         from momentum_alpha.dashboard import build_position_details
 
@@ -1460,6 +1488,12 @@ class DashboardTests(unittest.TestCase):
                 "entry_price": "82166.67",
                 "stop_price": "81000",
                 "risk": "17.50",
+                "latest_price": "83000",
+                "notional_exposure": "1245.00",
+                "mtm_pnl": "12.50",
+                "pnl_pct": "1.00",
+                "distance_to_stop_pct": "2.00",
+                "r_multiple": "0.25",
                 "legs": [
                     {"type": "base", "time": "2026-04-15T09:15:00+00:00"},
                     {"type": "add_on", "time": "2026-04-15T10:00:00+00:00"},
@@ -1475,6 +1509,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("82166.67", html)
         self.assertIn("81000", html)
         self.assertIn("17.50", html)
+        self.assertIn("83000", html)
+        self.assertIn("1245.00", html)
+        self.assertIn("12.50", html)
+        self.assertIn("1.00", html)
+        self.assertIn("2.00", html)
+        self.assertIn("0.25", html)
         self.assertIn("base", html)
         self.assertIn("add_on", html)
 
@@ -1520,6 +1560,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Opened", html)
         self.assertIn("MTM", html)
         self.assertIn("n/a", html)
+        self.assertNotIn("waiting for live price data", html)
 
     def test_render_position_cards_shows_empty_message(self) -> None:
         from momentum_alpha.dashboard import render_position_cards
