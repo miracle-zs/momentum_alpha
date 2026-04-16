@@ -72,6 +72,36 @@ class UserStreamTests(unittest.TestCase):
         self.assertIsNone(event.symbol)
         self.assertEqual(event.account_update_reason, "ORDER")
 
+    def test_extract_account_flows_reads_balance_changes_from_account_update(self) -> None:
+        from momentum_alpha.user_stream import extract_account_flows, parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776248675941,
+                "a": {
+                    "m": "DEPOSIT",
+                    "B": [
+                        {
+                            "a": "USDT",
+                            "wb": "953.04663933",
+                            "cw": "953.04663933",
+                            "bc": "500.00",
+                        }
+                    ],
+                },
+            }
+        )
+
+        flows = extract_account_flows(event)
+
+        self.assertEqual(len(flows), 1)
+        self.assertEqual(flows[0]["reason"], "DEPOSIT")
+        self.assertEqual(flows[0]["asset"], "USDT")
+        self.assertEqual(flows[0]["wallet_balance"], Decimal("953.04663933"))
+        self.assertEqual(flows[0]["cross_wallet_balance"], Decimal("953.04663933"))
+        self.assertEqual(flows[0]["balance_change"], Decimal("500.00"))
+
     def test_user_stream_event_id_distinguishes_non_trade_order_lifecycle_updates(self) -> None:
         from momentum_alpha.user_stream import parse_user_stream_event, user_stream_event_id
 

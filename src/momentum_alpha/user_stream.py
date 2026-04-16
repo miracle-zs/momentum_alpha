@@ -13,6 +13,15 @@ from momentum_alpha.models import Position, PositionLeg, StrategyState
 from momentum_alpha.orders import is_strategy_client_order_id
 
 
+def _parse_decimal(value):
+    try:
+        if value in (None, ""):
+            return None
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        return None
+
+
 @dataclass(frozen=True)
 class UserStreamEvent:
     event_type: str
@@ -47,14 +56,6 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
     order_payload = payload.get("o", {})
     symbol = order_payload.get("s") or payload.get("s")
     event_time_ms = payload.get("T") or payload.get("E") or payload.get("t")
-
-    def _parse_decimal(value):
-        try:
-            if value in (None, ""):
-                return None
-            return Decimal(str(value))
-        except (InvalidOperation, TypeError):
-            return None
 
     return UserStreamEvent(
         event_type=event_type,

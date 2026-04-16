@@ -9,6 +9,7 @@ from io import StringIO
 from pathlib import Path
 from contextlib import redirect_stdout
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from urllib.error import HTTPError
 
 
@@ -1421,6 +1422,108 @@ class MainTests(unittest.TestCase):
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
             self.assertEqual(trade_fills[0]["symbol"], "ETHUSDT")
             self.assertEqual(trade_fills[0]["trade_id"], "456")
+
+    def test_run_user_stream_persists_account_flows_from_account_update(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import fetch_recent_account_flows
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ACCOUNT_UPDATE",
+                            "E": 1776248675941,
+                            "a": {
+                                "m": "DEPOSIT",
+                                "B": [
+                                    {
+                                        "a": "USDT",
+                                        "wb": "953.04663933",
+                                        "cw": "953.04663933",
+                                        "bc": "500.00",
+                                    }
+                                ],
+                                "P": [],
+                            },
+                        }
+                    )
+                )
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=False,
+                logger=lambda message: None,
+                now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                audit_recorder_path=Path(tmpdir) / "audit.jsonl",
+                runtime_db_path=runtime_db_path,
+            )
+            account_flows = fetch_recent_account_flows(path=runtime_db_path, limit=10)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(account_flows), 1)
+        self.assertEqual(account_flows[0]["reason"], "DEPOSIT")
+        self.assertEqual(account_flows[0]["asset"], "USDT")
+        self.assertEqual(account_flows[0]["balance_change"], "500.00")
+
+    def test_run_user_stream_logs_account_flow_insert_failures(self) -> None:
+        from momentum_alpha.audit import read_audit_events
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ACCOUNT_UPDATE",
+                            "E": 1776248675941,
+                            "a": {
+                                "m": "DEPOSIT",
+                                "B": [
+                                    {
+                                        "a": "USDT",
+                                        "wb": "953.04663933",
+                                        "cw": "953.04663933",
+                                        "bc": "500.00",
+                                    }
+                                ],
+                                "P": [],
+                            },
+                        }
+                    )
+                )
+                return "abc"
+
+        messages = []
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "audit.jsonl"
+            with patch("momentum_alpha.main.insert_account_flow", side_effect=RuntimeError("db write failed")):
+                exit_code = run_user_stream(
+                    client=FakeClient(),
+                    testnet=False,
+                    logger=lambda message: messages.append(message),
+                    now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
+                    stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                    audit_recorder_path=audit_path,
+                    runtime_db_path=Path(tmpdir) / "runtime.db",
+                )
+            events = read_audit_events(path=audit_path)
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any("account-flow-insert-error" in message for message in messages))
+        self.assertTrue(any(event["event_type"] == "account_flow_insert_error" for event in events))
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream

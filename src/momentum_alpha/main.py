@@ -1074,8 +1074,22 @@ def run_user_stream(
                         balance_change=flow.get("balance_change"),
                         payload=event.payload,
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger(
+                        "account-flow-insert-error "
+                        f"reason={flow.get('reason')} asset={flow.get('asset')} error={exc}"
+                    )
+                    if audit_recorder is not None:
+                        audit_recorder.record(
+                            event_type="account_flow_insert_error",
+                            now=event.event_time or now_provider(),
+                            payload={
+                                "reason": flow.get("reason"),
+                                "asset": flow.get("asset"),
+                                "balance_change": str(flow.get("balance_change")),
+                                "error": str(exc),
+                            },
+                        )
         order_status_update = extract_order_status_update(event)
         if order_status_update is not None:
             order_id, order_snapshot = order_status_update
