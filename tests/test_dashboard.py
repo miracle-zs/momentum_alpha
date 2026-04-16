@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import unittest
 from collections import Counter
@@ -1234,6 +1235,37 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(details[0]["mtm_pnl"])
         self.assertIsNone(details[0]["distance_to_stop_pct"])
 
+    def test_build_position_details_treats_nonpositive_stop_price_as_unavailable(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BASEUSDT": {
+                        "symbol": "BASEUSDT",
+                        "side": "LONG",
+                        "total_quantity": "100",
+                        "weighted_avg_entry_price": "10",
+                        "stop_price": "0",
+                        "latest_price": "12",
+                        "legs": [],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+
+        self.assertIsNone(details[0]["stop_price"])
+        self.assertIsNone(details[0]["risk"])
+        self.assertIsNone(details[0]["risk_pct_of_equity"])
+        self.assertIsNone(details[0]["distance_to_stop_pct"])
+        self.assertIsNone(details[0]["r_multiple"])
+        self.assertEqual(details[0]["latest_price"], 12.0)
+        self.assertEqual(details[0]["mtm_pnl"], 200.0)
+        self.assertEqual(details[0]["pnl_pct"], 20.0)
+        self.assertEqual(details[0]["notional_exposure"], 1200.0)
+
     def test_build_position_details_computes_live_price_diagnostics(self) -> None:
         from momentum_alpha.dashboard import build_position_details
 
@@ -1261,6 +1293,90 @@ class DashboardTests(unittest.TestCase):
         self.assertAlmostEqual(details[0]["distance_to_stop_pct"], 25.0)
         self.assertEqual(details[0]["notional_exposure"], 1200.0)
         self.assertEqual(details[0]["r_multiple"], 2.0)
+
+    def test_format_metric_uses_unsigned_zero_for_signed_zero(self) -> None:
+        from momentum_alpha.dashboard import _format_metric
+
+        self.assertEqual(_format_metric(0.0, signed=True), "0.00")
+        self.assertEqual(_format_metric(-0.0, signed=True), "0.00")
+
+    def test_format_metric_preserves_near_zero_non_zero_values(self) -> None:
+        from momentum_alpha.dashboard import _format_metric
+
+        self.assertEqual(_format_metric(-0.0001, signed=True), "-0.00")
+        self.assertEqual(_format_metric(0.0049, signed=True), "+0.00")
+
+    def test_render_dashboard_html_formats_actual_zero_values_without_signed_zero(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "INUSDT",
+                    "position_count": 0,
+                    "order_status_count": 0,
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000.00",
+                        "available_balance": "900.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                        "leader_symbol": "INUSDT",
+                    },
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-15T06:00:00+00:00",
+                        "wallet_balance": "1000.00",
+                        "available_balance": "900.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                        "leader_symbol": "INUSDT",
+                    }
+                ],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_signal_decisions": [],
+                "leader_history": [],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "pulse_points": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertIn("numericValue === 0", html)
+        self.assertNotIn("value >= 0 ? '+' : ''", html)
+
+        start = html.index("function formatAccountValue")
+        end = html.index("function formatAccountWindowTimestamp", start)
+        formatter_source = html[start:end].strip()
+        script = f"""
+const formatAccountValue = {formatter_source}
+const cases = [
+  formatAccountValue(0, true),
+  formatAccountValue(-0, true),
+  formatAccountValue(-0.0001, true),
+  formatAccountValue(0.0049, true),
+  formatAccountValue(0, true, '%'),
+];
+console.log(JSON.stringify(cases));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(
+            json.loads(completed.stdout.strip()),
+            ["0.00", "0.00", "-0.00", "+0.00", "0.00%"],
+        )
 
     def test_build_position_details_uses_earliest_leg_opened_at_when_position_timestamp_missing(self) -> None:
         from momentum_alpha.dashboard import build_position_details

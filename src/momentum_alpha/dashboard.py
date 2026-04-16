@@ -502,6 +502,8 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
             continue
         legs = _object_field(position, "legs") or []
         stop_price = _parse_decimal(_object_field(position, "stop_price"))
+        if stop_price is not None and stop_price <= 0:
+            stop_price = None
         latest_price = _parse_numeric(_object_field(position, "latest_price"))
         direction = str(_object_field(position, "side") or _object_field(position, "direction") or "LONG").upper()
         total_quantity = Decimal("0")
@@ -571,11 +573,11 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
             notional_exposure = float(total_quantity * Decimal(str(latest_price)))
             if direction == "SHORT":
                 mtm_pnl = float((avg_entry - Decimal(str(latest_price))) * total_quantity)
-                if stop_price is not None:
+                if stop_price is not None and latest_price > 0:
                     distance_to_stop_pct = float(((stop_price - Decimal(str(latest_price))) / Decimal(str(latest_price))) * Decimal("100"))
             else:
                 mtm_pnl = float((Decimal(str(latest_price)) - avg_entry) * total_quantity)
-                if stop_price is not None:
+                if stop_price is not None and latest_price > 0:
                     distance_to_stop_pct = float(((Decimal(str(latest_price)) - stop_price) / Decimal(str(latest_price))) * Decimal("100"))
             entry_notional = total_quantity * avg_entry
             if entry_notional not in (None, Decimal("0")):
@@ -1009,9 +1011,12 @@ def build_dashboard_response_json(snapshot: dict) -> str:
 def _format_metric(value: float | None, *, signed: bool = False) -> str:
     if value is None:
         return "n/a"
+    numeric_value = float(value)
+    if signed and numeric_value == 0:
+        return "0.00"
     if signed:
-        return f"{value:+,.2f}"
-    return f"{value:,.2f}"
+        return f"{numeric_value:+,.2f}"
+    return f"{numeric_value:,.2f}"
 
 
 def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str, show_grid: bool = True) -> str:
@@ -2058,8 +2063,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
   <script>
     function formatAccountValue(value, signed = false, suffix = '') {{
       if (value === null || value === undefined || Number.isNaN(value)) return 'n/a';
-      const formatted = Number(value).toLocaleString(undefined, {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-      const withSign = signed ? `${{value >= 0 ? '+' : ''}}${{formatted}}` : formatted;
+      const numericValue = Number(value);
+      if (signed && numericValue === 0) return `0.00${{suffix}}`;
+      const formatted = numericValue.toLocaleString(undefined, {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+      const withSign = signed ? `${{numericValue > 0 ? '+' : ''}}${{formatted}}` : formatted;
       return `${{withSign}}${{suffix}}`;
     }}
     function formatAccountWindowTimestamp(timestamp) {{
