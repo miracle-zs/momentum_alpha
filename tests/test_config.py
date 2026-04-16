@@ -15,6 +15,6 @@ class ConfigTests(unittest.TestCase):
         from momentum_alpha.config import StrategyConfig
 
         config = StrategyConfig()
-        self.assertEqual(config.stop_budget_usdt, Decimal("10"))
+        self.assertEqual(config.stop_budget_usdt, Decimal("20"))
         self.assertEqual(config.entry_start_hour_utc, 1)
         self.assertEqual(config.entry_end_hour_utc, 23)
