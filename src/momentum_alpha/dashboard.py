@@ -13,12 +13,16 @@ from .runtime_store import (
     RuntimeStateStore,
     fetch_event_pulse_points,
     fetch_leader_history,
+    fetch_recent_account_flows,
     fetch_recent_audit_events,
     fetch_recent_account_snapshots,
+    fetch_recent_algo_orders,
     fetch_recent_broker_orders,
     fetch_recent_position_snapshots,
     fetch_recent_signal_decisions,
+    fetch_recent_stop_exit_summaries,
     fetch_recent_trade_fills,
+    fetch_recent_trade_round_trips,
 )
 
 
@@ -355,6 +359,10 @@ def build_dashboard_tables_payload(snapshot: dict) -> dict:
         "recent_signal_decisions": snapshot.get("recent_signal_decisions", []),
         "recent_broker_orders": snapshot.get("recent_broker_orders", []),
         "recent_trade_fills": snapshot.get("recent_trade_fills", []),
+        "recent_algo_orders": snapshot.get("recent_algo_orders", []),
+        "recent_account_flows": snapshot.get("recent_account_flows", []),
+        "recent_trade_round_trips": snapshot.get("recent_trade_round_trips", []),
+        "recent_stop_exit_summaries": snapshot.get("recent_stop_exit_summaries", []),
         "recent_position_snapshots": snapshot.get("recent_position_snapshots", []),
         "recent_account_snapshots": snapshot.get("recent_account_snapshots", []),
         "recent_events": snapshot.get("recent_events", []),
@@ -388,6 +396,10 @@ def load_dashboard_snapshot(
     recent_signal_decisions: list[dict] = []
     recent_broker_orders: list[dict] = []
     recent_trade_fills: list[dict] = []
+    recent_algo_orders: list[dict] = []
+    recent_account_flows: list[dict] = []
+    recent_trade_round_trips: list[dict] = []
+    recent_stop_exit_summaries: list[dict] = []
     recent_position_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
     if runtime_db_file is not None and runtime_db_file.exists():
@@ -395,6 +407,10 @@ def load_dashboard_snapshot(
         recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
         recent_trade_fills = fetch_recent_trade_fills(path=runtime_db_file, limit=20)
+        recent_algo_orders = fetch_recent_algo_orders(path=runtime_db_file, limit=20)
+        recent_account_flows = fetch_recent_account_flows(path=runtime_db_file, limit=20)
+        recent_trade_round_trips = fetch_recent_trade_round_trips(path=runtime_db_file, limit=20)
+        recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=30)
         if not state_payload:
@@ -463,6 +479,10 @@ def load_dashboard_snapshot(
         "recent_signal_decisions": recent_signal_decisions,
         "recent_broker_orders": recent_broker_orders,
         "recent_trade_fills": recent_trade_fills,
+        "recent_algo_orders": recent_algo_orders,
+        "recent_account_flows": recent_account_flows,
+        "recent_trade_round_trips": recent_trade_round_trips,
+        "recent_stop_exit_summaries": recent_stop_exit_summaries,
         "recent_position_snapshots": recent_position_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
         "recent_events": recent_events,
