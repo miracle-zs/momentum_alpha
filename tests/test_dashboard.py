@@ -642,20 +642,22 @@ class DashboardTests(unittest.TestCase):
             {
                 "timestamp": "2026-04-15T09:15:23+00:00",
                 "symbol": "BTCUSDT",
-                "action_type": "submit_order",
-                "order_type": "MARKET",
+                "trade_id": "1",
                 "side": "BUY",
-                "quantity": 0.015,
+                "quantity": "0.015",
+                "last_price": "82166.5",
+                "commission": "0.12",
                 "order_status": "FILLED",
             },
             {
                 "timestamp": "2026-04-15T08:30:15+00:00",
                 "symbol": "ETHUSDT",
-                "action_type": "submit_order",
-                "order_type": "STOP_MARKET",
+                "trade_id": "2",
                 "side": "SELL",
-                "quantity": 0.12,
-                "order_status": "NEW",
+                "quantity": "0.12",
+                "last_price": "3010.2",
+                "commission": "0.03",
+                "order_status": "FILLED",
             },
         ]
 
@@ -663,20 +665,51 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("BTCUSDT", html)
         self.assertIn("ETHUSDT", html)
-        self.assertIn("MARKET", html)
-        self.assertIn("STOP_MARKET", html)
         self.assertIn("09:15:23", html)
         self.assertIn("08:30:15", html)
         self.assertIn("0.015", html)
         self.assertIn("0.12", html)
+        self.assertIn("82166.5", html)
+        self.assertIn("3010.2", html)
+        self.assertIn("0.03", html)
         self.assertIn("FILLED", html)
-        self.assertIn("NEW", html)
+
+    def test_render_dashboard_html_trade_history_prefers_trade_fills(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html({
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "BTCUSDT",
+                "position_count": 0,
+                "order_status_count": 0,
+                "latest_position_snapshot": {"payload": {}},
+                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
+                "latest_signal_decision": {},
+            },
+            "recent_broker_orders": [
+                {"timestamp": "2026-04-15T09:15:23+00:00", "action_type": "stream_order_update", "symbol": "-", "order_status": "TRIGGERED"}
+            ],
+            "recent_trade_fills": [
+                {"timestamp": "2026-04-15T09:15:23+00:00", "trade_id": "1", "symbol": "BTCUSDT", "side": "BUY", "quantity": "0.015", "last_price": "82166.5", "commission": "0.12", "order_status": "FILLED"}
+            ],
+            "recent_account_snapshots": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "leader_history": [],
+            "pulse_points": [],
+            "warnings": [],
+        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True})
+
+        self.assertIn("BTCUSDT", html)
+        self.assertNotIn("stream_order_update", html)
 
     def test_render_trade_history_table_shows_empty_message(self) -> None:
         from momentum_alpha.dashboard import render_trade_history_table
 
         html = render_trade_history_table([])
-        self.assertIn("No orders", html)
+        self.assertIn("No trades", html)
 
     def test_build_strategy_config_extracts_from_runtime_config(self) -> None:
         from momentum_alpha.dashboard import build_strategy_config

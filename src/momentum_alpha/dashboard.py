@@ -225,32 +225,32 @@ def build_position_details(position_snapshot: dict) -> list[dict]:
     return details
 
 
-def render_trade_history_table(orders: list[dict]) -> str:
-    """Render HTML table for trade history."""
-    # Filter to only show actual order submissions, not stream updates
-    filtered_orders = [o for o in orders if o.get("action_type") == "submit_order"]
-    if not filtered_orders:
-        return "<div class='trade-history-empty'>No orders</div>"
+def render_trade_history_table(fills: list[dict]) -> str:
+    """Render HTML table for recent trade fills."""
+    if not fills:
+        return "<div class='trade-history-empty'>No trades</div>"
 
     rows = ""
-    for order in filtered_orders[:10]:
-        timestamp = order.get("timestamp") or ""
+    for fill in fills[:10]:
+        timestamp = fill.get("timestamp") or ""
         time_str = timestamp[11:19] if len(timestamp) >= 19 else timestamp
-        symbol = escape(str(order.get("symbol") or "-"))
-        action = escape(str(order.get("order_type") or "-"))
-        side = order.get("side") or "-"
+        symbol = escape(str(fill.get("symbol") or "-"))
+        side = fill.get("side") or "-"
         side_class = "side-buy" if side == "BUY" else "side-sell"
-        qty = order.get("quantity") or "-"
-        status = order.get("order_status") or "-"
+        qty = fill.get("quantity") or fill.get("cumulative_quantity") or "-"
+        last_price = fill.get("last_price") or fill.get("average_price") or "-"
+        commission = fill.get("commission") or "-"
+        status = fill.get("order_status") or "-"
         status_class = "status-filled" if status == "FILLED" else "status-pending"
 
         rows += (
             f"<div class='trade-row'>"
             f"<span class='trade-time'>{escape(time_str)}</span>"
             f"<span class='trade-symbol'>{symbol}</span>"
-            f"<span class='trade-action'>{action}</span>"
             f"<span class='trade-side {side_class}'>{escape(side)}</span>"
             f"<span class='trade-qty'>{qty}</span>"
+            f"<span class='trade-price'>{escape(str(last_price))}</span>"
+            f"<span class='trade-commission'>{escape(str(commission))}</span>"
             f"<span class='trade-status {status_class}'>{escape(status)}</span>"
             f"</div>"
         )
@@ -724,8 +724,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     position_details = build_position_details(latest_position_snapshot)
     position_cards_html = render_position_cards(position_details)
     # Build trade history
-    broker_orders = snapshot.get("recent_broker_orders") or []
-    trade_history_html = render_trade_history_table(broker_orders)
+    trade_fills = snapshot.get("recent_trade_fills") or []
+    trade_history_html = render_trade_history_table(trade_fills)
     closed_trades_html = render_closed_trades_table(snapshot.get("recent_trade_round_trips") or [])
     stop_slippage_html = render_stop_slippage_table(snapshot.get("recent_stop_exit_summaries") or [])
     # Build strategy config
@@ -1191,7 +1191,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .positions-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
     .trade-history {{ max-height: 200px; overflow-y: auto; }}
     .trade-history-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
-    .trade-row {{ display: grid; grid-template-columns: 80px 100px 100px 60px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }}
+    .trade-row {{ display: grid; grid-template-columns: 80px 120px 60px 80px 100px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }}
     .trade-row:last-child {{ border-bottom: none; }}
     .analytics-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
     .analytics-table {{ max-height: 220px; overflow-y: auto; }}
@@ -1229,7 +1229,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
       .decision-grid {{ grid-template-columns: 1fr; }}
       .positions-grid {{ grid-template-columns: 1fr; }}
-      .trade-row {{ grid-template-columns: 60px 80px 80px 50px 60px; font-size: 0.7rem; }}
+      .trade-row {{ grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }}
       .analytics-grid {{ grid-template-columns: 1fr; }}
       .analytics-row {{ grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
     }}
