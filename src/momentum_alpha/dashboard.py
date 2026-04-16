@@ -225,6 +225,10 @@ def build_position_details(position_snapshot: dict) -> list[dict]:
     return details
 
 
+def _build_position_details_from_state_positions(positions: dict) -> list[dict]:
+    return build_position_details({"payload": {"positions": positions or {}}})
+
+
 def render_trade_history_table(fills: list[dict]) -> str:
     """Render HTML table for recent trade fills."""
     if not fills:
@@ -384,23 +388,57 @@ def build_dashboard_summary_payload(snapshot: dict) -> dict:
 
 def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
     account_rows = sorted(snapshot.get("recent_account_snapshots", []), key=lambda item: item.get("timestamp") or "")
-    return {
-        "account": [
+    account_flows = sorted(
+        snapshot.get("account_metric_flows", snapshot.get("recent_account_flows", [])),
+        key=lambda item: item.get("timestamp") or "",
+    )
+    cumulative_external_flow = 0.0
+    flow_index = 0
+    account_points = []
+    for row in account_rows:
+        timestamp = row.get("timestamp") or ""
+        while flow_index < len(account_flows) and (account_flows[flow_index].get("timestamp") or "") <= timestamp:
+            flow = account_flows[flow_index]
+            if _is_external_account_flow(flow):
+                cumulative_external_flow += _parse_numeric(flow.get("balance_change")) or 0.0
+            flow_index += 1
+        equity = _parse_numeric(row.get("equity"))
+        account_points.append(
             {
-                "timestamp": row.get("timestamp"),
+                "timestamp": timestamp,
                 "wallet_balance": _parse_numeric(row.get("wallet_balance")),
                 "available_balance": _parse_numeric(row.get("available_balance")),
-                "equity": _parse_numeric(row.get("equity")),
+                "equity": equity,
+                "adjusted_equity": None if equity is None else equity - cumulative_external_flow,
                 "unrealized_pnl": _parse_numeric(row.get("unrealized_pnl")),
                 "position_count": row.get("position_count"),
                 "open_order_count": row.get("open_order_count"),
                 "leader_symbol": row.get("leader_symbol"),
             }
-            for row in account_rows
-        ],
+        )
+    return {
+        "account": account_points,
         "pulse_points": snapshot.get("pulse_points", []),
         "leader_history": list(reversed(snapshot.get("leader_history", []))),
     }
+
+
+_EXTERNAL_ACCOUNT_FLOW_REASONS = {
+    "DEPOSIT",
+    "WITHDRAW",
+    "WITHDRAW_REJECT",
+    "ADMIN_DEPOSIT",
+    "ASSET_TRANSFER",
+    "MARGIN_TRANSFER",
+    "INTERNAL_TRANSFER",
+    "FUNDING_TRANSFER",
+    "OPTIONS_TRANSFER",
+}
+
+
+def _is_external_account_flow(flow: dict) -> bool:
+    reason = str(flow.get("reason") or "").upper()
+    return reason in _EXTERNAL_ACCOUNT_FLOW_REASONS
 
 
 def build_dashboard_tables_payload(snapshot: dict) -> dict:
@@ -447,6 +485,7 @@ def load_dashboard_snapshot(
     recent_trade_fills: list[dict] = []
     recent_algo_orders: list[dict] = []
     recent_account_flows: list[dict] = []
+    account_metric_flows: list[dict] = []
     recent_trade_round_trips: list[dict] = []
     recent_stop_exit_summaries: list[dict] = []
     recent_position_snapshots: list[dict] = []
@@ -458,6 +497,7 @@ def load_dashboard_snapshot(
         recent_trade_fills = fetch_recent_trade_fills(path=runtime_db_file, limit=20)
         recent_algo_orders = fetch_recent_algo_orders(path=runtime_db_file, limit=20)
         recent_account_flows = fetch_recent_account_flows(path=runtime_db_file, limit=20)
+        account_metric_flows = fetch_recent_account_flows(path=runtime_db_file, limit=1440)
         recent_trade_round_trips = fetch_recent_trade_round_trips(path=runtime_db_file, limit=20)
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
@@ -530,10 +570,12 @@ def load_dashboard_snapshot(
         "recent_trade_fills": recent_trade_fills,
         "recent_algo_orders": recent_algo_orders,
         "recent_account_flows": recent_account_flows,
+        "account_metric_flows": account_metric_flows,
         "recent_trade_round_trips": recent_trade_round_trips,
         "recent_stop_exit_summaries": recent_stop_exit_summaries,
         "recent_position_snapshots": recent_position_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
+        "state_positions": state_payload.get("positions") or {},
         "recent_events": recent_events,
         "warnings": warnings,
         "strategy_config": build_strategy_config(
@@ -697,6 +739,7 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
         return {
             "current_wallet": None,
             "current_equity": None,
+            "current_adjusted_equity": None,
             "current_unrealized_pnl": None,
             "current_positions": None,
             "current_orders": None,
@@ -709,6 +752,7 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
     last = points[-1]
     peak_equity = max((_parse_numeric(point.get("equity")) or 0.0) for point in points)
     current_equity = _parse_numeric(last.get("equity"))
+    current_adjusted_equity = _parse_numeric(last.get("adjusted_equity"))
     current_wallet = _parse_numeric(last.get("wallet_balance"))
     current_pnl = _parse_numeric(last.get("unrealized_pnl"))
     metric_first = _parse_numeric(first.get(metric))
@@ -725,6 +769,7 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
     return {
         "current_wallet": current_wallet,
         "current_equity": current_equity,
+        "current_adjusted_equity": current_adjusted_equity,
         "current_unrealized_pnl": current_pnl,
         "current_positions": last.get("position_count"),
         "current_orders": last.get("open_order_count"),
@@ -762,6 +807,9 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<div class='account-overview-card'><div class='account-overview-label'>EQUITY</div>"
         f"<div class='account-overview-value' data-account-value='equity'>{escape(_format_metric(stats['current_equity']))}</div>"
         "<div class='account-overview-sub' data-account-delta='equity'>Range Δ n/a</div></div>"
+        "<div class='account-overview-card'><div class='account-overview-label'>ADJUSTED EQUITY</div>"
+        f"<div class='account-overview-value' data-account-value='adjusted_equity'>{escape(_format_metric(stats['current_adjusted_equity']))}</div>"
+        "<div class='account-overview-sub' data-account-delta='adjusted_equity'>Range Δ n/a</div></div>"
         "<div class='account-overview-card'><div class='account-overview-label'>UNREALIZED PNL</div>"
         f"<div class='account-overview-value' data-account-value='unrealized_pnl'>{escape(_format_metric(stats['current_unrealized_pnl'], signed=True))}</div>"
         "<div class='account-overview-sub' data-account-delta='unrealized_pnl'>Range Δ n/a</div></div>"
@@ -779,6 +827,7 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<div class='account-main-toolbar'>"
         "<div class='account-metric-switches'>"
         "<button type='button' class='account-chip active' data-account-metric=\"equity\">Equity</button>"
+        "<button type='button' class='account-chip' data-account-metric=\"adjusted_equity\">Adjusted Equity</button>"
         "<button type='button' class='account-chip' data-account-metric=\"wallet_balance\">Wallet</button>"
         "<button type='button' class='account-chip' data-account-metric=\"unrealized_pnl\">Unrealized PnL</button>"
         "</div>"
@@ -820,6 +869,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     health_status = snapshot["health"]["overall_status"]
     # Build position cards
     position_details = build_position_details(latest_position_snapshot)
+    if not position_details and snapshot.get("state_positions"):
+        position_details = _build_position_details_from_state_positions(snapshot.get("state_positions") or {})
     position_cards_html = render_position_cards(position_details)
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
@@ -1511,7 +1562,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       }});
       const polyline = coords.map(([x, y]) => `${{x.toFixed(2)}},${{y.toFixed(2)}}`).join(' ');
       const area = `${{coords[0][0].toFixed(2)}},${{(height - padY).toFixed(2)}} ` + polyline + ` ${{coords[coords.length - 1][0].toFixed(2)}},${{(height - padY).toFixed(2)}}`;
-      const palette = {{ equity: '#4cc9f0', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7' }};
+      const palette = {{ equity: '#4cc9f0', adjusted_equity: '#ffbc42', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7' }};
       const stroke = palette[metric] || '#4cc9f0';
       let grid = '';
       let labels = '';
@@ -1548,11 +1599,13 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       const deltas = {{
         wallet_balance: Number(last.wallet_balance ?? 0) - Number(first.wallet_balance ?? 0),
         equity: Number(last.equity ?? 0) - Number(first.equity ?? 0),
+        adjusted_equity: Number(last.adjusted_equity ?? 0) - Number(first.adjusted_equity ?? 0),
         unrealized_pnl: Number(last.unrealized_pnl ?? 0) - Number(first.unrealized_pnl ?? 0),
       }};
       const values = {{
         wallet_balance: formatAccountValue(Number(last.wallet_balance ?? 0)),
         equity: formatAccountValue(Number(last.equity ?? 0)),
+        adjusted_equity: formatAccountValue(Number(last.adjusted_equity ?? 0)),
         unrealized_pnl: formatAccountValue(Number(last.unrealized_pnl ?? 0), true),
         exposure: `${{last.position_count ?? 0}} / ${{last.open_order_count ?? 0}}`,
         peak_equity: formatAccountValue(peakEquity),
@@ -1562,7 +1615,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         const node = document.querySelector(`[data-account-value="${{key}}"]`);
         if (node) node.textContent = value;
       }});
-      ['wallet_balance', 'equity', 'unrealized_pnl'].forEach((key) => {{
+      ['wallet_balance', 'equity', 'adjusted_equity', 'unrealized_pnl'].forEach((key) => {{
         const node = document.querySelector(`[data-account-delta="${{key}}"]`);
         if (node) node.textContent = `Range Δ ${{formatAccountValue(deltas[key], true)}}`;
       }});

@@ -515,6 +515,14 @@ class DashboardTests(unittest.TestCase):
                     "leader_symbol": "BLESSUSDT",
                 },
             ],
+            "recent_account_flows": [
+                {
+                    "timestamp": "2026-04-15T08:48:30+00:00",
+                    "reason": "DEPOSIT",
+                    "asset": "USDT",
+                    "balance_change": "100.00",
+                }
+            ],
             "recent_events": [{"timestamp": "2026-04-15T08:49:00+00:00", "event_type": "poll_tick"}],
             "warnings": [],
         }
@@ -527,6 +535,8 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(summary["runtime"]["previous_leader_symbol"], "BLESSUSDT")
         self.assertEqual(timeseries["account"][0]["timestamp"], "2026-04-15T08:48:00+00:00")
         self.assertEqual(timeseries["account"][1]["equity"], 1260.12)
+        self.assertEqual(timeseries["account"][0]["adjusted_equity"], 1250.00)
+        self.assertEqual(timeseries["account"][1]["adjusted_equity"], 1160.12)
         self.assertEqual(tables["recent_signal_decisions"][0]["decision_type"], "base_entry")
         self.assertEqual(tables["recent_trade_fills"][0]["trade_id"], "2002")
         self.assertEqual(tables["recent_trade_round_trips"][0]["round_trip_id"], "PLAYUSDT:1")
@@ -849,6 +859,48 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Stop Budget", html)
         self.assertIn("10", html)
 
+    def test_render_dashboard_html_positions_fall_back_to_state_positions(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html({
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "BTCUSDT",
+                "position_count": 1,
+                "order_status_count": 0,
+                "latest_position_snapshot": {"payload": {}},
+                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
+                "latest_signal_decision": {},
+            },
+            "state_positions": {
+                "BTCUSDT": {
+                    "symbol": "BTCUSDT",
+                    "stop_price": "81000",
+                    "legs": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "quantity": "0.01",
+                            "entry_price": "82000",
+                            "stop_price": "81000",
+                            "opened_at": "2026-04-15T09:15:00+00:00",
+                            "leg_type": "base",
+                        }
+                    ],
+                }
+            },
+            "recent_broker_orders": [],
+            "recent_account_snapshots": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "leader_history": [],
+            "pulse_points": [],
+            "warnings": [],
+        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False})
+
+        self.assertIn("BTCUSDT", html)
+        self.assertNotIn("No positions", html)
+
     def test_load_dashboard_snapshot_loads_extended_account_history_from_runtime_db(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import insert_account_snapshot
@@ -960,6 +1012,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("data-account-range=\"24H\"", html)
         self.assertIn("data-account-range=\"ALL\"", html)
         self.assertIn("data-account-metric=\"equity\"", html)
+        self.assertIn("data-account-metric=\"adjusted_equity\"", html)
         self.assertIn("data-account-metric=\"wallet_balance\"", html)
         self.assertIn("data-account-metric=\"unrealized_pnl\"", html)
+        self.assertIn("ADJUSTED EQUITY", html)
         self.assertIn("accountMetricsData", html)
