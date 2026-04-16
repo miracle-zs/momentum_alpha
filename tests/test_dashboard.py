@@ -638,7 +638,8 @@ class DashboardTests(unittest.TestCase):
             {
                 "timestamp": "2026-04-15T09:15:23+00:00",
                 "symbol": "BTCUSDT",
-                "action_type": "base_entry",
+                "action_type": "submit_order",
+                "order_type": "MARKET",
                 "side": "BUY",
                 "quantity": 0.015,
                 "order_status": "FILLED",
@@ -646,8 +647,9 @@ class DashboardTests(unittest.TestCase):
             {
                 "timestamp": "2026-04-15T08:30:15+00:00",
                 "symbol": "ETHUSDT",
-                "action_type": "add_on_entry",
-                "side": "BUY",
+                "action_type": "submit_order",
+                "order_type": "STOP_MARKET",
+                "side": "SELL",
                 "quantity": 0.12,
                 "order_status": "NEW",
             },
@@ -657,8 +659,8 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("BTCUSDT", html)
         self.assertIn("ETHUSDT", html)
-        self.assertIn("base_entry", html)
-        self.assertIn("add_on_entry", html)
+        self.assertIn("MARKET", html)
+        self.assertIn("STOP_MARKET", html)
         self.assertIn("09:15:23", html)
         self.assertIn("08:30:15", html)
         self.assertIn("0.015", html)

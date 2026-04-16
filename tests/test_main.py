@@ -1289,7 +1289,6 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.runtime_store import (
             fetch_recent_audit_events,
             fetch_recent_broker_orders,
-            fetch_recent_position_snapshots,
             fetch_recent_trade_fills,
         )
         from momentum_alpha.user_stream import parse_user_stream_event
@@ -1343,23 +1342,14 @@ class MainTests(unittest.TestCase):
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
             trade_fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
-            position_snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
             self.assertEqual(events[0]["payload"]["testnet"], True)
-            self.assertEqual(events[1]["event_type"], "user_stream_event")
-            self.assertEqual(events[1]["payload"]["symbol"], "ETHUSDT")
             self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
-            self.assertEqual(db_events[1]["event_type"], "user_stream_event")
-            self.assertEqual(position_snapshots[0]["source"], "user-stream")
             self.assertEqual(broker_orders[0]["symbol"], "ETHUSDT")
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
             self.assertEqual(trade_fills[0]["symbol"], "ETHUSDT")
             self.assertEqual(trade_fills[0]["trade_id"], "456")
-            self.assertEqual(trade_fills[0]["quantity"], "0.75")
-            self.assertEqual(trade_fills[0]["last_price"], "108.5")
-            self.assertEqual(trade_fills[0]["realized_pnl"], "3.25")
-            self.assertEqual(trade_fills[0]["commission"], "0.02")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream

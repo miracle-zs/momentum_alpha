@@ -102,16 +102,24 @@ class RuntimeStoreTests(unittest.TestCase):
     def test_structured_inserts_preserve_summary_fields(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,
+            fetch_recent_account_flows,
             fetch_recent_account_snapshots,
+            fetch_recent_algo_orders,
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
+            fetch_recent_stop_exit_summaries,
             fetch_recent_trade_fills,
+            fetch_recent_trade_round_trips,
+            insert_account_flow,
             insert_account_snapshot,
+            insert_algo_order,
             insert_broker_order,
             insert_position_snapshot,
             insert_signal_decision,
+            insert_stop_exit_summary,
             insert_trade_fill,
+            insert_trade_round_trip,
         )
 
         with TemporaryDirectory() as tmpdir:
@@ -131,7 +139,25 @@ class RuntimeStoreTests(unittest.TestCase):
                 next_leader_symbol="BLESSUSDT",
                 position_count=1,
                 order_status_count=0,
-                payload={"note": "leader switch"},
+                payload={
+                    "note": "leader switch",
+                    "latest_price": "0.1234",
+                    "daily_change_pct": "0.42",
+                    "leader_gap_pct": "0.08",
+                },
+            )
+            insert_algo_order(
+                path=db_path,
+                timestamp=second_timestamp,
+                source="poll",
+                symbol="BLESSUSDT",
+                algo_id="algo-1",
+                client_algo_id="abc-123-stop",
+                algo_status="NEW",
+                side="SELL",
+                order_type="STOP_MARKET",
+                trigger_price="0.1200",
+                payload={"workingType": "CONTRACT_PRICE"},
             )
             insert_broker_order(
                 path=db_path,
@@ -166,6 +192,51 @@ class RuntimeStoreTests(unittest.TestCase):
                 commission_asset="USDT",
                 payload={"maker": False},
             )
+            insert_account_flow(
+                path=db_path,
+                timestamp=second_timestamp,
+                source="user-stream",
+                reason="FUNDING_FEE",
+                asset="USDT",
+                wallet_balance="1234.56",
+                cross_wallet_balance="1200.00",
+                balance_change="-0.12",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+            )
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="BLESSUSDT:1",
+                symbol="BLESSUSDT",
+                opened_at=first_timestamp,
+                closed_at=second_timestamp,
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="1.25",
+                total_exit_quantity="1.25",
+                weighted_avg_entry_price="0.1234",
+                weighted_avg_exit_price="0.1210",
+                realized_pnl="-3.00",
+                commission="0.01",
+                net_pnl="-3.01",
+                exit_reason="stop_loss",
+                duration_seconds=60,
+                payload={"stop_triggered": True},
+            )
+            insert_stop_exit_summary(
+                path=db_path,
+                timestamp=second_timestamp,
+                symbol="BLESSUSDT",
+                round_trip_id="BLESSUSDT:1",
+                trigger_price="0.1220",
+                average_exit_price="0.1210",
+                slippage_abs="0.0010",
+                slippage_pct="0.819672",
+                exit_quantity="1.25",
+                realized_pnl="-3.00",
+                commission="0.01",
+                net_pnl="-3.01",
+                payload={"stop_triggered": True},
+            )
             insert_position_snapshot(
                 path=db_path,
                 timestamp=second_timestamp,
@@ -194,8 +265,12 @@ class RuntimeStoreTests(unittest.TestCase):
             )
 
             signal_decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
+            algo_orders = fetch_recent_algo_orders(path=db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=db_path, limit=10)
             trade_fills = fetch_recent_trade_fills(path=db_path, limit=10)
+            account_flows = fetch_recent_account_flows(path=db_path, limit=10)
+            round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+            stop_exits = fetch_recent_stop_exit_summaries(path=db_path, limit=10)
             snapshots = fetch_recent_position_snapshots(path=db_path, limit=10)
             account_snapshots = fetch_recent_account_snapshots(path=db_path, limit=10)
 
@@ -203,6 +278,9 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(signal_decisions[0]["previous_leader_symbol"], "ONUSDT")
             self.assertEqual(signal_decisions[0]["next_leader_symbol"], "BLESSUSDT")
             self.assertEqual(signal_decisions[0]["payload"]["note"], "leader switch")
+            self.assertEqual(signal_decisions[0]["payload"]["leader_gap_pct"], "0.08")
+            self.assertEqual(algo_orders[0]["algo_id"], "algo-1")
+            self.assertEqual(algo_orders[0]["trigger_price"], "0.1200")
             self.assertEqual(broker_orders[0]["action_type"], "submit")
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
             self.assertEqual(broker_orders[0]["payload"]["filled_qty"], "1.25")
@@ -213,6 +291,12 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(trade_fills[0]["realized_pnl"], "5.67")
             self.assertEqual(trade_fills[0]["commission_asset"], "USDT")
             self.assertEqual(trade_fills[0]["payload"]["maker"], False)
+            self.assertEqual(account_flows[0]["reason"], "FUNDING_FEE")
+            self.assertEqual(account_flows[0]["balance_change"], "-0.12")
+            self.assertEqual(round_trips[0]["round_trip_id"], "BLESSUSDT:1")
+            self.assertEqual(round_trips[0]["exit_reason"], "stop_loss")
+            self.assertEqual(stop_exits[0]["round_trip_id"], "BLESSUSDT:1")
+            self.assertEqual(stop_exits[0]["slippage_abs"], "0.0010")
             self.assertEqual(snapshots[0]["leader_symbol"], "BLESSUSDT")
             self.assertTrue(snapshots[0]["submit_orders"])
             self.assertEqual(snapshots[0]["symbol_count"], 538)

@@ -34,6 +34,7 @@ class UserStreamEvent:
     order_id: int | None = None
     trade_id: int | None = None
     client_order_id: str | None = None
+    account_update_reason: str | None = None
     # Algo order fields
     algo_id: int | None = None
     client_algo_id: str | None = None
@@ -75,6 +76,7 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
         order_id=order_payload.get("i"),
         trade_id=order_payload.get("t"),
         client_order_id=order_payload.get("c"),
+        account_update_reason=(payload.get("a") or {}).get("m"),
         # Algo order fields
         algo_id=payload.get("algoId") or order_payload.get("algoId"),
         client_algo_id=payload.get("clientAlgoId") or order_payload.get("clientAlgoId"),
@@ -106,6 +108,38 @@ def extract_trade_fill(event: UserStreamEvent) -> dict | None:
         "realized_pnl": event.realized_pnl,
         "commission": event.commission,
         "commission_asset": event.commission_asset,
+    }
+
+
+def extract_account_flows(event: UserStreamEvent) -> list[dict]:
+    if event.event_type != "ACCOUNT_UPDATE":
+        return []
+    account_payload = event.payload.get("a", {})
+    flows: list[dict] = []
+    for balance in account_payload.get("B", []):
+        flows.append(
+            {
+                "reason": account_payload.get("m"),
+                "asset": balance.get("a"),
+                "wallet_balance": _parse_decimal(balance.get("wb")),
+                "cross_wallet_balance": _parse_decimal(balance.get("cw")),
+                "balance_change": _parse_decimal(balance.get("bc")),
+            }
+        )
+    return flows
+
+
+def extract_algo_order_event(event: UserStreamEvent) -> dict | None:
+    if event.event_type != "ALGO_UPDATE" or event.algo_id is None:
+        return None
+    return {
+        "symbol": event.symbol,
+        "algo_id": str(event.algo_id),
+        "client_algo_id": event.client_algo_id,
+        "algo_status": event.algo_status,
+        "side": event.side,
+        "order_type": event.original_order_type,
+        "trigger_price": event.trigger_price,
     }
 
 

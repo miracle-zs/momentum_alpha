@@ -223,18 +223,20 @@ def build_position_details(position_snapshot: dict) -> list[dict]:
 
 def render_trade_history_table(orders: list[dict]) -> str:
     """Render HTML table for trade history."""
-    if not orders:
+    # Filter to only show actual order submissions, not stream updates
+    filtered_orders = [o for o in orders if o.get("action_type") == "submit_order"]
+    if not filtered_orders:
         return "<div class='trade-history-empty'>No orders</div>"
 
     rows = ""
-    for order in orders[:10]:
+    for order in filtered_orders[:10]:
         timestamp = order.get("timestamp") or ""
         time_str = timestamp[11:19] if len(timestamp) >= 19 else timestamp
         symbol = escape(str(order.get("symbol") or "-"))
-        action = escape(str(order.get("action_type") or "-"))
+        action = escape(str(order.get("order_type") or "-"))
         side = order.get("side") or "-"
         side_class = "side-buy" if side == "BUY" else "side-sell"
-        qty = order.get("quantity") or 0
+        qty = order.get("quantity") or "-"
         status = order.get("order_status") or "-"
         status_class = "status-filled" if status == "FILLED" else "status-pending"
 

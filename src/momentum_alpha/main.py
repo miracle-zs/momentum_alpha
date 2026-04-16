@@ -26,16 +26,21 @@ from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
 from momentum_alpha.runtime_store import (
     RuntimeStateStore,
+    insert_account_flow,
     insert_account_snapshot,
+    insert_algo_order,
     insert_broker_order,
     insert_position_snapshot,
     insert_signal_decision,
     insert_trade_fill,
+    rebuild_trade_analytics,
 )
 from momentum_alpha.state_store import FileStateStore, StoredStrategyState
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
     apply_user_stream_event_to_state,
+    extract_account_flows,
+    extract_algo_order_event,
     extract_algo_order_status_update,
     extract_trade_fill,
     extract_order_status_update,
@@ -180,6 +185,39 @@ def _record_signal_decision(
         )
     except Exception:
         pass
+
+
+def _build_market_context_payloads(*, snapshots: list[dict]) -> tuple[dict[str, dict], Decimal | None]:
+    ordered = sorted(
+        [
+            {
+                "symbol": snapshot["symbol"],
+                "daily_change_pct": (snapshot["latest_price"] - snapshot["daily_open_price"]) / snapshot["daily_open_price"],
+                "latest_price": snapshot["latest_price"],
+                "daily_open_price": snapshot["daily_open_price"],
+                "previous_hour_low": snapshot["previous_hour_low"],
+                "current_hour_low": snapshot.get("current_hour_low", snapshot["previous_hour_low"]),
+            }
+            for snapshot in snapshots
+            if snapshot.get("daily_open_price") not in (None, Decimal("0"))
+        ],
+        key=lambda item: item["daily_change_pct"],
+        reverse=True,
+    )
+    leader_gap_pct = None
+    if len(ordered) >= 2:
+        leader_gap_pct = ordered[0]["daily_change_pct"] - ordered[1]["daily_change_pct"]
+    payloads: dict[str, dict] = {}
+    for item in ordered:
+        payloads[item["symbol"]] = {
+            "latest_price": str(item["latest_price"]),
+            "daily_open_price": str(item["daily_open_price"]),
+            "daily_change_pct": str(item["daily_change_pct"]),
+            "previous_hour_low": str(item["previous_hour_low"]),
+            "current_hour_low": str(item["current_hour_low"]),
+            "leader_gap_pct": str(leader_gap_pct) if item["symbol"] == ordered[0]["symbol"] and leader_gap_pct is not None else None,
+        }
+    return payloads, leader_gap_pct
 
 
 def _record_broker_orders(
@@ -669,6 +707,7 @@ def run_once_live(
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
+        market_payloads, _leader_gap_pct = _build_market_context_payloads(snapshots=snapshots)
         audit_recorder.record(
             event_type="tick_result",
             now=now,
@@ -687,15 +726,38 @@ def run_once_live(
         order_status_count = 0
         signal_records = []
         signal_records.extend(
-            ("base_entry", intent.symbol, {"leg_type": intent.leg_type, "stop_price": str(intent.stop_price)})
+            (
+                "base_entry",
+                intent.symbol,
+                {
+                    "leg_type": intent.leg_type,
+                    "stop_price": str(intent.stop_price),
+                    **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
+                },
+            )
             for intent in result.runtime_result.decision.base_entries
         )
         signal_records.extend(
-            ("add_on", intent.symbol, {"leg_type": intent.leg_type, "stop_price": str(intent.stop_price)})
+            (
+                "add_on",
+                intent.symbol,
+                {
+                    "leg_type": intent.leg_type,
+                    "stop_price": str(intent.stop_price),
+                    **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
+                },
+            )
             for intent in result.runtime_result.decision.add_on_entries
         )
         signal_records.extend(
-            ("stop_update", symbol, {"stop_price": str(stop_price)})
+            (
+                "stop_update",
+                symbol,
+                {
+                    "stop_price": str(stop_price),
+                    **{key: value for key, value in market_payloads.get(symbol, {}).items() if value is not None},
+                },
+            )
             for symbol, stop_price in sorted(result.runtime_result.decision.updated_stop_prices.items())
         )
         if not signal_records:
@@ -875,8 +937,44 @@ def run_user_stream(
                     commission_asset=trade_fill.get("commission_asset"),
                     payload=event.payload,
                 )
+                rebuild_trade_analytics(path=audit_recorder.runtime_db_path)
             except Exception:
                 pass
+        algo_order = extract_algo_order_event(event)
+        if algo_order is not None and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
+            try:
+                insert_algo_order(
+                    path=audit_recorder.runtime_db_path,
+                    timestamp=event.event_time or now_provider(),
+                    source=audit_recorder.source,
+                    symbol=algo_order.get("symbol"),
+                    algo_id=algo_order.get("algo_id"),
+                    client_algo_id=algo_order.get("client_algo_id"),
+                    algo_status=algo_order.get("algo_status"),
+                    side=algo_order.get("side"),
+                    order_type=algo_order.get("order_type"),
+                    trigger_price=algo_order.get("trigger_price"),
+                    payload=event.payload,
+                )
+            except Exception:
+                pass
+        account_flows = extract_account_flows(event)
+        if account_flows and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
+            for flow in account_flows:
+                try:
+                    insert_account_flow(
+                        path=audit_recorder.runtime_db_path,
+                        timestamp=event.event_time or now_provider(),
+                        source=audit_recorder.source,
+                        reason=flow.get("reason"),
+                        asset=flow.get("asset"),
+                        wallet_balance=flow.get("wallet_balance"),
+                        cross_wallet_balance=flow.get("cross_wallet_balance"),
+                        balance_change=flow.get("balance_change"),
+                        payload=event.payload,
+                    )
+                except Exception:
+                    pass
         order_status_update = extract_order_status_update(event)
         if order_status_update is not None:
             order_id, order_snapshot = order_status_update

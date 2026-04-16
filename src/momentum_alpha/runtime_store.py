@@ -5,6 +5,7 @@ import sqlite3
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from dataclasses import dataclass
@@ -94,6 +95,88 @@ CREATE INDEX IF NOT EXISTS idx_trade_fills_symbol_timestamp
     ON trade_fills(symbol, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_trade_fills_trade_id
     ON trade_fills(trade_id);
+
+CREATE TABLE IF NOT EXISTS algo_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    source TEXT,
+    symbol TEXT,
+    algo_id TEXT,
+    client_algo_id TEXT,
+    algo_status TEXT,
+    side TEXT,
+    order_type TEXT,
+    trigger_price TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_algo_orders_timestamp
+    ON algo_orders(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_algo_orders_symbol_timestamp
+    ON algo_orders(symbol, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_algo_orders_algo_id
+    ON algo_orders(algo_id);
+
+CREATE TABLE IF NOT EXISTS account_flows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    source TEXT,
+    reason TEXT,
+    asset TEXT,
+    wallet_balance TEXT,
+    cross_wallet_balance TEXT,
+    balance_change TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_account_flows_timestamp
+    ON account_flows(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_account_flows_reason_timestamp
+    ON account_flows(reason, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS trade_round_trips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    round_trip_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    opened_at TEXT NOT NULL,
+    closed_at TEXT NOT NULL,
+    entry_fill_count INTEGER NOT NULL,
+    exit_fill_count INTEGER NOT NULL,
+    total_entry_quantity TEXT,
+    total_exit_quantity TEXT,
+    weighted_avg_entry_price TEXT,
+    weighted_avg_exit_price TEXT,
+    realized_pnl TEXT,
+    commission TEXT,
+    net_pnl TEXT,
+    exit_reason TEXT,
+    duration_seconds INTEGER,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trade_round_trips_closed_at
+    ON trade_round_trips(closed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_round_trips_symbol_closed_at
+    ON trade_round_trips(symbol, closed_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_round_trips_round_trip_id
+    ON trade_round_trips(round_trip_id);
+
+CREATE TABLE IF NOT EXISTS stop_exit_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    round_trip_id TEXT NOT NULL,
+    trigger_price TEXT,
+    average_exit_price TEXT,
+    slippage_abs TEXT,
+    slippage_pct TEXT,
+    exit_quantity TEXT,
+    realized_pnl TEXT,
+    commission TEXT,
+    net_pnl TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stop_exit_summaries_timestamp
+    ON stop_exit_summaries(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_stop_exit_summaries_symbol_timestamp
+    ON stop_exit_summaries(symbol, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS position_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +293,15 @@ def _decimal_to_text(value: object | None) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _text_to_decimal(value: object | None) -> Decimal:
+    if value in (None, ""):
+        return Decimal("0")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        return Decimal("0")
 
 
 @contextmanager
@@ -414,6 +506,208 @@ def insert_trade_fill(
                 _decimal_to_text(realized_pnl),
                 _decimal_to_text(commission),
                 commission_asset,
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
+def insert_algo_order(
+    *,
+    path: Path,
+    timestamp: datetime,
+    source: str | None,
+    symbol: str | None = None,
+    algo_id: str | None = None,
+    client_algo_id: str | None = None,
+    algo_status: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    trigger_price: object | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO algo_orders(
+                timestamp,
+                source,
+                symbol,
+                algo_id,
+                client_algo_id,
+                algo_status,
+                side,
+                order_type,
+                trigger_price,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _as_utc_iso(timestamp),
+                source,
+                symbol,
+                algo_id,
+                client_algo_id,
+                algo_status,
+                side,
+                order_type,
+                _decimal_to_text(trigger_price),
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
+def insert_account_flow(
+    *,
+    path: Path,
+    timestamp: datetime,
+    source: str | None,
+    reason: str | None = None,
+    asset: str | None = None,
+    wallet_balance: object | None = None,
+    cross_wallet_balance: object | None = None,
+    balance_change: object | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO account_flows(
+                timestamp,
+                source,
+                reason,
+                asset,
+                wallet_balance,
+                cross_wallet_balance,
+                balance_change,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _as_utc_iso(timestamp),
+                source,
+                reason,
+                asset,
+                _decimal_to_text(wallet_balance),
+                _decimal_to_text(cross_wallet_balance),
+                _decimal_to_text(balance_change),
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
+def insert_trade_round_trip(
+    *,
+    path: Path,
+    round_trip_id: str,
+    symbol: str,
+    opened_at: datetime,
+    closed_at: datetime,
+    entry_fill_count: int,
+    exit_fill_count: int,
+    total_entry_quantity: object | None = None,
+    total_exit_quantity: object | None = None,
+    weighted_avg_entry_price: object | None = None,
+    weighted_avg_exit_price: object | None = None,
+    realized_pnl: object | None = None,
+    commission: object | None = None,
+    net_pnl: object | None = None,
+    exit_reason: str | None = None,
+    duration_seconds: int | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO trade_round_trips(
+                round_trip_id,
+                symbol,
+                opened_at,
+                closed_at,
+                entry_fill_count,
+                exit_fill_count,
+                total_entry_quantity,
+                total_exit_quantity,
+                weighted_avg_entry_price,
+                weighted_avg_exit_price,
+                realized_pnl,
+                commission,
+                net_pnl,
+                exit_reason,
+                duration_seconds,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                round_trip_id,
+                symbol,
+                _as_utc_iso(opened_at),
+                _as_utc_iso(closed_at),
+                entry_fill_count,
+                exit_fill_count,
+                _decimal_to_text(total_entry_quantity),
+                _decimal_to_text(total_exit_quantity),
+                _decimal_to_text(weighted_avg_entry_price),
+                _decimal_to_text(weighted_avg_exit_price),
+                _decimal_to_text(realized_pnl),
+                _decimal_to_text(commission),
+                _decimal_to_text(net_pnl),
+                exit_reason,
+                duration_seconds,
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
+def insert_stop_exit_summary(
+    *,
+    path: Path,
+    timestamp: datetime,
+    symbol: str,
+    round_trip_id: str,
+    trigger_price: object | None = None,
+    average_exit_price: object | None = None,
+    slippage_abs: object | None = None,
+    slippage_pct: object | None = None,
+    exit_quantity: object | None = None,
+    realized_pnl: object | None = None,
+    commission: object | None = None,
+    net_pnl: object | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO stop_exit_summaries(
+                timestamp,
+                symbol,
+                round_trip_id,
+                trigger_price,
+                average_exit_price,
+                slippage_abs,
+                slippage_pct,
+                exit_quantity,
+                realized_pnl,
+                commission,
+                net_pnl,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _as_utc_iso(timestamp),
+                symbol,
+                round_trip_id,
+                _decimal_to_text(trigger_price),
+                _decimal_to_text(average_exit_price),
+                _decimal_to_text(slippage_abs),
+                _decimal_to_text(slippage_pct),
+                _decimal_to_text(exit_quantity),
+                _decimal_to_text(realized_pnl),
+                _decimal_to_text(commission),
+                _decimal_to_text(net_pnl),
                 _json_dumps(payload or {}),
             ),
         )
@@ -697,6 +991,399 @@ def fetch_recent_trade_fills(*, path: Path, limit: int = 20) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def fetch_recent_algo_orders(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                symbol,
+                algo_id,
+                client_algo_id,
+                algo_status,
+                side,
+                order_type,
+                trigger_price,
+                payload_json
+            FROM algo_orders
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "symbol": row[2],
+            "algo_id": row[3],
+            "client_algo_id": row[4],
+            "algo_status": row[5],
+            "side": row[6],
+            "order_type": row[7],
+            "trigger_price": row[8],
+            "payload": _json_loads(row[9]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_recent_account_flows(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                reason,
+                asset,
+                wallet_balance,
+                cross_wallet_balance,
+                balance_change,
+                payload_json
+            FROM account_flows
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "reason": row[2],
+            "asset": row[3],
+            "wallet_balance": row[4],
+            "cross_wallet_balance": row[5],
+            "balance_change": row[6],
+            "payload": _json_loads(row[7]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_recent_trade_round_trips(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                round_trip_id,
+                symbol,
+                opened_at,
+                closed_at,
+                entry_fill_count,
+                exit_fill_count,
+                total_entry_quantity,
+                total_exit_quantity,
+                weighted_avg_entry_price,
+                weighted_avg_exit_price,
+                realized_pnl,
+                commission,
+                net_pnl,
+                exit_reason,
+                duration_seconds,
+                payload_json
+            FROM trade_round_trips
+            ORDER BY closed_at DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "round_trip_id": row[0],
+            "symbol": row[1],
+            "opened_at": row[2],
+            "closed_at": row[3],
+            "entry_fill_count": row[4],
+            "exit_fill_count": row[5],
+            "total_entry_quantity": row[6],
+            "total_exit_quantity": row[7],
+            "weighted_avg_entry_price": row[8],
+            "weighted_avg_exit_price": row[9],
+            "realized_pnl": row[10],
+            "commission": row[11],
+            "net_pnl": row[12],
+            "exit_reason": row[13],
+            "duration_seconds": row[14],
+            "payload": _json_loads(row[15]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_recent_stop_exit_summaries(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                symbol,
+                round_trip_id,
+                trigger_price,
+                average_exit_price,
+                slippage_abs,
+                slippage_pct,
+                exit_quantity,
+                realized_pnl,
+                commission,
+                net_pnl,
+                payload_json
+            FROM stop_exit_summaries
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "symbol": row[1],
+            "round_trip_id": row[2],
+            "trigger_price": row[3],
+            "average_exit_price": row[4],
+            "slippage_abs": row[5],
+            "slippage_pct": row[6],
+            "exit_quantity": row[7],
+            "realized_pnl": row[8],
+            "commission": row[9],
+            "net_pnl": row[10],
+            "payload": _json_loads(row[11]),
+        }
+        for row in rows
+    ]
+
+
+def rebuild_trade_analytics(*, path: Path) -> None:
+    if not path.exists():
+        return
+    with _connect(path) as connection:
+        fill_rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                symbol,
+                side,
+                order_type,
+                quantity,
+                average_price,
+                last_price,
+                realized_pnl,
+                commission,
+                commission_asset,
+                order_id,
+                trade_id,
+                client_order_id
+            FROM trade_fills
+            ORDER BY timestamp ASC, id ASC
+            """
+        ).fetchall()
+        algo_rows = connection.execute(
+            """
+            SELECT timestamp, symbol, trigger_price, algo_status, order_type, client_algo_id
+            FROM algo_orders
+            ORDER BY timestamp ASC, id ASC
+            """
+        ).fetchall()
+        connection.execute("DELETE FROM trade_round_trips")
+        connection.execute("DELETE FROM stop_exit_summaries")
+
+        algo_by_symbol: dict[str, list[dict]] = {}
+        for timestamp, symbol, trigger_price, algo_status, order_type, client_algo_id in algo_rows:
+            if not symbol:
+                continue
+            algo_by_symbol.setdefault(symbol, []).append(
+                {
+                    "timestamp": timestamp,
+                    "trigger_price": _text_to_decimal(trigger_price),
+                    "algo_status": algo_status,
+                    "order_type": order_type,
+                    "client_algo_id": client_algo_id,
+                }
+            )
+
+        active_round_trips: dict[str, dict] = {}
+        symbol_counters: dict[str, int] = {}
+
+        for (
+            timestamp,
+            symbol,
+            side,
+            order_type,
+            quantity,
+            average_price,
+            last_price,
+            realized_pnl,
+            commission,
+            commission_asset,
+            order_id,
+            trade_id,
+            client_order_id,
+        ) in fill_rows:
+            if not symbol:
+                continue
+            qty = _text_to_decimal(quantity)
+            if qty <= Decimal("0"):
+                continue
+            fill_time = datetime.fromisoformat(timestamp)
+            fill_price = _text_to_decimal(average_price) or _text_to_decimal(last_price)
+            fill_snapshot = {
+                "timestamp": timestamp,
+                "time": fill_time,
+                "side": side,
+                "order_type": order_type,
+                "quantity": qty,
+                "price": fill_price,
+                "realized_pnl": _text_to_decimal(realized_pnl),
+                "commission": _text_to_decimal(commission),
+                "commission_asset": commission_asset,
+                "order_id": order_id,
+                "trade_id": trade_id,
+                "client_order_id": client_order_id,
+            }
+
+            round_trip = active_round_trips.get(symbol)
+            if side == "BUY":
+                if round_trip is None or round_trip["net_quantity"] <= Decimal("0"):
+                    sequence = symbol_counters.get(symbol, 0) + 1
+                    symbol_counters[symbol] = sequence
+                    round_trip = {
+                        "round_trip_id": f"{symbol}:{sequence}",
+                        "symbol": symbol,
+                        "opened_at": fill_time,
+                        "entry_fills": [],
+                        "exit_fills": [],
+                        "net_quantity": Decimal("0"),
+                    }
+                    active_round_trips[symbol] = round_trip
+                round_trip["entry_fills"].append(fill_snapshot)
+                round_trip["net_quantity"] += qty
+                continue
+
+            if side != "SELL" or round_trip is None:
+                continue
+
+            round_trip["exit_fills"].append(fill_snapshot)
+            round_trip["net_quantity"] -= qty
+            if round_trip["net_quantity"] > Decimal("0"):
+                continue
+
+            entry_fills = round_trip["entry_fills"]
+            exit_fills = round_trip["exit_fills"]
+            total_entry_qty = sum((item["quantity"] for item in entry_fills), Decimal("0"))
+            total_exit_qty = sum((item["quantity"] for item in exit_fills), Decimal("0"))
+            if total_entry_qty <= Decimal("0") or total_exit_qty <= Decimal("0"):
+                active_round_trips.pop(symbol, None)
+                continue
+            weighted_entry = sum((item["quantity"] * item["price"] for item in entry_fills), Decimal("0")) / total_entry_qty
+            weighted_exit = sum((item["quantity"] * item["price"] for item in exit_fills), Decimal("0")) / total_exit_qty
+            realized_total = sum((item["realized_pnl"] for item in [*entry_fills, *exit_fills]), Decimal("0"))
+            commission_total = sum((item["commission"] for item in [*entry_fills, *exit_fills]), Decimal("0"))
+            net_total = realized_total - commission_total
+            closed_at = exit_fills[-1]["time"]
+            exit_reason = "stop_loss" if any(item["order_type"] == "STOP_MARKET" for item in exit_fills) else "sell"
+            duration_seconds = int((closed_at - round_trip["opened_at"]).total_seconds())
+            round_trip_payload = {
+                "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],
+                "exit_order_ids": [item["order_id"] for item in exit_fills if item["order_id"] is not None],
+                "entry_trade_ids": [item["trade_id"] for item in entry_fills if item["trade_id"] is not None],
+                "exit_trade_ids": [item["trade_id"] for item in exit_fills if item["trade_id"] is not None],
+            }
+            connection.execute(
+                """
+                INSERT INTO trade_round_trips(
+                    round_trip_id,
+                    symbol,
+                    opened_at,
+                    closed_at,
+                    entry_fill_count,
+                    exit_fill_count,
+                    total_entry_quantity,
+                    total_exit_quantity,
+                    weighted_avg_entry_price,
+                    weighted_avg_exit_price,
+                    realized_pnl,
+                    commission,
+                    net_pnl,
+                    exit_reason,
+                    duration_seconds,
+                    payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    round_trip["round_trip_id"],
+                    symbol,
+                    _as_utc_iso(round_trip["opened_at"]),
+                    _as_utc_iso(closed_at),
+                    len(entry_fills),
+                    len(exit_fills),
+                    _decimal_to_text(total_entry_qty),
+                    _decimal_to_text(total_exit_qty),
+                    _decimal_to_text(weighted_entry),
+                    _decimal_to_text(weighted_exit),
+                    _decimal_to_text(realized_total),
+                    _decimal_to_text(commission_total),
+                    _decimal_to_text(net_total),
+                    exit_reason,
+                    duration_seconds,
+                    _json_dumps(round_trip_payload),
+                ),
+            )
+            if exit_reason == "stop_loss":
+                trigger_price = None
+                for algo_row in reversed(algo_by_symbol.get(symbol, [])):
+                    if algo_row["timestamp"] <= exit_fills[-1]["timestamp"] and algo_row["order_type"] == "STOP_MARKET":
+                        trigger_price = algo_row["trigger_price"]
+                        break
+                slippage_abs = None
+                slippage_pct = None
+                if trigger_price is not None and trigger_price > Decimal("0"):
+                    slippage_abs = max(trigger_price - weighted_exit, Decimal("0"))
+                    slippage_pct = (slippage_abs / trigger_price) * Decimal("100")
+                connection.execute(
+                    """
+                    INSERT INTO stop_exit_summaries(
+                        timestamp,
+                        symbol,
+                        round_trip_id,
+                        trigger_price,
+                        average_exit_price,
+                        slippage_abs,
+                        slippage_pct,
+                        exit_quantity,
+                        realized_pnl,
+                        commission,
+                        net_pnl,
+                        payload_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _as_utc_iso(closed_at),
+                        symbol,
+                        round_trip["round_trip_id"],
+                        _decimal_to_text(trigger_price),
+                        _decimal_to_text(weighted_exit),
+                        _decimal_to_text(slippage_abs),
+                        _decimal_to_text(slippage_pct),
+                        _decimal_to_text(total_exit_qty),
+                        _decimal_to_text(realized_total),
+                        _decimal_to_text(commission_total),
+                        _decimal_to_text(net_total),
+                        _json_dumps({"entry_fill_count": len(entry_fills), "exit_fill_count": len(exit_fills)}),
+                    ),
+                )
+            active_round_trips.pop(symbol, None)
 
 
 def fetch_recent_position_snapshots(*, path: Path, limit: int = 20) -> list[dict]:

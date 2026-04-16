@@ -70,6 +70,7 @@ class UserStreamTests(unittest.TestCase):
         )
         self.assertEqual(event.event_type, "ACCOUNT_UPDATE")
         self.assertIsNone(event.symbol)
+        self.assertEqual(event.account_update_reason, "ORDER")
 
     def test_user_stream_event_id_distinguishes_non_trade_order_lifecycle_updates(self) -> None:
         from momentum_alpha.user_stream import parse_user_stream_event, user_stream_event_id
