@@ -3,7 +3,7 @@ import os
 import sys
 import unittest
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -848,3 +848,118 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("STRATEGY CONFIG", html)
         self.assertIn("Stop Budget", html)
         self.assertIn("10", html)
+
+    def test_load_dashboard_snapshot_loads_extended_account_history_from_runtime_db(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import insert_account_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 16, 2, 0, tzinfo=timezone.utc)
+            state_file = root / "state.json"
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            runtime_db_file = root / "runtime.db"
+
+            state_file.write_text(
+                json.dumps({"previous_leader_symbol": "PLAYUSDT", "positions": {}, "order_statuses": {}}),
+                encoding="utf-8",
+            )
+            for path in (poll_log_file, user_stream_log_file):
+                path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+
+            start = datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
+            for idx in range(64):
+                insert_account_snapshot(
+                    path=runtime_db_file,
+                    timestamp=start + timedelta(minutes=idx),
+                    source="poll",
+                    wallet_balance=str(100 + idx),
+                    available_balance=str(90 + idx),
+                    equity=str(110 + idx),
+                    unrealized_pnl=str(idx),
+                    position_count=1,
+                    open_order_count=1,
+                    leader_symbol="PLAYUSDT",
+                    payload={},
+                )
+
+            snapshot = load_dashboard_snapshot(
+                now=now,
+                state_file=state_file,
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                audit_log_file=root / "missing-audit.jsonl",
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+            )
+
+            self.assertEqual(len(snapshot["recent_account_snapshots"]), 64)
+            self.assertEqual(snapshot["recent_account_snapshots"][0]["wallet_balance"], "163")
+            self.assertEqual(snapshot["recent_account_snapshots"][-1]["wallet_balance"], "100")
+
+    def test_render_dashboard_html_redesigns_account_metrics_as_single_interactive_panel(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "PLAYUSDT",
+                    "position_count": 1,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {}},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "62.52",
+                        "available_balance": "58.00",
+                        "equity": "59.58",
+                        "unrealized_pnl": "-2.94",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {},
+                },
+                "recent_broker_orders": [],
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-15T18:00:00+00:00",
+                        "wallet_balance": "100.00",
+                        "available_balance": "95.00",
+                        "equity": "100.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                        "leader_symbol": "PLAYUSDT",
+                    },
+                    {
+                        "timestamp": "2026-04-16T02:00:00+00:00",
+                        "wallet_balance": "62.52",
+                        "available_balance": "58.00",
+                        "equity": "59.58",
+                        "unrealized_pnl": "-2.94",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                        "leader_symbol": "PLAYUSDT",
+                    },
+                ],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [],
+                "pulse_points": [],
+                "warnings": [],
+            },
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+        )
+
+        self.assertIn("ACCOUNT METRICS", html)
+        self.assertIn("ACCOUNT OVERVIEW", html)
+        self.assertIn("PEAK EQUITY", html)
+        self.assertIn("CURRENT DRAWDOWN", html)
+        self.assertIn("data-account-range=\"24H\"", html)
+        self.assertIn("data-account-range=\"ALL\"", html)
+        self.assertIn("data-account-metric=\"equity\"", html)
+        self.assertIn("data-account-metric=\"wallet_balance\"", html)
+        self.assertIn("data-account-metric=\"unrealized_pnl\"", html)
+        self.assertIn("accountMetricsData", html)

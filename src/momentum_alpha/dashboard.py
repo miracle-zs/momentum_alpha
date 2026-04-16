@@ -461,7 +461,7 @@ def load_dashboard_snapshot(
         recent_trade_round_trips = fetch_recent_trade_round_trips(path=runtime_db_file, limit=20)
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
-        recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=30)
+        recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=1440)
         if not state_payload:
             runtime_state = RuntimeStateStore(path=runtime_db_file).load()
             if runtime_state is not None:
@@ -692,6 +692,106 @@ def _render_timeline_svg(*, events: list[dict]) -> str:
     return f"<svg viewBox='0 0 {width} {height}' class='timeline-svg'>{timeline}</svg>"
 
 
+def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> dict[str, float | None]:
+    if not points:
+        return {
+            "current_wallet": None,
+            "current_equity": None,
+            "current_unrealized_pnl": None,
+            "current_positions": None,
+            "current_orders": None,
+            "metric_change": None,
+            "peak_equity": None,
+            "drawdown_abs": None,
+            "drawdown_pct": None,
+        }
+    first = points[0]
+    last = points[-1]
+    peak_equity = max((_parse_numeric(point.get("equity")) or 0.0) for point in points)
+    current_equity = _parse_numeric(last.get("equity"))
+    current_wallet = _parse_numeric(last.get("wallet_balance"))
+    current_pnl = _parse_numeric(last.get("unrealized_pnl"))
+    metric_first = _parse_numeric(first.get(metric))
+    metric_last = _parse_numeric(last.get(metric))
+    metric_change = None
+    if metric_first is not None and metric_last is not None:
+        metric_change = metric_last - metric_first
+    drawdown_abs = None
+    drawdown_pct = None
+    if current_equity is not None:
+        drawdown_abs = current_equity - peak_equity
+        if peak_equity:
+            drawdown_pct = (drawdown_abs / peak_equity) * 100
+    return {
+        "current_wallet": current_wallet,
+        "current_equity": current_equity,
+        "current_unrealized_pnl": current_pnl,
+        "current_positions": last.get("position_count"),
+        "current_orders": last.get("open_order_count"),
+        "metric_change": metric_change,
+        "peak_equity": peak_equity,
+        "drawdown_abs": drawdown_abs,
+        "drawdown_pct": drawdown_pct,
+    }
+
+
+def _build_account_metrics_panel(points: list[dict]) -> str:
+    stats = _compute_account_range_stats(points)
+    data_json = json.dumps(points, ensure_ascii=False)
+    initial_chart = (
+        "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for account history</span></div>"
+        if not points
+        else "<div id='account-metrics-chart' class='account-main-chart'></div>"
+    )
+    return (
+        "<section class='dashboard-section account-metrics-panel'>"
+        "<div class='section-header'>ACCOUNT METRICS</div>"
+        "<div class='account-panel-header'>"
+        "<div><div class='account-panel-title'>ACCOUNT OVERVIEW</div>"
+        "<div class='account-panel-subtitle'>Wallet, equity, drawdown, and time-ranged performance from account snapshots.</div></div>"
+        "<div class='account-range-switches'>"
+        "<button type='button' class='account-chip' data-account-range=\"1H\">1H</button>"
+        "<button type='button' class='account-chip' data-account-range=\"6H\">6H</button>"
+        "<button type='button' class='account-chip active' data-account-range=\"24H\">24H</button>"
+        "<button type='button' class='account-chip' data-account-range=\"ALL\">ALL</button>"
+        "</div></div>"
+        "<div class='account-overview-grid'>"
+        "<div class='account-overview-card'><div class='account-overview-label'>WALLET BALANCE</div>"
+        f"<div class='account-overview-value' data-account-value='wallet_balance'>{escape(_format_metric(stats['current_wallet']))}</div>"
+        "<div class='account-overview-sub' data-account-delta='wallet_balance'>Range Δ n/a</div></div>"
+        "<div class='account-overview-card'><div class='account-overview-label'>EQUITY</div>"
+        f"<div class='account-overview-value' data-account-value='equity'>{escape(_format_metric(stats['current_equity']))}</div>"
+        "<div class='account-overview-sub' data-account-delta='equity'>Range Δ n/a</div></div>"
+        "<div class='account-overview-card'><div class='account-overview-label'>UNREALIZED PNL</div>"
+        f"<div class='account-overview-value' data-account-value='unrealized_pnl'>{escape(_format_metric(stats['current_unrealized_pnl'], signed=True))}</div>"
+        "<div class='account-overview-sub' data-account-delta='unrealized_pnl'>Range Δ n/a</div></div>"
+        "<div class='account-overview-card'><div class='account-overview-label'>OPEN EXPOSURE</div>"
+        f"<div class='account-overview-value' data-account-value='exposure'>{escape(str(stats['current_positions'] or 0))} / {escape(str(stats['current_orders'] or 0))}</div>"
+        "<div class='account-overview-sub'>positions / orders</div></div>"
+        "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>PEAK EQUITY</div>"
+        f"<div class='account-overview-value' data-account-value='peak_equity'>{escape(_format_metric(stats['peak_equity']))}</div>"
+        "<div class='account-overview-sub'>Best visible equity point</div></div>"
+        "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>CURRENT DRAWDOWN</div>"
+        f"<div class='account-overview-value' data-account-value='drawdown'>{escape(_format_metric(stats['drawdown_abs'], signed=True))}</div>"
+        f"<div class='account-overview-sub' data-account-drawdown-pct>{escape(_format_metric(stats['drawdown_pct'], signed=True))}%</div></div>"
+        "</div>"
+        "<div class='account-main-panel'>"
+        "<div class='account-main-toolbar'>"
+        "<div class='account-metric-switches'>"
+        "<button type='button' class='account-chip active' data-account-metric=\"equity\">Equity</button>"
+        "<button type='button' class='account-chip' data-account-metric=\"wallet_balance\">Wallet</button>"
+        "<button type='button' class='account-chip' data-account-metric=\"unrealized_pnl\">Unrealized PnL</button>"
+        "</div>"
+        "<div class='account-main-meta'><span data-account-window-label>Visible Range</span><span data-account-point-count>"
+        f"{len(points)} points</span></div>"
+        "</div>"
+        f"{initial_chart}"
+        "</div>"
+        f"<script>const accountMetricsData = {data_json};</script>"
+        "</section>"
+    )
+
+
 def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -> str:
     summary = build_dashboard_summary_payload(snapshot)
     timeseries = build_dashboard_timeseries_payload(snapshot)
@@ -710,9 +810,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     equity = _format_metric(summary["account"].get("equity"))
     unrealized_pnl = _format_metric(summary["account"].get("unrealized_pnl"), signed=True)
     pnl_positive = not str(unrealized_pnl).startswith("-")
-    equity_chart = _render_line_chart_svg(points=timeseries["account"], value_key="equity", stroke="#4cc9f0", fill="rgba(76,201,240,0.14)")
-    wallet_chart = _render_line_chart_svg(points=timeseries["account"], value_key="wallet_balance", stroke="#36d98a", fill="rgba(54,217,138,0.14)")
-    pnl_chart = _render_line_chart_svg(points=timeseries["account"], value_key="unrealized_pnl", stroke="#a855f7", fill="rgba(168,85,247,0.14)", show_grid=False)
+    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
     pie_chart = _render_pie_chart_svg(data=decision_counts)
@@ -1213,6 +1311,29 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .dashboard-section {{ margin-bottom: 20px; padding: 16px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); }}
     .charts-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
     .chart-card {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
+    .account-metrics-panel {{ padding: 20px; }}
+    .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
+    .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
+    .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
+    .account-range-switches, .account-metric-switches {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .account-chip {{ border: 1px solid var(--border); background: rgba(0,0,0,0.24); color: var(--fg-muted); border-radius: 999px; padding: 8px 12px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; }}
+    .account-chip.active {{ color: var(--accent); border-color: var(--border-accent); background: rgba(0,212,255,0.08); }}
+    .account-overview-grid {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }}
+    .account-overview-card {{ background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; min-height: 98px; }}
+    .account-overview-card-highlight {{ background: rgba(0,212,255,0.05); border-color: var(--border-accent); }}
+    .account-overview-label {{ font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }}
+    .account-overview-value {{ font-size: 1.2rem; font-weight: 700; }}
+    .account-overview-sub {{ font-size: 0.72rem; color: var(--fg-muted); margin-top: 8px; }}
+    .account-main-panel {{ background: rgba(0,0,0,0.22); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; }}
+    .account-main-toolbar {{ display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }}
+    .account-main-meta {{ display: flex; gap: 16px; font-size: 0.72rem; color: var(--fg-muted); }}
+    .account-main-chart {{ min-height: 280px; }}
+    .account-chart-svg {{ width: 100%; height: auto; display: block; }}
+    .account-grid-line {{ stroke: rgba(100,130,170,0.12); stroke-width: 1; }}
+    .account-axis-label {{ fill: var(--fg-muted); font-size: 10px; }}
+    .account-series-line {{ fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }}
+    .account-series-area {{ opacity: 0.18; }}
+    .account-last-dot {{ filter: drop-shadow(0 0 6px currentColor); }}
     .decision-row {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
     .decision-half {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
     .bottom-row {{ display: grid; grid-template-columns: 200px 1fr 1fr; gap: 16px; }}
@@ -1223,6 +1344,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       .charts-row {{ grid-template-columns: 1fr; }}
       .decision-row {{ grid-template-columns: 1fr; }}
       .bottom-row {{ grid-template-columns: 1fr; }}
+      .account-overview-grid {{ grid-template-columns: repeat(3, 1fr); }}
+      .account-panel-header, .account-main-toolbar {{ flex-direction: column; align-items: flex-start; }}
     }}
     @media (max-width: 768px) {{
       .metrics-grid {{ grid-template-columns: 1fr; }}
@@ -1232,6 +1355,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       .trade-row {{ grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }}
       .analytics-grid {{ grid-template-columns: 1fr; }}
       .analytics-row {{ grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
+      .account-overview-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -1273,23 +1397,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       <div class="section-header">POSITIONS</div>
       {position_cards_html}
     </section>
-    <section class="dashboard-section">
-      <div class="section-header">ACCOUNT METRICS</div>
-      <div class="charts-row">
-        <div class="chart-card">
-          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Equity Curve</div>
-          {equity_chart}
-        </div>
-        <div class="chart-card">
-          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Wallet Balance</div>
-          {wallet_chart}
-        </div>
-        <div class="chart-card">
-          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Unrealized PnL</div>
-          {pnl_chart}
-        </div>
-      </div>
-    </section>
+    {account_metrics_panel_html}
     <section class="dashboard-section decision-row">
       <div class="decision-half">
         <div class="section-header">LATEST DECISION</div>
@@ -1354,6 +1462,144 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     <span>Auto refresh: 5s</span>
   </div>
   <script>
+    function formatAccountValue(value, signed = false, suffix = '') {{
+      if (value === null || value === undefined || Number.isNaN(value)) return 'n/a';
+      const formatted = Number(value).toLocaleString(undefined, {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+      const withSign = signed ? `${{value >= 0 ? '+' : ''}}${{formatted}}` : formatted;
+      return `${{withSign}}${{suffix}}`;
+    }}
+    function formatAccountWindowTimestamp(timestamp) {{
+      if (!timestamp) return 'n/a';
+      const date = new Date(timestamp);
+      const parts = new Intl.DateTimeFormat('zh-CN', {{
+        hour12: false,
+        timeZone: 'Asia/Shanghai',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }}).formatToParts(date);
+      const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      return `${{lookup.month}}-${{lookup.day}} ${{lookup.hour}}:${{lookup.minute}}`;
+    }}
+    function filterAccountPoints(points, range) {{
+      if (!points.length || range === 'ALL') return points;
+      const hours = {{ '1H': 1, '6H': 6, '24H': 24 }}[range] || 24;
+      const latest = new Date(points[points.length - 1].timestamp).getTime();
+      const cutoff = latest - hours * 60 * 60 * 1000;
+      const filtered = points.filter((point) => new Date(point.timestamp).getTime() >= cutoff);
+      return filtered.length ? filtered : points;
+    }}
+    function buildAccountChartSvg(points, metric) {{
+      if (!points.length) {{
+        return `<div class="chart-empty"><span class="chart-empty-icon">◎</span><span>waiting for account history</span></div>`;
+      }}
+      const width = 920;
+      const height = 280;
+      const padX = 56;
+      const padY = 20;
+      const values = points.map((point) => Number(point[metric] ?? 0));
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const spread = Math.max(maxValue - minValue, 1e-9);
+      const chartWidth = width - padX * 2;
+      const chartHeight = height - padY * 2;
+      const coords = values.map((value, index) => {{
+        const x = padX + (chartWidth * index / Math.max(values.length - 1, 1));
+        const y = padY + chartHeight - (((value - minValue) / spread) * chartHeight);
+        return [x, y];
+      }});
+      const polyline = coords.map(([x, y]) => `${{x.toFixed(2)}},${{y.toFixed(2)}}`).join(' ');
+      const area = `${{coords[0][0].toFixed(2)}},${{(height - padY).toFixed(2)}} ` + polyline + ` ${{coords[coords.length - 1][0].toFixed(2)}},${{(height - padY).toFixed(2)}}`;
+      const palette = {{ equity: '#4cc9f0', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7' }};
+      const stroke = palette[metric] || '#4cc9f0';
+      let grid = '';
+      let labels = '';
+      for (let i = 0; i < 5; i++) {{
+        const y = padY + (chartHeight * i / 4);
+        const val = maxValue - (spread * i / 4);
+        grid += `<line x1="${{padX}}" y1="${{y.toFixed(2)}}" x2="${{width - padX}}" y2="${{y.toFixed(2)}}" class="account-grid-line" />`;
+        labels += `<text x="${{padX - 8}}" y="${{(y + 4).toFixed(2)}}" class="account-axis-label" text-anchor="end">${{formatAccountValue(val)}}</text>`;
+      }}
+      const last = coords[coords.length - 1];
+      return `
+        <svg viewBox="0 0 ${{width}} ${{height}}" class="account-chart-svg" role="img" aria-label="${{metric}} account chart">
+          <defs>
+            <linearGradient id="account-gradient-${{metric}}" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="${{stroke}}" stop-opacity="0.38"></stop>
+              <stop offset="100%" stop-color="${{stroke}}" stop-opacity="0.02"></stop>
+            </linearGradient>
+          </defs>
+          ${{grid}}
+          ${{labels}}
+          <polygon points="${{area}}" fill="url(#account-gradient-${{metric}})" class="account-series-area"></polygon>
+          <polyline points="${{polyline}}" stroke="${{stroke}}" class="account-series-line"></polyline>
+          <circle cx="${{last[0].toFixed(2)}}" cy="${{last[1].toFixed(2)}}" r="4" fill="${{stroke}}" class="account-last-dot"></circle>
+        </svg>`;
+    }}
+    function updateAccountOverview(points, metric, range) {{
+      if (!points.length) return;
+      const first = points[0];
+      const last = points[points.length - 1];
+      const peakEquity = Math.max(...points.map((point) => Number(point.equity ?? 0)));
+      const currentEquity = Number(last.equity ?? 0);
+      const drawdownAbs = currentEquity - peakEquity;
+      const drawdownPct = peakEquity ? (drawdownAbs / peakEquity) * 100 : 0;
+      const deltas = {{
+        wallet_balance: Number(last.wallet_balance ?? 0) - Number(first.wallet_balance ?? 0),
+        equity: Number(last.equity ?? 0) - Number(first.equity ?? 0),
+        unrealized_pnl: Number(last.unrealized_pnl ?? 0) - Number(first.unrealized_pnl ?? 0),
+      }};
+      const values = {{
+        wallet_balance: formatAccountValue(Number(last.wallet_balance ?? 0)),
+        equity: formatAccountValue(Number(last.equity ?? 0)),
+        unrealized_pnl: formatAccountValue(Number(last.unrealized_pnl ?? 0), true),
+        exposure: `${{last.position_count ?? 0}} / ${{last.open_order_count ?? 0}}`,
+        peak_equity: formatAccountValue(peakEquity),
+        drawdown: formatAccountValue(drawdownAbs, true),
+      }};
+      Object.entries(values).forEach(([key, value]) => {{
+        const node = document.querySelector(`[data-account-value="${{key}}"]`);
+        if (node) node.textContent = value;
+      }});
+      ['wallet_balance', 'equity', 'unrealized_pnl'].forEach((key) => {{
+        const node = document.querySelector(`[data-account-delta="${{key}}"]`);
+        if (node) node.textContent = `Range Δ ${{formatAccountValue(deltas[key], true)}}`;
+      }});
+      const ddNode = document.querySelector('[data-account-drawdown-pct]');
+      if (ddNode) ddNode.textContent = formatAccountValue(drawdownPct, true, '%');
+      const pointCountNode = document.querySelector('[data-account-point-count]');
+      if (pointCountNode) pointCountNode.textContent = `${{points.length}} points`;
+      const labelNode = document.querySelector('[data-account-window-label]');
+      if (labelNode) labelNode.textContent = `${{range}} · ${{metric.replace('_', ' ').toUpperCase()}} · ${{formatAccountWindowTimestamp(first.timestamp)}} → ${{formatAccountWindowTimestamp(last.timestamp)}}`;
+    }}
+    function initializeAccountMetrics() {{
+      if (!Array.isArray(accountMetricsData)) return;
+      let activeMetric = 'equity';
+      let activeRange = '24H';
+      const chartNode = document.getElementById('account-metrics-chart');
+      const render = () => {{
+        const visible = filterAccountPoints(accountMetricsData, activeRange);
+        if (chartNode) chartNode.innerHTML = buildAccountChartSvg(visible, activeMetric);
+        updateAccountOverview(visible, activeMetric, activeRange);
+      }};
+      document.querySelectorAll('[data-account-metric]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          activeMetric = button.dataset.accountMetric;
+          document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node === button));
+          render();
+        }});
+      }});
+      document.querySelectorAll('[data-account-range]').forEach((button) => {{
+        button.addEventListener('click', () => {{
+          activeRange = button.dataset.accountRange;
+          document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node === button));
+          render();
+        }});
+      }});
+      render();
+    }}
+    initializeAccountMetrics();
     async function refreshDashboard() {{
       try {{
         const res = await fetch('/api/dashboard', {{ cache: 'no-store' }});
