@@ -18,6 +18,7 @@ from .runtime_store import (
     fetch_recent_broker_orders,
     fetch_recent_position_snapshots,
     fetch_recent_signal_decisions,
+    fetch_recent_trade_fills,
 )
 
 
@@ -351,6 +352,7 @@ def build_dashboard_tables_payload(snapshot: dict) -> dict:
     return {
         "recent_signal_decisions": snapshot.get("recent_signal_decisions", []),
         "recent_broker_orders": snapshot.get("recent_broker_orders", []),
+        "recent_trade_fills": snapshot.get("recent_trade_fills", []),
         "recent_position_snapshots": snapshot.get("recent_position_snapshots", []),
         "recent_account_snapshots": snapshot.get("recent_account_snapshots", []),
         "recent_events": snapshot.get("recent_events", []),
@@ -383,12 +385,14 @@ def load_dashboard_snapshot(
     state_payload, warnings = _load_state_file(path=state_file)
     recent_signal_decisions: list[dict] = []
     recent_broker_orders: list[dict] = []
+    recent_trade_fills: list[dict] = []
     recent_position_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
     if runtime_db_file is not None and runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
         recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
+        recent_trade_fills = fetch_recent_trade_fills(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=30)
         if not state_payload:
@@ -456,6 +460,7 @@ def load_dashboard_snapshot(
         "pulse_points": pulse_points,
         "recent_signal_decisions": recent_signal_decisions,
         "recent_broker_orders": recent_broker_orders,
+        "recent_trade_fills": recent_trade_fills,
         "recent_position_snapshots": recent_position_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
         "recent_events": recent_events,

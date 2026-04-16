@@ -30,11 +30,14 @@ from momentum_alpha.runtime_store import (
     insert_broker_order,
     insert_position_snapshot,
     insert_signal_decision,
+    insert_trade_fill,
 )
 from momentum_alpha.state_store import FileStateStore, StoredStrategyState
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
     apply_user_stream_event_to_state,
+    extract_algo_order_status_update,
+    extract_trade_fill,
     extract_order_status_update,
     user_stream_event_id,
 )
@@ -827,6 +830,32 @@ def run_user_stream(
         event_id = user_stream_event_id(event)
         if event_id is not None and event_id in processed_event_ids:
             return
+        trade_fill = extract_trade_fill(event)
+        if trade_fill is not None and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
+            try:
+                insert_trade_fill(
+                    path=audit_recorder.runtime_db_path,
+                    timestamp=event.event_time or now_provider(),
+                    source=audit_recorder.source,
+                    symbol=trade_fill.get("symbol"),
+                    order_id=trade_fill.get("order_id"),
+                    trade_id=trade_fill.get("trade_id"),
+                    client_order_id=trade_fill.get("client_order_id"),
+                    order_status=trade_fill.get("order_status"),
+                    execution_type=trade_fill.get("execution_type"),
+                    side=trade_fill.get("side"),
+                    order_type=trade_fill.get("order_type"),
+                    quantity=trade_fill.get("quantity"),
+                    cumulative_quantity=trade_fill.get("cumulative_quantity"),
+                    average_price=trade_fill.get("average_price"),
+                    last_price=trade_fill.get("last_price"),
+                    realized_pnl=trade_fill.get("realized_pnl"),
+                    commission=trade_fill.get("commission"),
+                    commission_asset=trade_fill.get("commission_asset"),
+                    payload=event.payload,
+                )
+            except Exception:
+                pass
         order_status_update = extract_order_status_update(event)
         if order_status_update is not None:
             order_id, order_snapshot = order_status_update
@@ -834,6 +863,14 @@ def run_user_stream(
                 order_statuses.pop(order_id, None)
             else:
                 order_statuses[order_id] = order_snapshot
+        # Also process algo order status updates (for stop-loss orders)
+        algo_order_status_update = extract_algo_order_status_update(event)
+        if algo_order_status_update is not None:
+            algo_key, algo_snapshot = algo_order_status_update
+            if algo_snapshot is None:
+                order_statuses.pop(algo_key, None)
+            else:
+                order_statuses[algo_key] = algo_snapshot
         state = apply_user_stream_event_to_state(state=state, event=event, order_statuses=order_statuses)
         if event_id is not None:
             processed_event_ids.add(event_id)
@@ -866,6 +903,14 @@ def run_user_stream(
             return
         position_risk = fetch_position_risk()
         open_orders = fetch_open_orders()
+        # Also fetch open algo orders for stop-loss tracking
+        fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
+        open_algo_orders = []
+        if callable(fetch_open_algo_orders):
+            try:
+                open_algo_orders = fetch_open_algo_orders()
+            except Exception:
+                open_algo_orders = []
         restored_state = restore_state(
             current_day=state.current_day.isoformat(),
             previous_leader_symbol=state.previous_leader_symbol,
@@ -886,6 +931,20 @@ def run_user_stream(
             for order in open_orders
             if order.get("orderId") not in (None, "")
         }
+        # Add algo orders to order_statuses with "algo:" prefix
+        for algo_order in open_algo_orders:
+            algo_id = algo_order.get("algoId")
+            if algo_id is None:
+                continue
+            order_statuses[f"algo:{algo_id}"] = {
+                "symbol": algo_order.get("symbol"),
+                "status": algo_order.get("algoStatus"),
+                "side": algo_order.get("side"),
+                "client_order_id": algo_order.get("clientAlgoId"),
+                "original_order_type": algo_order.get("orderType"),
+                "stop_price": algo_order.get("triggerPrice"),
+                "event_time": None,
+            }
         if state_store is not None:
             _merge_save_strategy_state(
                 state_store=state_store,

@@ -23,19 +23,29 @@ class UserStreamEvent:
     side: str | None = None
     average_price: Decimal | None = None
     filled_quantity: Decimal | None = None
+    last_filled_price: Decimal | None = None
+    last_filled_quantity: Decimal | None = None
+    realized_pnl: Decimal | None = None
+    commission: Decimal | None = None
+    commission_asset: str | None = None
     stop_price: Decimal | None = None
     original_order_type: str | None = None
     event_time: datetime | None = None
     order_id: int | None = None
     trade_id: int | None = None
     client_order_id: str | None = None
+    # Algo order fields
+    algo_id: int | None = None
+    client_algo_id: str | None = None
+    algo_status: str | None = None
+    trigger_price: Decimal | None = None
 
 
 def parse_user_stream_event(payload: dict) -> UserStreamEvent:
     event_type = payload.get("e", "UNKNOWN")
     order_payload = payload.get("o", {})
-    symbol = order_payload.get("s")
-    event_time_ms = payload.get("T") or payload.get("E")
+    symbol = order_payload.get("s") or payload.get("s")
+    event_time_ms = payload.get("T") or payload.get("E") or payload.get("t")
 
     def _parse_decimal(value):
         try:
@@ -49,18 +59,54 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
         event_type=event_type,
         payload=payload,
         symbol=symbol,
-        order_status=order_payload.get("X"),
+        order_status=order_payload.get("X") or payload.get("X") or payload.get("algoStatus"),
         execution_type=order_payload.get("x"),
-        side=order_payload.get("S"),
+        side=order_payload.get("S") or payload.get("S"),
         average_price=_parse_decimal(order_payload.get("ap")),
         filled_quantity=_parse_decimal(order_payload.get("z")),
+        last_filled_price=_parse_decimal(order_payload.get("L")),
+        last_filled_quantity=_parse_decimal(order_payload.get("l")),
+        realized_pnl=_parse_decimal(order_payload.get("rp")),
+        commission=_parse_decimal(order_payload.get("n")),
+        commission_asset=order_payload.get("N"),
         stop_price=_parse_decimal(order_payload.get("sp")),
-        original_order_type=order_payload.get("ot"),
+        original_order_type=order_payload.get("ot") or payload.get("orderType"),
         event_time=datetime.fromtimestamp(int(event_time_ms) / 1000, tz=timezone.utc) if event_time_ms is not None else None,
         order_id=order_payload.get("i"),
         trade_id=order_payload.get("t"),
         client_order_id=order_payload.get("c"),
+        # Algo order fields
+        algo_id=payload.get("algoId") or order_payload.get("algoId"),
+        client_algo_id=payload.get("clientAlgoId") or order_payload.get("clientAlgoId"),
+        algo_status=payload.get("algoStatus") or order_payload.get("algoStatus"),
+        trigger_price=_parse_decimal(payload.get("triggerPrice") or order_payload.get("triggerPrice")),
     )
+
+
+def extract_trade_fill(event: UserStreamEvent) -> dict | None:
+    if event.event_type != "ORDER_TRADE_UPDATE":
+        return None
+    if event.execution_type != "TRADE":
+        return None
+    if event.symbol is None or event.order_id is None or event.trade_id is None:
+        return None
+    return {
+        "symbol": event.symbol,
+        "order_id": str(event.order_id),
+        "trade_id": str(event.trade_id),
+        "client_order_id": event.client_order_id,
+        "order_status": event.order_status,
+        "execution_type": event.execution_type,
+        "side": event.side,
+        "order_type": event.original_order_type,
+        "quantity": event.last_filled_quantity,
+        "cumulative_quantity": event.filled_quantity,
+        "average_price": event.average_price,
+        "last_price": event.last_filled_price,
+        "realized_pnl": event.realized_pnl,
+        "commission": event.commission,
+        "commission_asset": event.commission_asset,
+    }
 
 
 def user_stream_event_id(event: UserStreamEvent) -> str | None:
@@ -95,6 +141,30 @@ def extract_order_status_update(event: UserStreamEvent) -> tuple[str, dict | Non
             "client_order_id": event.client_order_id,
             "original_order_type": event.original_order_type,
             "stop_price": str(event.stop_price) if event.stop_price is not None else None,
+            "event_time": event.event_time.isoformat() if event.event_time is not None else None,
+        },
+    )
+
+
+def extract_algo_order_status_update(event: UserStreamEvent) -> tuple[str, dict | None] | None:
+    """Extract algo order status from ALGO_UPDATE events for stop-loss tracking."""
+    if event.event_type != "ALGO_UPDATE" or event.algo_id is None:
+        return None
+    # Use "algo:" prefix to distinguish from regular orders
+    key = f"algo:{event.algo_id}"
+    # Terminal states - remove from tracking
+    terminal_statuses = {"TRIGGERED", "CANCELLED", "EXPIRED", "FAILED"}
+    if event.algo_status in terminal_statuses:
+        return (key, None)
+    return (
+        key,
+        {
+            "symbol": event.symbol,
+            "status": event.algo_status,
+            "side": event.side,
+            "client_order_id": event.client_algo_id,
+            "original_order_type": "STOP_MARKET",  # Algo orders for this strategy are stop orders
+            "stop_price": str(event.trigger_price) if event.trigger_price is not None else None,
             "event_time": event.event_time.isoformat() if event.event_time is not None else None,
         },
     )
@@ -140,7 +210,8 @@ def extract_positive_account_positions(event: UserStreamEvent) -> tuple[tuple[st
 def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[str, dict] | None) -> Decimal | None:
     if not order_statuses:
         return None
-    active_statuses = {"NEW", "PARTIALLY_FILLED"}
+    # Active statuses include both regular order statuses and algo order statuses
+    active_statuses = {"NEW", "PARTIALLY_FILLED", "PENDING"}
     fallback_stop_price: Decimal | None = None
     for order_snapshot in order_statuses.values():
         if order_snapshot.get("symbol") != symbol:

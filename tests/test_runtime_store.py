@@ -90,7 +90,13 @@ class RuntimeStoreTests(unittest.TestCase):
                 }
 
             self.assertTrue(
-                {"signal_decisions", "broker_orders", "position_snapshots", "account_snapshots"}.issubset(tables)
+                {
+                    "signal_decisions",
+                    "broker_orders",
+                    "trade_fills",
+                    "position_snapshots",
+                    "account_snapshots",
+                }.issubset(tables)
             )
 
     def test_structured_inserts_preserve_summary_fields(self) -> None:
@@ -100,10 +106,12 @@ class RuntimeStoreTests(unittest.TestCase):
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
+            fetch_recent_trade_fills,
             insert_account_snapshot,
             insert_broker_order,
             insert_position_snapshot,
             insert_signal_decision,
+            insert_trade_fill,
         )
 
         with TemporaryDirectory() as tmpdir:
@@ -137,6 +145,27 @@ class RuntimeStoreTests(unittest.TestCase):
                 client_order_id="abc-123",
                 payload={"filled_qty": "1.25"},
             )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=second_timestamp,
+                source="user-stream",
+                symbol="BLESSUSDT",
+                order_id="12345",
+                trade_id="67890",
+                client_order_id="abc-123",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="1.25",
+                cumulative_quantity="1.25",
+                average_price="0.1234",
+                last_price="0.1235",
+                realized_pnl="5.67",
+                commission="0.01",
+                commission_asset="USDT",
+                payload={"maker": False},
+            )
             insert_position_snapshot(
                 path=db_path,
                 timestamp=second_timestamp,
@@ -166,6 +195,7 @@ class RuntimeStoreTests(unittest.TestCase):
 
             signal_decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=db_path, limit=10)
+            trade_fills = fetch_recent_trade_fills(path=db_path, limit=10)
             snapshots = fetch_recent_position_snapshots(path=db_path, limit=10)
             account_snapshots = fetch_recent_account_snapshots(path=db_path, limit=10)
 
@@ -176,6 +206,13 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(broker_orders[0]["action_type"], "submit")
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
             self.assertEqual(broker_orders[0]["payload"]["filled_qty"], "1.25")
+            self.assertEqual(trade_fills[0]["symbol"], "BLESSUSDT")
+            self.assertEqual(trade_fills[0]["trade_id"], "67890")
+            self.assertEqual(trade_fills[0]["quantity"], "1.25")
+            self.assertEqual(trade_fills[0]["average_price"], "0.1234")
+            self.assertEqual(trade_fills[0]["realized_pnl"], "5.67")
+            self.assertEqual(trade_fills[0]["commission_asset"], "USDT")
+            self.assertEqual(trade_fills[0]["payload"]["maker"], False)
             self.assertEqual(snapshots[0]["leader_symbol"], "BLESSUSDT")
             self.assertTrue(snapshots[0]["submit_orders"])
             self.assertEqual(snapshots[0]["symbol_count"], 538)

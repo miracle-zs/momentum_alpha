@@ -1290,6 +1290,7 @@ class MainTests(unittest.TestCase):
             fetch_recent_audit_events,
             fetch_recent_broker_orders,
             fetch_recent_position_snapshots,
+            fetch_recent_trade_fills,
         )
         from momentum_alpha.user_stream import parse_user_stream_event
 
@@ -1311,9 +1312,15 @@ class MainTests(unittest.TestCase):
                                 "ot": "MARKET",
                                 "ap": "108",
                                 "z": "2",
+                                "L": "108.5",
+                                "l": "0.75",
+                                "rp": "3.25",
+                                "n": "0.02",
+                                "N": "USDT",
                                 "sp": "106",
                                 "i": 123,
                                 "t": 456,
+                                "c": "ma_foo",
                             },
                         }
                     )
@@ -1335,6 +1342,7 @@ class MainTests(unittest.TestCase):
             events = read_audit_events(path=audit_path)
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
+            trade_fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
             position_snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
             self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
@@ -1346,6 +1354,12 @@ class MainTests(unittest.TestCase):
             self.assertEqual(position_snapshots[0]["source"], "user-stream")
             self.assertEqual(broker_orders[0]["symbol"], "ETHUSDT")
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
+            self.assertEqual(trade_fills[0]["symbol"], "ETHUSDT")
+            self.assertEqual(trade_fills[0]["trade_id"], "456")
+            self.assertEqual(trade_fills[0]["quantity"], "0.75")
+            self.assertEqual(trade_fills[0]["last_price"], "108.5")
+            self.assertEqual(trade_fills[0]["realized_pnl"], "3.25")
+            self.assertEqual(trade_fills[0]["commission"], "0.02")
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream

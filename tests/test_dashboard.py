@@ -352,6 +352,7 @@ class DashboardTests(unittest.TestCase):
             insert_broker_order,
             insert_position_snapshot,
             insert_signal_decision,
+            insert_trade_fill,
         )
 
         with TemporaryDirectory() as tmpdir:
@@ -390,6 +391,27 @@ class DashboardTests(unittest.TestCase):
                 status="NEW",
                 payload={"quantity": "5"},
                 source="poll",
+            )
+            insert_trade_fill(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, 1, tzinfo=timezone.utc),
+                source="user-stream",
+                symbol="BLESSUSDT",
+                order_id="1001",
+                trade_id="2002",
+                client_order_id="ma_foo",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="5",
+                cumulative_quantity="5",
+                average_price="0.1234",
+                last_price="0.1234",
+                realized_pnl="1.23",
+                commission="0.01",
+                commission_asset="USDT",
+                payload={"maker": False},
             )
             insert_position_snapshot(
                 path=runtime_db_file,
@@ -434,6 +456,7 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["runtime"]["latest_account_snapshot"]["equity"], "1260.12")
             self.assertEqual(snapshot["recent_signal_decisions"][0]["symbol"], "BLESSUSDT")
             self.assertEqual(snapshot["recent_broker_orders"][0]["order_type"], "MARKET")
+            self.assertEqual(snapshot["recent_trade_fills"][0]["trade_id"], "2002")
             self.assertEqual(snapshot["recent_account_snapshots"][0]["payload"]["account_alias"], "primary")
 
     def test_dashboard_api_helpers_split_summary_timeseries_and_tables(self) -> None:
@@ -466,6 +489,7 @@ class DashboardTests(unittest.TestCase):
             "pulse_points": [{"bucket": "2026-04-15T08:49:00+00:00", "event_count": 3}],
             "recent_signal_decisions": [{"timestamp": "2026-04-15T08:49:00+00:00", "decision_type": "base_entry"}],
             "recent_broker_orders": [{"timestamp": "2026-04-15T08:49:01+00:00", "action_type": "submit_order"}],
+            "recent_trade_fills": [{"timestamp": "2026-04-15T08:49:01+00:00", "trade_id": "2002", "symbol": "BLESSUSDT"}],
             "recent_position_snapshots": [{"timestamp": "2026-04-15T08:49:00+00:00", "leader_symbol": "BLESSUSDT"}],
             "recent_account_snapshots": [
                 {
@@ -502,6 +526,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(timeseries["account"][0]["timestamp"], "2026-04-15T08:48:00+00:00")
         self.assertEqual(timeseries["account"][1]["equity"], 1260.12)
         self.assertEqual(tables["recent_signal_decisions"][0]["decision_type"], "base_entry")
+        self.assertEqual(tables["recent_trade_fills"][0]["trade_id"], "2002")
         self.assertEqual(tables["recent_account_snapshots"][1]["leader_symbol"], "BLESSUSDT")
 
     def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:

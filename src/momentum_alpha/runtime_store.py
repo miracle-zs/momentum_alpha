@@ -67,6 +67,34 @@ CREATE INDEX IF NOT EXISTS idx_broker_orders_action_type_timestamp
 CREATE INDEX IF NOT EXISTS idx_broker_orders_symbol_timestamp
     ON broker_orders(symbol, timestamp DESC);
 
+CREATE TABLE IF NOT EXISTS trade_fills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    source TEXT,
+    symbol TEXT,
+    order_id TEXT,
+    trade_id TEXT,
+    client_order_id TEXT,
+    order_status TEXT,
+    execution_type TEXT,
+    side TEXT,
+    order_type TEXT,
+    quantity TEXT,
+    cumulative_quantity TEXT,
+    average_price TEXT,
+    last_price TEXT,
+    realized_pnl TEXT,
+    commission TEXT,
+    commission_asset TEXT,
+    payload_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trade_fills_timestamp
+    ON trade_fills(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_fills_symbol_timestamp
+    ON trade_fills(symbol, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_trade_fills_trade_id
+    ON trade_fills(trade_id);
+
 CREATE TABLE IF NOT EXISTS position_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -316,6 +344,76 @@ def insert_broker_order(
         )
 
 
+def insert_trade_fill(
+    *,
+    path: Path,
+    timestamp: datetime,
+    source: str | None,
+    symbol: str | None = None,
+    order_id: str | None = None,
+    trade_id: str | None = None,
+    client_order_id: str | None = None,
+    order_status: str | None = None,
+    execution_type: str | None = None,
+    side: str | None = None,
+    order_type: str | None = None,
+    quantity: object | None = None,
+    cumulative_quantity: object | None = None,
+    average_price: object | None = None,
+    last_price: object | None = None,
+    realized_pnl: object | None = None,
+    commission: object | None = None,
+    commission_asset: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO trade_fills(
+                timestamp,
+                source,
+                symbol,
+                order_id,
+                trade_id,
+                client_order_id,
+                order_status,
+                execution_type,
+                side,
+                order_type,
+                quantity,
+                cumulative_quantity,
+                average_price,
+                last_price,
+                realized_pnl,
+                commission,
+                commission_asset,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                _as_utc_iso(timestamp),
+                source,
+                symbol,
+                order_id,
+                trade_id,
+                client_order_id,
+                order_status,
+                execution_type,
+                side,
+                order_type,
+                _decimal_to_text(quantity),
+                _decimal_to_text(cumulative_quantity),
+                _decimal_to_text(average_price),
+                _decimal_to_text(last_price),
+                _decimal_to_text(realized_pnl),
+                _decimal_to_text(commission),
+                commission_asset,
+                _json_dumps(payload or {}),
+            ),
+        )
+
+
 def insert_position_snapshot(
     *,
     path: Path,
@@ -535,6 +633,62 @@ def fetch_recent_broker_orders(*, path: Path, limit: int = 20) -> list[dict]:
             "quantity": row[9],
             "price": row[10],
             "payload": _json_loads(row[11]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_recent_trade_fills(*, path: Path, limit: int = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                symbol,
+                order_id,
+                trade_id,
+                client_order_id,
+                order_status,
+                execution_type,
+                side,
+                order_type,
+                quantity,
+                cumulative_quantity,
+                average_price,
+                last_price,
+                realized_pnl,
+                commission,
+                commission_asset,
+                payload_json
+            FROM trade_fills
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "symbol": row[2],
+            "order_id": row[3],
+            "trade_id": row[4],
+            "client_order_id": row[5],
+            "order_status": row[6],
+            "execution_type": row[7],
+            "side": row[8],
+            "order_type": row[9],
+            "quantity": row[10],
+            "cumulative_quantity": row[11],
+            "average_price": row[12],
+            "last_price": row[13],
+            "realized_pnl": row[14],
+            "commission": row[15],
+            "commission_asset": row[16],
+            "payload": _json_loads(row[17]),
         }
         for row in rows
     ]

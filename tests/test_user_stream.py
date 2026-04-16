@@ -27,13 +27,37 @@ class UserStreamTests(unittest.TestCase):
         event = parse_user_stream_event(
             {
                 "e": "ORDER_TRADE_UPDATE",
-                "o": {"s": "BTCUSDT", "X": "FILLED", "x": "TRADE"},
+                "o": {
+                    "s": "BTCUSDT",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ap": "62500.5",
+                    "z": "0.015",
+                    "L": "62600.0",
+                    "l": "0.005",
+                    "rp": "12.34",
+                    "n": "0.12",
+                    "N": "USDT",
+                    "i": 123,
+                    "t": 456,
+                    "c": "ma_entry",
+                },
             }
         )
         self.assertEqual(event.event_type, "ORDER_TRADE_UPDATE")
         self.assertEqual(event.symbol, "BTCUSDT")
         self.assertEqual(event.order_status, "FILLED")
         self.assertEqual(event.execution_type, "TRADE")
+        self.assertEqual(event.average_price, Decimal("62500.5"))
+        self.assertEqual(event.filled_quantity, Decimal("0.015"))
+        self.assertEqual(event.last_filled_price, Decimal("62600.0"))
+        self.assertEqual(event.last_filled_quantity, Decimal("0.005"))
+        self.assertEqual(event.realized_pnl, Decimal("12.34"))
+        self.assertEqual(event.commission, Decimal("0.12"))
+        self.assertEqual(event.commission_asset, "USDT")
+        self.assertEqual(event.order_id, 123)
+        self.assertEqual(event.trade_id, 456)
+        self.assertEqual(event.client_order_id, "ma_entry")
 
     def test_parse_account_update_event(self) -> None:
         from momentum_alpha.user_stream import parse_user_stream_event
@@ -477,3 +501,136 @@ class UserStreamTests(unittest.TestCase):
             }
         )
         self.assertEqual(extract_order_status_update(event), ("123", None))
+
+    def test_parse_algo_update_event(self) -> None:
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "E": 1776215100000,
+                "s": "BTCUSDT",
+                "algoId": 2000000786682809,
+                "clientAlgoId": "ma_260415221700_BTCUSDT_b00s",
+                "algoStatus": "NEW",
+                "S": "SELL",
+                "orderType": "STOP_MARKET",
+                "triggerPrice": "61000.0",
+            }
+        )
+        self.assertEqual(event.event_type, "ALGO_UPDATE")
+        self.assertEqual(event.symbol, "BTCUSDT")
+        self.assertEqual(event.algo_id, 2000000786682809)
+        self.assertEqual(event.client_algo_id, "ma_260415221700_BTCUSDT_b00s")
+        self.assertEqual(event.algo_status, "NEW")
+        self.assertEqual(event.side, "SELL")
+        self.assertEqual(event.trigger_price, Decimal("61000.0"))
+
+    def test_extract_algo_order_status_update_returns_snapshot_for_new_order(self) -> None:
+        from momentum_alpha.user_stream import extract_algo_order_status_update, parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "E": 1776215100000,
+                "s": "BTCUSDT",
+                "algoId": 2000000786682809,
+                "clientAlgoId": "ma_260415221700_BTCUSDT_b00s",
+                "algoStatus": "NEW",
+                "S": "SELL",
+                "orderType": "STOP_MARKET",
+                "triggerPrice": "61000.0",
+            }
+        )
+        result = extract_algo_order_status_update(event)
+        self.assertIsNotNone(result)
+        key, snapshot = result
+        self.assertEqual(key, "algo:2000000786682809")
+        self.assertEqual(snapshot["symbol"], "BTCUSDT")
+        self.assertEqual(snapshot["status"], "NEW")
+        self.assertEqual(snapshot["side"], "SELL")
+        self.assertEqual(snapshot["original_order_type"], "STOP_MARKET")
+        self.assertEqual(snapshot["stop_price"], "61000.0")
+        self.assertEqual(snapshot["client_order_id"], "ma_260415221700_BTCUSDT_b00s")
+
+    def test_extract_algo_order_status_update_returns_delete_for_triggered_order(self) -> None:
+        from momentum_alpha.user_stream import extract_algo_order_status_update, parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "E": 1776215100000,
+                "s": "BTCUSDT",
+                "algoId": 2000000786682809,
+                "algoStatus": "TRIGGERED",
+                "S": "SELL",
+            }
+        )
+        result = extract_algo_order_status_update(event)
+        self.assertIsNotNone(result)
+        key, snapshot = result
+        self.assertEqual(key, "algo:2000000786682809")
+        self.assertIsNone(snapshot)
+
+    def test_resolve_stop_price_from_order_statuses_includes_algo_orders(self) -> None:
+        from momentum_alpha.user_stream import resolve_stop_price_from_order_statuses
+
+        order_statuses = {
+            "123": {
+                "symbol": "ETHUSDT",
+                "status": "NEW",
+                "side": "SELL",
+                "original_order_type": "STOP_MARKET",
+                "stop_price": "106",
+            },
+            "algo:2000000786682809": {
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "side": "SELL",
+                "original_order_type": "STOP_MARKET",
+                "stop_price": "61000",
+                "client_order_id": "ma_260415221700_BTCUSDT_b00s",
+            },
+        }
+        eth_stop = resolve_stop_price_from_order_statuses(symbol="ETHUSDT", order_statuses=order_statuses)
+        btc_stop = resolve_stop_price_from_order_statuses(symbol="BTCUSDT", order_statuses=order_statuses)
+        self.assertEqual(eth_stop, Decimal("106"))
+        self.assertEqual(btc_stop, Decimal("61000"))
+
+    def test_apply_account_update_restores_stop_price_from_algo_order(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        state = StrategyState(current_day=date(2026, 4, 15), previous_leader_symbol="BTCUSDT", positions={})
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776215220000,
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "BTCUSDT",
+                            "pa": "0.010",
+                            "ep": "62000",
+                        }
+                    ],
+                },
+            }
+        )
+        updated = apply_user_stream_event_to_state(
+            state=state,
+            event=event,
+            order_statuses={
+                "algo:2000000786682809": {
+                    "symbol": "BTCUSDT",
+                    "status": "NEW",
+                    "side": "SELL",
+                    "original_order_type": "STOP_MARKET",
+                    "stop_price": "61000",
+                    "client_order_id": "ma_260415221700_BTCUSDT_b00s",
+                }
+            },
+        )
+        self.assertEqual(updated.positions["BTCUSDT"].stop_price, Decimal("61000"))
+        self.assertEqual(updated.positions["BTCUSDT"].legs[0].stop_price, Decimal("61000"))
