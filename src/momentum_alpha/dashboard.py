@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping
 from decimal import Decimal
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -204,52 +205,340 @@ def _parse_decimal(value: object | None) -> Decimal | None:
         return None
 
 
-def build_position_details(position_snapshot: dict) -> list[dict]:
+def _object_field(value: object, field_name: str) -> object | None:
+    if isinstance(value, Mapping):
+        return value.get(field_name)
+    return getattr(value, field_name, None)
+
+
+def _filter_rows_for_range(rows: list[dict], *, timestamp_key: str, range_key: str) -> list[dict]:
+    if range_key == "ALL":
+        return list(rows)
+    hours = {"1H": 1, "6H": 6, "24H": 24}.get(range_key)
+    if not hours or not rows:
+        return list(rows)
+    parsed_rows = [row for row in rows if row.get(timestamp_key)]
+    if not parsed_rows:
+        return []
+    try:
+        end_at = max(datetime.fromisoformat(str(row[timestamp_key])) for row in parsed_rows)
+    except ValueError:
+        return list(rows)
+    start_at = end_at - timedelta(hours=hours)
+    return [
+        row
+        for row in parsed_rows
+        if datetime.fromisoformat(str(row[timestamp_key])) >= start_at
+    ]
+
+
+def _filter_rows_for_display_day(rows: list[dict], *, timestamp_key: str, target_date: object | None = None) -> list[dict]:
+    if not rows:
+        return []
+
+    dated_rows: list[tuple[datetime, dict]] = []
+    for row in rows:
+        timestamp = row.get(timestamp_key)
+        if not timestamp:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(timestamp)).astimezone(DISPLAY_TIMEZONE)
+        except ValueError:
+            continue
+        dated_rows.append((parsed, row))
+    if not dated_rows:
+        return []
+
+    effective_date = target_date or dated_rows[-1][0].date()
+    return [row for parsed, row in dated_rows if parsed.date() == effective_date]
+
+
+def _current_streak_from_round_trips(round_trips: list[dict]) -> dict[str, int | str | None]:
+    if not round_trips:
+        return {"label": None, "count": 0}
+
+    ordered_round_trips = sorted(round_trips, key=lambda item: item.get("closed_at") or "")
+    streak_sign: int | None = None
+    streak_count = 0
+
+    for trip in reversed(ordered_round_trips):
+        net_pnl = _parse_numeric(trip.get("net_pnl"))
+        if net_pnl is None or net_pnl == 0:
+            if streak_count > 0:
+                break
+            continue
+
+        sign = 1 if net_pnl > 0 else -1
+        if streak_sign is None:
+            streak_sign = sign
+        if sign != streak_sign:
+            break
+        streak_count += 1
+
+    if streak_count == 0 or streak_sign is None:
+        return {"label": None, "count": 0}
+    return {
+        "label": f"{'W' if streak_sign > 0 else 'L'}{streak_count}",
+        "count": streak_count,
+    }
+
+
+def build_trader_summary_metrics(
+    snapshot: dict,
+    *,
+    position_details: list[dict],
+    range_key: str = "24H",
+) -> dict:
+    account_timeline = build_dashboard_timeseries_payload(snapshot).get("account", [])
+    account_rows = sorted(snapshot.get("recent_account_snapshots", []), key=lambda item: item.get("timestamp") or "")
+    runtime_latest_account = (snapshot.get("runtime") or {}).get("latest_account_snapshot") or None
+    scoped_accounts = _filter_rows_for_range(account_rows, timestamp_key="timestamp", range_key=range_key)
+    scoped_round_trips = _filter_rows_for_range(
+        sorted(snapshot.get("recent_trade_round_trips", []), key=lambda item: item.get("closed_at") or ""),
+        timestamp_key="closed_at",
+        range_key=range_key,
+    )
+    scoped_stop_exits = _filter_rows_for_range(
+        sorted(snapshot.get("recent_stop_exit_summaries", []), key=lambda item: item.get("timestamp") or ""),
+        timestamp_key="timestamp",
+        range_key=range_key,
+    )
+    scoped_signal_decisions = _filter_rows_for_range(
+        sorted(snapshot.get("recent_signal_decisions", []), key=lambda item: item.get("timestamp") or ""),
+        timestamp_key="timestamp",
+        range_key=range_key,
+    )
+    scoped_leader_history = _filter_rows_for_range(
+        sorted(snapshot.get("leader_history", []), key=lambda item: item.get("timestamp") or ""),
+        timestamp_key="timestamp",
+        range_key=range_key,
+    )
+
+    latest_account = scoped_accounts[-1] if scoped_accounts else runtime_latest_account
+    latest_equity = _parse_numeric(latest_account.get("equity")) if latest_account else None
+    latest_available = _parse_numeric(latest_account.get("available_balance")) if latest_account else None
+    latest_wallet = _parse_numeric(latest_account.get("wallet_balance")) if latest_account else None
+    latest_unrealized_pnl = _parse_numeric(latest_account.get("unrealized_pnl")) if latest_account else None
+    latest_position_count = latest_account.get("position_count") if latest_account else None
+    latest_order_count = latest_account.get("open_order_count") if latest_account else None
+
+    scoped_account_points = _filter_rows_for_range(
+        account_timeline,
+        timestamp_key="timestamp",
+        range_key=range_key,
+    )
+    latest_display_date = None
+    timestamp_candidates = [
+        item.get("timestamp")
+        for item in scoped_account_points
+        if item.get("timestamp")
+    ]
+    timestamp_candidates.extend(
+        item.get("closed_at")
+        for item in scoped_round_trips
+        if item.get("closed_at")
+    )
+    if timestamp_candidates:
+        latest_display_date = max(
+            datetime.fromisoformat(str(timestamp)).astimezone(DISPLAY_TIMEZONE).date()
+            for timestamp in timestamp_candidates
+        )
+
+    today_net_pnl = None
+    same_day_account_points = _filter_rows_for_display_day(
+        scoped_account_points,
+        timestamp_key="timestamp",
+        target_date=latest_display_date,
+    )
+    same_day_round_trips = _filter_rows_for_display_day(
+        scoped_round_trips,
+        timestamp_key="closed_at",
+        target_date=latest_display_date,
+    )
+    latest_same_day_account_timestamp = max(
+        (item.get("timestamp") for item in same_day_account_points if item.get("timestamp")),
+        default=None,
+    )
+    latest_same_day_round_trip_timestamp = max(
+        (item.get("closed_at") for item in same_day_round_trips if item.get("closed_at")),
+        default=None,
+    )
+    account_points_are_freshest = (
+        latest_same_day_account_timestamp is not None
+        and (
+            latest_same_day_round_trip_timestamp is None
+            or latest_same_day_account_timestamp >= latest_same_day_round_trip_timestamp
+        )
+    )
+    if len(same_day_account_points) >= 2 and account_points_are_freshest:
+        first_point = same_day_account_points[0]
+        last_point = same_day_account_points[-1]
+        first_adjusted_equity = _parse_numeric(first_point.get("adjusted_equity"))
+        last_adjusted_equity = _parse_numeric(last_point.get("adjusted_equity"))
+        if first_adjusted_equity is not None and last_adjusted_equity is not None:
+            today_net_pnl = last_adjusted_equity - first_adjusted_equity
+    if today_net_pnl is None:
+        scoped_round_trip_pnls = [_parse_numeric(trip.get("net_pnl")) for trip in same_day_round_trips]
+        scoped_round_trip_pnls = [pnl for pnl in scoped_round_trip_pnls if pnl is not None]
+        if scoped_round_trip_pnls:
+            today_net_pnl = sum(scoped_round_trip_pnls)
+
+    margin_usage_pct = None
+    if latest_equity not in (None, 0) and latest_available is not None:
+        margin_usage_pct = (1 - (latest_available / latest_equity)) * 100
+
+    open_risk = sum((_parse_numeric(position.get("risk")) or 0.0) for position in position_details)
+    open_risk_pct = None
+    if latest_equity not in (None, 0):
+        open_risk_pct = (open_risk / latest_equity) * 100
+
+    round_trip_pnls = [_parse_numeric(trip.get("net_pnl")) for trip in scoped_round_trips]
+    round_trip_pnls = [pnl for pnl in round_trip_pnls if pnl is not None]
+    wins = [pnl for pnl in round_trip_pnls if pnl > 0]
+    losses = [pnl for pnl in round_trip_pnls if pnl < 0]
+    total_trades = len(round_trip_pnls)
+    win_rate = (len(wins) / total_trades) if total_trades else None
+    profit_factor = None
+    if losses:
+        gross_wins = sum(wins)
+        gross_losses = abs(sum(losses))
+        if gross_losses:
+            profit_factor = gross_wins / gross_losses
+
+    slippages = [_parse_numeric(item.get("slippage_pct")) for item in scoped_stop_exits]
+    slippages = [slippage for slippage in slippages if slippage is not None]
+    avg_slippage_pct = (sum(slippages) / len(slippages)) if slippages else None
+    max_slippage_pct = max(slippages) if slippages else None
+
+    blocked_reason_counts = Counter(
+        reason
+        for reason in (
+            (item.get("payload") or {}).get("blocked_reason")
+            for item in scoped_signal_decisions
+        )
+        if reason
+    )
+    previous_symbol = None
+    rotation_count = 0
+    for item in scoped_leader_history:
+        symbol = item.get("symbol")
+        if not symbol:
+            continue
+        if previous_symbol is not None and symbol != previous_symbol:
+            rotation_count += 1
+        previous_symbol = symbol
+
+    return {
+        "account": {
+            "today_net_pnl": today_net_pnl,
+            "margin_usage_pct": margin_usage_pct,
+            "open_risk": open_risk,
+            "open_risk_pct": open_risk_pct,
+            "current_wallet": latest_wallet,
+            "current_equity": latest_equity,
+            "current_available_balance": latest_available,
+            "current_unrealized_pnl": latest_unrealized_pnl,
+            "current_positions": latest_position_count,
+            "current_orders": latest_order_count,
+        },
+        "execution": {
+            "avg_slippage_pct": avg_slippage_pct,
+            "max_slippage_pct": max_slippage_pct,
+            "stop_exit_count": len(scoped_stop_exits),
+        },
+        "performance": {
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "current_streak": _current_streak_from_round_trips(scoped_round_trips),
+            "trade_count": total_trades,
+        },
+        "signals": {
+            "blocked_reason_counts": dict(sorted(blocked_reason_counts.items())),
+            "rotation_count": rotation_count,
+        },
+    }
+
+
+def build_position_details(position_snapshot: dict, equity_value: object | None = None) -> list[dict]:
     """Extract position details with leg breakdown from position snapshot payload."""
     payload = position_snapshot.get("payload") or {}
     positions = payload.get("positions") or {}
-    if not positions:
+    if not positions or not isinstance(positions, Mapping):
         return []
 
+    equity_decimal = _parse_decimal(equity_value)
     details: list[dict] = []
     for symbol, position in positions.items():
-        legs = position.get("legs") or []
-        if not legs:
+        if not isinstance(position, Mapping) and not hasattr(position, "__dict__") and not hasattr(type(position), "__dataclass_fields__"):
+            continue
+        legs = _object_field(position, "legs") or []
+        if not isinstance(legs, (list, tuple)) or not legs:
             continue
 
         total_quantity = Decimal("0")
         weighted_sum = Decimal("0")
-        stop_price = _parse_decimal(position.get("stop_price")) or Decimal("0")
+        stop_price = _parse_decimal(_object_field(position, "stop_price"))
         leg_info: list[dict] = []
+        valid_leg_opened_ats: list[str] = []
 
         for leg in legs:
-            qty = _parse_decimal(leg.get("quantity")) or Decimal("0")
-            entry = _parse_decimal(leg.get("entry_price")) or Decimal("0")
+            if not isinstance(leg, Mapping) and not hasattr(leg, "__dict__") and not hasattr(type(leg), "__dataclass_fields__"):
+                continue
+            qty = _parse_decimal(_object_field(leg, "quantity")) or Decimal("0")
+            entry = _parse_decimal(_object_field(leg, "entry_price")) or Decimal("0")
             total_quantity += qty
             weighted_sum += qty * entry
+            leg_opened_at = _object_field(leg, "opened_at")
+            if leg_opened_at is not None:
+                valid_leg_opened_ats.append(str(leg_opened_at))
             leg_info.append({
-                "type": leg.get("leg_type") or "unknown",
-                "time": leg.get("opened_at") or "",
+                "type": _object_field(leg, "leg_type") or "unknown",
+                "time": str(leg_opened_at) if leg_opened_at is not None else "",
             })
 
+        if not leg_info:
+            continue
+
         avg_entry = weighted_sum / total_quantity if total_quantity > 0 else Decimal("0")
-        risk = total_quantity * (avg_entry - stop_price)
+        risk = None
+        if stop_price is not None:
+            risk = total_quantity * (avg_entry - stop_price)
+        opened_at = _object_field(position, "opened_at")
+        if not opened_at:
+            parsed_leg_opened_ats: list[tuple[datetime, str]] = []
+            for leg_opened_at in valid_leg_opened_ats:
+                try:
+                    parsed_leg_opened_ats.append((datetime.fromisoformat(str(leg_opened_at)), str(leg_opened_at)))
+                except ValueError:
+                    continue
+            if parsed_leg_opened_ats:
+                opened_at = min(parsed_leg_opened_ats, key=lambda item: item[0])[1]
+            elif valid_leg_opened_ats:
+                opened_at = valid_leg_opened_ats[0]
+        risk_pct_of_equity = None
+        if risk is not None and equity_decimal not in (None, Decimal("0")):
+            risk_pct_of_equity = f"{((risk / equity_decimal) * Decimal('100')):.2f}"
 
         details.append({
             "symbol": symbol,
             "direction": "LONG",
             "total_quantity": str(total_quantity),
             "entry_price": f"{avg_entry:.2f}",
-            "stop_price": str(stop_price),
-            "risk": f"{risk:.2f}",
+            "stop_price": str(stop_price) if stop_price is not None else None,
+            "risk": f"{risk:.2f}" if risk is not None else None,
+            "risk_pct_of_equity": risk_pct_of_equity,
+            "leg_count": len(leg_info),
+            "opened_at": opened_at,
+            "mtm_pnl": None,
+            "distance_to_stop_pct": None,
             "legs": leg_info,
         })
 
     return details
 
 
-def _build_position_details_from_state_positions(positions: dict) -> list[dict]:
-    return build_position_details({"payload": {"positions": positions or {}}})
+def _build_position_details_from_state_positions(positions: dict, *, equity_value: object | None = None) -> list[dict]:
+    return build_position_details({"payload": {"positions": positions or {}}}, equity_value=equity_value)
 
 
 def render_trade_history_table(fills: list[dict]) -> str:
@@ -355,14 +644,33 @@ def render_position_cards(positions: list[dict]) -> str:
     if not positions:
         return "<div class='positions-empty'>No positions</div>"
 
+    def _position_sort_key(position: dict) -> tuple[bool, float, str]:
+        risk_value = _parse_numeric(position.get("risk"))
+        return (risk_value is None, -(risk_value or 0.0), str(position.get("symbol") or ""))
+
+    def _display_metric_value(value: object | None, *, suffix: str = "") -> str:
+        if value in (None, ""):
+            return "n/a"
+        return f"{escape(str(value))}{suffix}"
+
+    def _display_live_price_metric(value: object | None, *, suffix: str = "") -> str:
+        if value in (None, ""):
+            return "n/a <span class='metric-note'>waiting for live price data</span>"
+        return f"{escape(str(value))}{suffix}"
+
     cards = ""
-    for pos in positions:
+    for pos in sorted(positions, key=_position_sort_key):
         symbol = escape(str(pos.get("symbol") or "-"))
         direction = escape(str(pos.get("direction") or "LONG"))
         qty = escape(str(pos.get("total_quantity") or "0"))
         entry = escape(str(pos.get("entry_price") or "n/a"))
         stop = escape(str(pos.get("stop_price") or "n/a"))
-        risk = escape(str(pos.get("risk") or "0"))
+        risk = _display_metric_value(pos.get("risk"), suffix=" USDT")
+        risk_pct = _display_metric_value(pos.get("risk_pct_of_equity"), suffix="%")
+        leg_count = _display_metric_value(pos.get("leg_count"))
+        opened_at = _display_metric_value(format_timestamp_for_display(pos.get("opened_at")))
+        mtm_pnl = _display_live_price_metric(pos.get("mtm_pnl"))
+        distance_to_stop_pct = _display_live_price_metric(pos.get("distance_to_stop_pct"), suffix="%")
         legs = pos.get("legs") or []
 
         legs_str = " | ".join(
@@ -380,7 +688,12 @@ def render_position_cards(positions: list[dict]) -> str:
             f"<div class='position-metric'><span class='metric-label'>Qty</span><span class='metric-value'>{qty}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Entry</span><span class='metric-value'>{entry}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Stop</span><span class='metric-value metric-danger'>{stop}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Risk</span><span class='metric-value'>{risk} USDT</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Risk</span><span class='metric-value'>{risk}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Risk %</span><span class='metric-value'>{risk_pct}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Legs</span><span class='metric-value'>{leg_count}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Opened</span><span class='metric-value'>{opened_at}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
+            f"<div class='position-metric'><span class='metric-label'>Dist to Stop</span><span class='metric-value'>{distance_to_stop_pct}</span></div>"
             f"</div>"
             f"<div class='position-legs'>{escape(legs_str)}</div>"
             f"</div>"
@@ -876,23 +1189,26 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     decision_status = latest_signal.get("decision_type") or "none"
     latest_signal_symbol = latest_signal.get("symbol") or "none"
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
-    wallet_balance = _format_metric(summary["account"].get("wallet_balance"))
-    available_balance = _format_metric(summary["account"].get("available_balance"))
-    equity = _format_metric(summary["account"].get("equity"))
-    unrealized_pnl = _format_metric(summary["account"].get("unrealized_pnl"), signed=True)
-    pnl_positive = not str(unrealized_pnl).startswith("-")
     account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
+    account_range_stats = _compute_account_range_stats(timeseries["account"])
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
-    pie_chart = _render_pie_chart_svg(data=decision_counts)
-    bar_chart = _render_bar_chart_svg(data=dict(list(event_counts.items())[:6]), color="#4cc9f0")
     leader_history = list(reversed(snapshot.get("leader_history", [])))
     timeline_chart = _render_timeline_svg(events=leader_history)
     health_status = snapshot["health"]["overall_status"]
     # Build position cards
-    position_details = build_position_details(latest_position_snapshot)
+    equity_value = latest_account_snapshot.get("equity")
+    position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
     if not position_details and snapshot.get("state_positions"):
-        position_details = _build_position_details_from_state_positions(snapshot.get("state_positions") or {})
+        position_details = _build_position_details_from_state_positions(
+            snapshot.get("state_positions") or {},
+            equity_value=equity_value,
+        )
+    trader_metrics = build_trader_summary_metrics(
+        snapshot,
+        position_details=position_details,
+        range_key="24H",
+    )
     position_cards_html = render_position_cards(position_details)
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
@@ -900,12 +1216,13 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     closed_trades_html = render_closed_trades_table(snapshot.get("recent_trade_round_trips") or [])
     stop_slippage_html = render_stop_slippage_table(snapshot.get("recent_stop_exit_summaries") or [])
     # Build strategy config
-    config = strategy_config or {}
+    config = strategy_config or snapshot.get("strategy_config") or {}
     config_html = (
         f"<div class='config-panel'>"
         f"<div class='config-row'><span class='config-label'>Stop Budget</span><span>{escape(str(config.get('stop_budget_usdt') or 'n/a'))}</span></div>"
         f"<div class='config-row'><span class='config-label'>Entry Window</span><span>{escape(str(config.get('entry_window') or 'n/a'))}</span></div>"
         f"<div class='config-row'><span class='config-label'>Testnet</span><span class='{'config-value-true' if config.get('testnet') else 'config-value-false'}'>{'Yes' if config.get('testnet') else 'No'}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Submit Orders</span><span class='{'config-value-true' if config.get('submit_orders') else 'config-value-false'}'>{'Yes' if config.get('submit_orders') else 'No'}</span></div>"
         f"</div>"
     )
     health_items_html = "".join(
@@ -947,6 +1264,55 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
         for src, cnt in sorted(source_counts.items())[:4]
     ) or "<div class='source-tag empty'>No sources</div>"
+
+    def _format_pct(value: float | None, *, signed: bool = False) -> str:
+        if value is None:
+            return "n/a"
+        return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
+
+    performance_win_rate = trader_metrics["performance"].get("win_rate")
+    top_metric_cards = [
+        (
+            "TODAY NET PNL",
+            _format_metric(trader_metrics["account"].get("today_net_pnl"), signed=True),
+            "Adjusted equity delta across visible account history",
+        ),
+        (
+            "EQUITY",
+            _format_metric(trader_metrics["account"].get("current_equity")),
+            "Latest account snapshot",
+        ),
+        (
+            "AVAILABLE BALANCE",
+            _format_metric(trader_metrics["account"].get("current_available_balance")),
+            "Capital free to deploy",
+        ),
+        (
+            "MARGIN USAGE",
+            _format_pct(trader_metrics["account"].get("margin_usage_pct")),
+            "1 - available balance / equity",
+        ),
+        (
+            "OPEN RISK / EQUITY",
+            _format_pct(trader_metrics["account"].get("open_risk_pct")),
+            f"{_format_metric(trader_metrics['account'].get('open_risk'))} USDT at risk",
+        ),
+        (
+            "CURRENT DRAWDOWN",
+            _format_metric(account_range_stats.get("drawdown_abs"), signed=True),
+            _format_pct(account_range_stats.get("drawdown_pct"), signed=True),
+        ),
+    ]
+    top_metrics_html = "".join(
+        (
+            "<div class='metric'>"
+            f"<div class='metric-label'>{label}</div>"
+            f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
+            f"<div class='metric-sub'>{escape(subtext)}</div>"
+            "</div>"
+        )
+        for label, value, subtext in top_metric_cards
+    )
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -1358,6 +1724,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .position-metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 0.8rem; }}
     .position-metric {{ text-align: center; }}
     .metric-danger {{ color: var(--danger); }}
+    .metric-note {{ display: block; margin-top: 4px; font-size: 0.62rem; color: var(--fg-muted); }}
     .position-legs {{ margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }}
     .positions-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
     .trade-history {{ max-height: 200px; overflow-y: auto; }}
@@ -1444,36 +1811,15 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       </div>
       <div class="status-badge {'ok' if health_status == 'OK' else 'fail'}">{escape(health_status)}</div>
     </header>
-    <div class="metrics-grid">
-      <div class="metric">
-        <div class="metric-label">Current Leader</div>
-        <div class="metric-value">{escape(str(runtime['previous_leader_symbol'] or '-'))}</div>
-        <div class="metric-sub">Highest daily gain symbol</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Positions</div>
-        <div class="metric-value">{runtime['position_count']}</div>
-        <div class="metric-sub">{runtime['order_status_count']} tracked orders</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Wallet Balance</div>
-        <div class="metric-value">{escape(wallet_balance)}</div>
-        <div class="metric-sub">USDT futures wallet</div>
-      </div>
-      <div class="metric">
-        <div class="metric-label">Unrealized PnL</div>
-        <div class="metric-value {'positive' if pnl_positive else 'negative'}">{escape(unrealized_pnl)}</div>
-        <div class="metric-sub">Mark-to-market</div>
-      </div>
-    </div>
+    <div class="metrics-grid">{top_metrics_html}</div>
     <section class="dashboard-section">
-      <div class="section-header">POSITIONS</div>
+      <div class="section-header">POSITION DIAGNOSTICS</div>
       {position_cards_html}
     </section>
     {account_metrics_panel_html}
     <section class="dashboard-section decision-row">
       <div class="decision-half">
-        <div class="section-header">LATEST DECISION</div>
+        <div class="section-header">SIGNAL & ROTATION</div>
         <div class="decision-grid">
           <div class="decision-item">
             <div class="decision-label">Decision Type</div>
@@ -1492,6 +1838,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
             <div class="decision-value">{escape(latest_signal_time)}</div>
           </div>
         </div>
+        <div class="source-tags" style="margin-top:12px;">{source_html}</div>
       </div>
       <div class="decision-half">
         <div class="section-header">LEADER ROTATION</div>
@@ -1499,15 +1846,11 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       </div>
     </section>
     <section class="dashboard-section">
-      <div class="section-header">TRADE HISTORY</div>
-      {trade_history_html}
-    </section>
-    <section class="dashboard-section">
-      <div class="section-header">CLOSED TRADES</div>
+      <div class="section-header">EXECUTION QUALITY</div>
       <div class="analytics-grid">
         <div class="chart-card">
-          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Round Trips</div>
-          {closed_trades_html}
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Recent Fills</div>
+          {trade_history_html}
         </div>
         <div class="chart-card">
           <div class="section-header" style="margin-bottom:10px;">STOP SLIPPAGE ANALYSIS</div>
@@ -1515,10 +1858,41 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         </div>
       </div>
     </section>
+    <section class="dashboard-section">
+      <div class="section-header">STRATEGY PERFORMANCE</div>
+      <div class="analytics-grid">
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Round Trips</div>
+          {closed_trades_html}
+        </div>
+        <div class="chart-card">
+          <div class="decision-grid">
+            <div class="decision-item">
+              <div class="decision-label">Win Rate</div>
+              <div class="decision-value">{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else "n/a")}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Profit Factor</div>
+              <div class="decision-value">{escape(_format_metric(trader_metrics["performance"].get("profit_factor")))}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Current Streak</div>
+              <div class="decision-value">{escape(str((trader_metrics["performance"].get("current_streak") or {}).get("label") or "n/a"))}</div>
+            </div>
+            <div class="decision-item">
+              <div class="decision-label">Trade Count</div>
+              <div class="decision-value">{escape(str(trader_metrics["performance"].get("trade_count") or 0))}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
     <section class="dashboard-section bottom-row">
       <div class="bottom-col">
-        <div class="section-header">STRATEGY CONFIG</div>
+        <div class="section-header">SYSTEM OPERATIONS</div>
         {config_html}
+        <div class="section-header" style="margin-top:12px;">EVENT SOURCES</div>
+        <div class="source-tags">{source_html}</div>
       </div>
       <div class="bottom-col">
         <div class="section-header">SYSTEM HEALTH</div>
@@ -1571,13 +1945,17 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       const height = 280;
       const padX = 56;
       const padY = 20;
-      const values = points.map((point) => Number(point[metric] ?? 0));
-      const minValue = Math.min(...values);
-      const maxValue = Math.max(...values);
+      const values = points.map((point) => point[metric]);
+      const numericValues = values.filter((value) => value !== null && value !== undefined && !Number.isNaN(value));
+      if (!numericValues.length || numericValues.length !== values.length) {{
+        return `<div class="chart-empty"><span class="chart-empty-icon">◎</span><span>waiting for visible metric data</span></div>`;
+      }}
+      const minValue = Math.min(...numericValues);
+      const maxValue = Math.max(...numericValues);
       const spread = Math.max(maxValue - minValue, 1e-9);
       const chartWidth = width - padX * 2;
       const chartHeight = height - padY * 2;
-      const coords = values.map((value, index) => {{
+      const coords = numericValues.map((value, index) => {{
         const x = padX + (chartWidth * index / Math.max(values.length - 1, 1));
         const y = padY + chartHeight - (((value - minValue) / spread) * chartHeight);
         return [x, y];
@@ -1614,21 +1992,37 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       if (!points.length) return;
       const first = points[0];
       const last = points[points.length - 1];
-      const peakEquity = Math.max(...points.map((point) => Number(point.equity ?? 0)));
-      const currentEquity = Number(last.equity ?? 0);
-      const drawdownAbs = currentEquity - peakEquity;
-      const drawdownPct = peakEquity ? (drawdownAbs / peakEquity) * 100 : 0;
+      const numericValues = points
+        .map((point) => ({{
+          equity: point.equity,
+          wallet_balance: point.wallet_balance,
+          adjusted_equity: point.adjusted_equity,
+          unrealized_pnl: point.unrealized_pnl,
+        }}));
+      const equityPoints = numericValues
+        .map((point) => point.equity)
+        .filter((value) => value !== null && value !== undefined && !Number.isNaN(value));
+      const peakEquity = equityPoints.length ? Math.max(...equityPoints) : null;
+      const currentEquity = last.equity;
+      const drawdownAbs = (currentEquity === null || currentEquity === undefined || peakEquity === null)
+        ? null
+        : currentEquity - peakEquity;
+      const drawdownPct = (drawdownAbs === null || !peakEquity) ? null : (drawdownAbs / peakEquity) * 100;
+      const computeDelta = (start, end) => {{
+        if (start === null || start === undefined || end === null || end === undefined) return null;
+        return end - start;
+      }};
       const deltas = {{
-        wallet_balance: Number(last.wallet_balance ?? 0) - Number(first.wallet_balance ?? 0),
-        equity: Number(last.equity ?? 0) - Number(first.equity ?? 0),
-        adjusted_equity: Number(last.adjusted_equity ?? 0) - Number(first.adjusted_equity ?? 0),
-        unrealized_pnl: Number(last.unrealized_pnl ?? 0) - Number(first.unrealized_pnl ?? 0),
+        wallet_balance: computeDelta(first.wallet_balance, last.wallet_balance),
+        equity: computeDelta(first.equity, last.equity),
+        adjusted_equity: computeDelta(first.adjusted_equity, last.adjusted_equity),
+        unrealized_pnl: computeDelta(first.unrealized_pnl, last.unrealized_pnl),
       }};
       const values = {{
-        wallet_balance: formatAccountValue(Number(last.wallet_balance ?? 0)),
-        equity: formatAccountValue(Number(last.equity ?? 0)),
-        adjusted_equity: formatAccountValue(Number(last.adjusted_equity ?? 0)),
-        unrealized_pnl: formatAccountValue(Number(last.unrealized_pnl ?? 0), true),
+        wallet_balance: formatAccountValue(last.wallet_balance),
+        equity: formatAccountValue(last.equity),
+        adjusted_equity: formatAccountValue(last.adjusted_equity),
+        unrealized_pnl: formatAccountValue(last.unrealized_pnl, true),
         exposure: `${{last.position_count ?? 0}} / ${{last.open_order_count ?? 0}}`,
         peak_equity: formatAccountValue(peakEquity),
         drawdown: formatAccountValue(drawdownAbs, true),
