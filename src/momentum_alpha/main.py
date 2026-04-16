@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import argparse
+import sqlite3
 import time
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
@@ -290,6 +291,93 @@ def load_credentials_from_env() -> tuple[str, str]:
 def load_runtime_settings_from_env() -> dict[str, bool]:
     raw_testnet = os.environ.get("BINANCE_USE_TESTNET", "")
     return {"use_testnet": raw_testnet.strip().lower() in {"1", "true", "yes", "on"}}
+
+
+def _parse_cli_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _account_flow_exists(
+    *,
+    runtime_db_path: Path,
+    timestamp: datetime,
+    reason: str | None,
+    asset: str | None,
+    balance_change: str | None,
+) -> bool:
+    if not runtime_db_path.exists():
+        return False
+    with sqlite3.connect(runtime_db_path) as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM account_flows
+            WHERE timestamp = ?
+              AND COALESCE(reason, '') = COALESCE(?, '')
+              AND COALESCE(asset, '') = COALESCE(?, '')
+              AND COALESCE(balance_change, '') = COALESCE(?, '')
+            LIMIT 1
+            """,
+            (timestamp.astimezone(timezone.utc).isoformat(), reason, asset, balance_change),
+        ).fetchone()
+    return row is not None
+
+
+def backfill_account_flows(
+    *,
+    client,
+    runtime_db_path: Path,
+    start_time: datetime,
+    end_time: datetime,
+    logger=print,
+) -> int:
+    inserted = 0
+    window_start = start_time.astimezone(timezone.utc)
+    end_time_utc = end_time.astimezone(timezone.utc)
+    while window_start < end_time_utc:
+        window_end = min(window_start + timedelta(days=7), end_time_utc)
+        incomes = client.fetch_income_history(
+            income_type="TRANSFER",
+            start_time_ms=int(window_start.timestamp() * 1000),
+            end_time_ms=int(window_end.timestamp() * 1000),
+            limit=1000,
+        )
+        for income in incomes:
+            timestamp_ms = income.get("time")
+            if timestamp_ms in (None, ""):
+                continue
+            timestamp = datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
+            reason = str(income.get("info") or income.get("incomeType") or "").upper() or None
+            asset = income.get("asset")
+            balance_change = str(income.get("income")) if income.get("income") not in (None, "") else None
+            if _account_flow_exists(
+                runtime_db_path=runtime_db_path,
+                timestamp=timestamp,
+                reason=reason,
+                asset=asset,
+                balance_change=balance_change,
+            ):
+                continue
+            insert_account_flow(
+                path=runtime_db_path,
+                timestamp=timestamp,
+                source="backfill-income-history",
+                reason=reason,
+                asset=asset,
+                balance_change=balance_change,
+                payload=income,
+            )
+            inserted += 1
+        logger(
+            "backfill-account-flows "
+            f"window_start={window_start.isoformat()} window_end={window_end.isoformat()} "
+            f"fetched={len(incomes)} inserted={inserted}"
+        )
+        window_start = window_end
+    return inserted
 
 
 def _build_client_from_factory(*, client_factory, testnet: bool):
@@ -1141,6 +1229,7 @@ def cli_main(
     run_forever_fn=None,
     run_user_stream_fn=None,
     run_dashboard_fn=None,
+    backfill_account_flows_fn=None,
 ) -> int:
     parser = argparse.ArgumentParser(prog="momentum_alpha")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1184,6 +1273,11 @@ def cli_main(
     audit_report_parser.add_argument("--runtime-db-file")
     audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
     audit_report_parser.add_argument("--limit", type=int, default=20)
+    backfill_account_flows_parser = subparsers.add_parser("backfill-account-flows")
+    backfill_account_flows_parser.add_argument("--runtime-db-file", required=True)
+    backfill_account_flows_parser.add_argument("--start-time", required=True)
+    backfill_account_flows_parser.add_argument("--end-time", required=True)
+    backfill_account_flows_parser.add_argument("--testnet", action="store_true")
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8080)
@@ -1209,6 +1303,7 @@ def cli_main(
     run_forever_fn = run_forever_fn or run_forever
     run_user_stream_fn = run_user_stream_fn or run_user_stream
     run_dashboard_fn = run_dashboard_fn or run_dashboard_server
+    backfill_account_flows_fn = backfill_account_flows_fn or backfill_account_flows
 
     if args.command == "run-once-live":
         runtime_settings = load_runtime_settings_from_env()
@@ -1338,6 +1433,20 @@ def cli_main(
             print(f"{event_type}={count}")
         for event in summary["recent_events"]:
             print(f"recent timestamp={event['timestamp']} event_type={event['event_type']} payload={event['payload']}")
+        return 0
+
+    if args.command == "backfill-account-flows":
+        runtime_settings = load_runtime_settings_from_env()
+        use_testnet = args.testnet or runtime_settings["use_testnet"]
+        client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
+        inserted = backfill_account_flows_fn(
+            client=client,
+            runtime_db_path=Path(os.path.abspath(args.runtime_db_file)),
+            start_time=_parse_cli_datetime(args.start_time),
+            end_time=_parse_cli_datetime(args.end_time),
+            logger=print,
+        )
+        print(f"backfilled_account_flows={inserted}")
         return 0
 
     if args.command == "dashboard":

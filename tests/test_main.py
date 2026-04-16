@@ -1227,6 +1227,77 @@ class MainTests(unittest.TestCase):
         self.assertEqual(str(calls[0]["state_file"]), "/tmp/state.json")
         self.assertEqual(str(calls[0]["runtime_db_file"]), "/tmp/runtime.db")
 
+    def test_backfill_account_flows_writes_transfer_income_rows(self) -> None:
+        from momentum_alpha.main import backfill_account_flows
+        from momentum_alpha.runtime_store import fetch_recent_account_flows
+
+        class FakeClient:
+            def fetch_income_history(self, **kwargs):
+                self.kwargs = kwargs
+                return [
+                    {
+                        "time": 1776207600000,
+                        "asset": "USDT",
+                        "incomeType": "TRANSFER",
+                        "income": "300.00",
+                        "info": "TRANSFER",
+                        "tranId": "abc123",
+                    }
+                ]
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            inserted = backfill_account_flows(
+                client=FakeClient(),
+                runtime_db_path=runtime_db_path,
+                start_time=datetime(2026, 4, 14, 23, 0, tzinfo=timezone.utc),
+                end_time=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                logger=lambda _message: None,
+            )
+            flows = fetch_recent_account_flows(path=runtime_db_path, limit=10)
+
+        self.assertEqual(inserted, 1)
+        self.assertEqual(flows[0]["reason"], "TRANSFER")
+        self.assertEqual(flows[0]["asset"], "USDT")
+        self.assertEqual(flows[0]["balance_change"], "300.00")
+        self.assertEqual(flows[0]["payload"]["tranId"], "abc123")
+
+    def test_cli_main_supports_backfill_account_flows_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeClient:
+            pass
+
+        def fake_client_factory(*, testnet):
+            calls.append(("client", testnet))
+            return FakeClient()
+
+        def fake_backfill_account_flows(**kwargs):
+            calls.append(kwargs)
+            return 12
+
+        exit_code = cli_main(
+            argv=[
+                "backfill-account-flows",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
+                "--start-time",
+                "2026-04-15T00:00:00+00:00",
+                "--end-time",
+                "2026-04-16T00:00:00+00:00",
+            ],
+            client_factory=fake_client_factory,
+            backfill_account_flows_fn=fake_backfill_account_flows,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0], ("client", False))
+        self.assertEqual(calls[1]["runtime_db_path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[1]["start_time"].isoformat(), "2026-04-15T00:00:00+00:00")
+        self.assertEqual(calls[1]["end_time"].isoformat(), "2026-04-16T00:00:00+00:00")
+        self.assertEqual(calls[1]["client"].__class__.__name__, "FakeClient")
+
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "momentum_alpha.main", "--help"],

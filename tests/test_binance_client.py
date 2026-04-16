@@ -389,6 +389,36 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIn("signature=", client.requests[0].url)
         self.assertIsNone(client.requests[0].body)
 
+    def test_fetch_income_history_uses_signed_endpoint_and_filters(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeClient(BinanceRestClient):
+            def __init__(self) -> None:
+                super().__init__(api_key="key", api_secret="secret")
+                self.requests = []
+
+            def send(self, request):
+                self.requests.append(request)
+                return [{"incomeType": "TRANSFER"}]
+
+        client = FakeClient()
+        payload = client.fetch_income_history(
+            income_type="TRANSFER",
+            start_time_ms=1700000000000,
+            end_time_ms=1700003600000,
+            limit=1000,
+            timestamp_ms=1700007200000,
+        )
+        self.assertEqual(payload[0]["incomeType"], "TRANSFER")
+        self.assertIn("https://fapi.binance.com/fapi/v1/income?", client.requests[0].url)
+        self.assertIn("incomeType=TRANSFER", client.requests[0].url)
+        self.assertIn("startTime=1700000000000", client.requests[0].url)
+        self.assertIn("endTime=1700003600000", client.requests[0].url)
+        self.assertIn("limit=1000", client.requests[0].url)
+        self.assertIn("timestamp=1700007200000", client.requests[0].url)
+        self.assertIn("signature=", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
+
     def test_cancel_open_orders_uses_delete_signed_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
 

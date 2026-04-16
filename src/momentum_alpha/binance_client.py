@@ -277,6 +277,32 @@ class BinanceRestClient:
         )
         return self.send(request)
 
+    def fetch_income_history(
+        self,
+        *,
+        income_type: str | None = None,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+        limit: int | None = None,
+        timestamp_ms: int | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {}
+        if income_type is not None:
+            params["incomeType"] = income_type
+        if start_time_ms is not None:
+            params["startTime"] = str(start_time_ms)
+        if end_time_ms is not None:
+            params["endTime"] = str(end_time_ms)
+        if limit is not None:
+            params["limit"] = str(limit)
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/income",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
     def cancel_open_orders(self, *, symbol: str, timestamp_ms: int | None = None) -> list:
         request = self.build_signed_request(
             method="DELETE",
