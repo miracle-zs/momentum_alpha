@@ -11,12 +11,17 @@ class BinanceBroker:
 
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
+        submitted_entry_symbols: list[str | None] = []
         for order in plan.entry_orders:
             try:
                 responses.append(self.client.send(self.client.new_order(**order)))
+                submitted_entry_symbols.append(order.get("symbol"))
             except Exception as exc:
                 print(f"entry order failed for {order.get('symbol')}: {exc}")
-        for order in plan.stop_orders:
+                submitted_entry_symbols.append(None)
+        for index, order in enumerate(plan.stop_orders):
+            if index < len(submitted_entry_symbols) and submitted_entry_symbols[index] is None:
+                continue
             try:
                 responses.append(self.client.send(self.client.new_algo_order(**order)))
             except Exception as exc:

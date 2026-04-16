@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from dataclasses import dataclass
+from momentum_alpha.orders import is_strategy_client_order_id
 from momentum_alpha.state_store import StoredStrategyState, _deserialize_state, _serialize_state
 
 
@@ -1292,7 +1293,23 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             commission_total = sum((item["commission"] for item in [*entry_fills, *exit_fills]), Decimal("0"))
             net_total = realized_total - commission_total
             closed_at = exit_fills[-1]["time"]
-            exit_reason = "stop_loss" if any(item["order_type"] == "STOP_MARKET" for item in exit_fills) else "sell"
+            has_stop_market_exit = any(item["order_type"] == "STOP_MARKET" for item in exit_fills)
+            has_strategy_stop_client_id = any(
+                is_strategy_client_order_id(item["client_order_id"]) and str(item["client_order_id"]).endswith("s")
+                for item in exit_fills
+            )
+            has_triggered_stop_algo = any(
+                algo_row["timestamp"] <= exit_fills[-1]["timestamp"]
+                and algo_row["order_type"] == "STOP_MARKET"
+                and algo_row["algo_status"] == "TRIGGERED"
+                and is_strategy_client_order_id(algo_row["client_algo_id"])
+                for algo_row in algo_by_symbol.get(symbol, [])
+            )
+            exit_reason = (
+                "stop_loss"
+                if has_stop_market_exit or has_strategy_stop_client_id or has_triggered_stop_algo
+                else "sell"
+            )
             duration_seconds = int((closed_at - round_trip["opened_at"]).total_seconds())
             round_trip_payload = {
                 "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],

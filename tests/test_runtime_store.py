@@ -384,6 +384,89 @@ class RuntimeStoreTests(unittest.TestCase):
                 "2026-04-15T08:02:00+00:00",
             ])
 
+    def test_rebuild_trade_analytics_marks_algo_triggered_market_sell_as_stop_loss(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_recent_stop_exit_summaries,
+            fetch_recent_trade_round_trips,
+            insert_algo_order,
+            insert_trade_fill,
+            rebuild_trade_analytics,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+
+            opened_at = datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc)
+            closed_at = datetime(2026, 4, 15, 8, 5, tzinfo=timezone.utc)
+
+            insert_trade_fill(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="PIPPINUSDT",
+                order_id="1001",
+                trade_id="2001",
+                client_order_id="ma_260415080000_PIPPINUSDT_b00e",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="100",
+                cumulative_quantity="100",
+                average_price="0.035",
+                last_price="0.035",
+                realized_pnl="0",
+                commission="0.001",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_algo_order(
+                path=db_path,
+                timestamp=closed_at,
+                source="user-stream",
+                symbol="PIPPINUSDT",
+                algo_id="3001",
+                client_algo_id="ma_260415080000_PIPPINUSDT_b00s",
+                algo_status="TRIGGERED",
+                side="SELL",
+                order_type="STOP_MARKET",
+                trigger_price="0.0341",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=closed_at,
+                source="user-stream",
+                symbol="PIPPINUSDT",
+                order_id="1002",
+                trade_id="2002",
+                client_order_id="ma_260415080000_PIPPINUSDT_b00s",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="SELL",
+                order_type="MARKET",
+                quantity="100",
+                cumulative_quantity="100",
+                average_price="0.034",
+                last_price="0.034",
+                realized_pnl="-0.1",
+                commission="0.001",
+                commission_asset="USDT",
+                payload={},
+            )
+
+            rebuild_trade_analytics(path=db_path)
+
+            round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+            stop_exits = fetch_recent_stop_exit_summaries(path=db_path, limit=10)
+
+            self.assertEqual(round_trips[0]["symbol"], "PIPPINUSDT")
+            self.assertEqual(round_trips[0]["exit_reason"], "stop_loss")
+            self.assertEqual(stop_exits[0]["symbol"], "PIPPINUSDT")
+            self.assertEqual(stop_exits[0]["trigger_price"], "0.0341")
+
     def test_runtime_state_store_round_trips_strategy_state(self) -> None:
         from datetime import datetime, timezone
         from decimal import Decimal

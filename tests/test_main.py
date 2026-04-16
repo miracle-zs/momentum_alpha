@@ -2795,6 +2795,85 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
         self.assertEqual(broker.replacements[0], [("BTCUSDT", "0.010", "61000")])
 
+    def test_run_once_live_records_executed_stop_replacement_responses(self) -> None:
+        from momentum_alpha.audit import AuditRecorder, read_audit_events
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.runtime_store import fetch_recent_broker_orders
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                return {"symbol": symbol, "price": "61200"}
+
+            def fetch_klines(self, *, symbol, interval, limit):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                return [[0, "0", "0", "61000", "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return [{"symbol": "BTCUSDT", "positionAmt": "0.010", "entryPrice": "61100", "updateTime": 1700000000000}]
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return [{"symbol": "BTCUSDT", "type": "STOP_MARKET", "stopPrice": "60900"}]
+
+        class FakeBroker:
+            def replace_stop_orders(self, *, replacements):
+                return [
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "NEW",
+                        "side": "SELL",
+                        "type": "STOP_MARKET",
+                        "algoId": 11,
+                        "clientAlgoId": "ma_260415020000_BTCUSDT_b00s",
+                        "quantity": "0.010",
+                        "triggerPrice": "61000",
+                    }
+                ]
+
+            def submit_execution_plan(self, plan):
+                return []
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "audit.jsonl"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+
+            run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 2, 0, tzinfo=timezone.utc),
+                previous_leader_symbol="BTCUSDT",
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=False,
+                restore_positions=True,
+                execute_stop_replacements=True,
+                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
+            )
+
+            audit_events = read_audit_events(path=audit_path)
+            broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
+
+            self.assertTrue(any(event["event_type"] == "broker_replace" for event in audit_events))
+            self.assertEqual(broker_orders[0]["action_type"], "replace_stop_order")
+            self.assertEqual(broker_orders[0]["symbol"], "BTCUSDT")
+
     def test_run_once_live_replaces_missing_stop_for_restored_position_outside_hour_boundary(self) -> None:
         from momentum_alpha.main import run_once_live
 

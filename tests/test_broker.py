@@ -124,3 +124,70 @@ class BrokerTests(unittest.TestCase):
         # 双向持仓模式: positionSide="LONG" 时应该传递该参数
         self.assertEqual(broker.client.new_algo_order_calls[1]["positionSide"], "LONG")
         self.assertEqual(len(broker.client.send_calls), 2)
+
+    def test_broker_skips_stop_order_when_entry_order_fails(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.new_order_calls = []
+                self.new_algo_order_calls = []
+                self.send_calls = []
+
+            def new_order(self, **params):
+                self.new_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                self.send_calls.append(request)
+                if "symbol=BTCUSDT" in request.body:
+                    raise RuntimeError("margin is insufficient")
+                return {"status": "NEW", "symbol": "ETHUSDT", "type": "STOP_MARKET"}
+
+        broker = BinanceBroker(client=FakeClient())
+        plan = ExecutionPlan(
+            entry_orders=[
+                {"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": "0.010"},
+                {"symbol": "ETHUSDT", "side": "BUY", "type": "MARKET", "quantity": "0.100"},
+            ],
+            stop_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "SELL",
+                    "type": "STOP_MARKET",
+                    "quantity": "0.010",
+                    "stopPrice": "61000.0",
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "side": "SELL",
+                    "type": "STOP_MARKET",
+                    "quantity": "0.100",
+                    "stopPrice": "3000.0",
+                },
+            ],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+
+        self.assertEqual(len(broker.client.new_order_calls), 2)
+        self.assertEqual(len(broker.client.new_algo_order_calls), 1)
+        self.assertEqual(broker.client.new_algo_order_calls[0]["symbol"], "ETHUSDT")
+        self.assertEqual(len(responses), 2)
+        self.assertEqual([item["symbol"] for item in responses], ["ETHUSDT", "ETHUSDT"])

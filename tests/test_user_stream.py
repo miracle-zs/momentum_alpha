@@ -271,6 +271,46 @@ class UserStreamTests(unittest.TestCase):
             datetime(2026, 4, 15, 1, 6, tzinfo=timezone.utc),
         )
 
+    def test_apply_market_sell_fill_from_strategy_stop_removes_position(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("2"), Decimal("108"), Decimal("106"), opened_at, "base"),),
+                )
+            },
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1776215160000,
+                "o": {
+                    "s": "ETHUSDT",
+                    "c": "ma_260415010000_ETHUSDT_b00s",
+                    "S": "SELL",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ot": "MARKET",
+                    "ap": "106",
+                    "z": "2",
+                    "sp": "0",
+                },
+            }
+        )
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+        self.assertNotIn("ETHUSDT", updated.positions)
+        self.assertEqual(
+            updated.recent_stop_loss_exits["ETHUSDT"],
+            datetime(2026, 4, 15, 1, 6, tzinfo=timezone.utc),
+        )
+
     def test_apply_account_update_flat_position_removes_position(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
         from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event

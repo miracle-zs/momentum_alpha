@@ -270,6 +270,16 @@ def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[
     return fallback_stop_price
 
 
+def _is_strategy_stop_fill(event: UserStreamEvent) -> bool:
+    if event.side != "SELL":
+        return False
+    if event.original_order_type == "STOP_MARKET":
+        return True
+    if not is_strategy_client_order_id(event.client_order_id):
+        return False
+    return bool(event.client_order_id and event.client_order_id.endswith("s"))
+
+
 def apply_user_stream_event_to_state(
     *,
     state: StrategyState,
@@ -325,7 +335,7 @@ def apply_user_stream_event_to_state(
             filled_at=filled_at,
         )
 
-    if event.side == "SELL" and event.original_order_type == "STOP_MARKET":
+    if _is_strategy_stop_fill(event):
         positions = dict(state.positions)
         positions.pop(event.symbol, None)
         recent_stop_loss_exits = dict(state.recent_stop_loss_exits)

@@ -651,6 +651,7 @@ def run_once_live(
         last_add_on_hour=last_add_on_hour,
     )
     stop_replacements: list[tuple[str, Decimal]] = []
+    stop_replacement_responses: list[dict] = []
     if restore_positions and initial_state is not None:
         stop_replacements = build_stop_reconciliation_plan(
             state=initial_state,
@@ -667,7 +668,7 @@ def run_once_live(
         stop_replacements = sorted(merged_replacements.items())
         if execute_stop_replacements and stop_replacements:
             try:
-                broker.replace_stop_orders(
+                stop_replacement_responses = broker.replace_stop_orders(
                     replacements=[
                         (
                             symbol,
@@ -827,6 +828,18 @@ def run_once_live(
                 now=now,
                 responses=result.broker_responses,
                 action_type="submit_order",
+            )
+        if stop_replacement_responses:
+            audit_recorder.record(
+                event_type="broker_replace",
+                now=now,
+                payload={"responses": stop_replacement_responses},
+            )
+            _record_broker_orders(
+                audit_recorder=audit_recorder,
+                now=now,
+                responses=stop_replacement_responses,
+                action_type="replace_stop_order",
             )
         if stop_replacements:
             audit_recorder.record(
