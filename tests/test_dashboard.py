@@ -634,9 +634,9 @@ class DashboardTests(unittest.TestCase):
                     },
                 ],
                 "recent_trade_round_trips": [
-                    {"closed_at": "2026-04-16T00:20:00+00:00", "net_pnl": "40.00", "duration_seconds": 600},
-                    {"closed_at": "2026-04-16T00:40:00+00:00", "net_pnl": "-10.00", "duration_seconds": 300},
-                    {"closed_at": "2026-04-16T00:50:00+00:00", "net_pnl": "20.00", "duration_seconds": 900},
+                    {"closed_at": "2026-04-16T00:20:00+00:00", "net_pnl": "40.00", "duration_seconds": 600, "commission": "0.25"},
+                    {"closed_at": "2026-04-16T00:40:00+00:00", "net_pnl": "-10.00", "duration_seconds": 300, "commission": "0.20"},
+                    {"closed_at": "2026-04-16T00:50:00+00:00", "net_pnl": "20.00", "duration_seconds": 900, "commission": "0.30"},
                 ],
                 "recent_stop_exit_summaries": [
                     {"timestamp": "2026-04-16T00:35:00+00:00", "slippage_pct": "1.50", "commission": "0.50"},
@@ -667,8 +667,13 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(metrics["performance"]["win_rate"], 2 / 3)
         self.assertEqual(metrics["performance"]["profit_factor"], 6.0)
         self.assertEqual(metrics["performance"]["current_streak"]["label"], "W1")
+        self.assertEqual(metrics["performance"]["avg_win"], 30.0)
+        self.assertEqual(metrics["performance"]["avg_loss"], -10.0)
+        self.assertEqual(metrics["performance"]["expectancy"], 50.0 / 3.0)
+        self.assertEqual(metrics["performance"]["avg_hold_time_seconds"], 600.0)
         self.assertEqual(metrics["execution"]["avg_slippage_pct"], 2.0)
         self.assertEqual(metrics["execution"]["max_slippage_pct"], 2.5)
+        self.assertEqual(metrics["execution"]["fee_total"], 0.75)
         self.assertEqual(metrics["signals"]["blocked_reason_counts"]["risk_limit"], 2)
         self.assertEqual(metrics["signals"]["rotation_count"], 2)
 
@@ -1975,3 +1980,130 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("filter((value) => value !== null && value !== undefined && !Number.isNaN(value))", html)
         self.assertIn("return `<div class=\"chart-empty\"><span class=\"chart-empty-icon\">◎</span><span>waiting for visible metric data</span></div>`;", html)
         self.assertNotIn("Number(point[metric] ?? 0)", html)
+
+    def test_render_dashboard_html_surfaces_execution_performance_and_signal_aggregates(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "CCCUSDT",
+                    "position_count": 1,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {}},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1030.00",
+                        "available_balance": "780.00",
+                        "equity": "1080.00",
+                        "unrealized_pnl": "30.00",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {
+                        "decision_type": "base_entry",
+                        "symbol": "CCCUSDT",
+                        "timestamp": "2026-04-16T00:55:00+00:00",
+                        "payload": {"blocked_reason": "risk_limit"},
+                    },
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-16T00:00:00+00:00",
+                        "wallet_balance": "1000.00",
+                        "available_balance": "900.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                        "leader_symbol": "AAAUSDT",
+                    },
+                    {
+                        "timestamp": "2026-04-16T01:00:00+00:00",
+                        "wallet_balance": "1030.00",
+                        "available_balance": "780.00",
+                        "equity": "1080.00",
+                        "unrealized_pnl": "30.00",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                        "leader_symbol": "CCCUSDT",
+                    },
+                ],
+                "recent_trade_round_trips": [
+                    {
+                        "round_trip_id": "AAAUSDT:1",
+                        "symbol": "AAAUSDT",
+                        "opened_at": "2026-04-16T00:10:00+00:00",
+                        "closed_at": "2026-04-16T00:20:00+00:00",
+                        "net_pnl": "40.00",
+                        "commission": "0.25",
+                        "duration_seconds": 600,
+                    },
+                    {
+                        "round_trip_id": "BBBUSDT:1",
+                        "symbol": "BBBUSDT",
+                        "opened_at": "2026-04-16T00:30:00+00:00",
+                        "closed_at": "2026-04-16T00:35:00+00:00",
+                        "net_pnl": "-10.00",
+                        "commission": "0.20",
+                        "duration_seconds": 300,
+                    },
+                    {
+                        "round_trip_id": "CCCUSDT:1",
+                        "symbol": "CCCUSDT",
+                        "opened_at": "2026-04-16T00:40:00+00:00",
+                        "closed_at": "2026-04-16T00:55:00+00:00",
+                        "net_pnl": "20.00",
+                        "commission": "0.30",
+                        "duration_seconds": 900,
+                    },
+                ],
+                "recent_stop_exit_summaries": [
+                    {"timestamp": "2026-04-16T00:35:00+00:00", "symbol": "BBBUSDT", "slippage_pct": "1.50", "commission": "0.20"},
+                    {"timestamp": "2026-04-16T00:45:00+00:00", "symbol": "CCCUSDT", "slippage_pct": "2.50", "commission": "0.30"},
+                ],
+                "recent_trade_fills": [
+                    {"timestamp": "2026-04-16T00:45:00+00:00", "trade_id": "1", "symbol": "CCCUSDT", "side": "BUY", "quantity": "10", "last_price": "1.23", "commission": "0.01", "order_status": "FILLED"}
+                ],
+                "recent_signal_decisions": [
+                    {"timestamp": "2026-04-16T00:10:00+00:00", "payload": {"blocked_reason": "risk_limit"}},
+                    {"timestamp": "2026-04-16T00:30:00+00:00", "payload": {"blocked_reason": "risk_limit"}},
+                    {"timestamp": "2026-04-16T00:55:00+00:00", "payload": {"blocked_reason": "invalid_stop_price"}},
+                ],
+                "leader_history": [
+                    {"timestamp": "2026-04-16T00:00:00+00:00", "symbol": "AAAUSDT"},
+                    {"timestamp": "2026-04-16T00:15:00+00:00", "symbol": "BBBUSDT"},
+                    {"timestamp": "2026-04-16T00:40:00+00:00", "symbol": "CCCUSDT"},
+                ],
+                "recent_events": [],
+                "recent_broker_orders": [],
+                "event_counts": {},
+                "source_counts": {},
+                "pulse_points": [],
+                "warnings": [],
+                "strategy_config": {"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+            }
+        )
+
+        self.assertIn("Avg Slippage", html)
+        self.assertIn("Max Slippage", html)
+        self.assertIn("Stop Exits", html)
+        self.assertIn("Fee Total", html)
+        self.assertIn("2.00%", html)
+        self.assertIn("0.75", html)
+        self.assertIn("Avg Win", html)
+        self.assertIn("Avg Loss", html)
+        self.assertIn("Expectancy", html)
+        self.assertIn("Avg Hold", html)
+        self.assertIn("30.00", html)
+        self.assertIn("-10.00", html)
+        self.assertIn("16.67", html)
+        self.assertIn("10m 00s", html)
+        self.assertIn("Rotation Count", html)
+        self.assertIn("Blocked Reasons", html)
+        self.assertIn("risk_limit: 2", html)
+        self.assertIn("invalid_stop_price: 1", html)
+        self.assertIn("signal-breakdown", html)
+        self.assertIn("signal-breakdown-item", html)
+        self.assertIn("signal-breakdown-label", html)
+        self.assertIn("signal-breakdown-count", html)

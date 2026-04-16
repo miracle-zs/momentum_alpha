@@ -283,6 +283,17 @@ def _current_streak_from_round_trips(round_trips: list[dict]) -> dict[str, int |
     }
 
 
+def _format_duration_seconds(value: float | int | None) -> str:
+    if value is None:
+        return "n/a"
+    total_seconds = int(round(float(value)))
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    return f"{minutes}m {seconds:02d}s"
+
+
 def build_trader_summary_metrics(
     snapshot: dict,
     *,
@@ -396,6 +407,8 @@ def build_trader_summary_metrics(
     round_trip_pnls = [pnl for pnl in round_trip_pnls if pnl is not None]
     wins = [pnl for pnl in round_trip_pnls if pnl > 0]
     losses = [pnl for pnl in round_trip_pnls if pnl < 0]
+    commissions = [_parse_numeric(trip.get("commission")) for trip in scoped_round_trips]
+    commissions = [commission for commission in commissions if commission is not None]
     total_trades = len(round_trip_pnls)
     win_rate = (len(wins) / total_trades) if total_trades else None
     profit_factor = None
@@ -404,11 +417,22 @@ def build_trader_summary_metrics(
         gross_losses = abs(sum(losses))
         if gross_losses:
             profit_factor = gross_wins / gross_losses
+    avg_win = (sum(wins) / len(wins)) if wins else None
+    avg_loss = (sum(losses) / len(losses)) if losses else None
+    expectancy = (sum(round_trip_pnls) / total_trades) if total_trades else None
+    durations = [_parse_numeric(trip.get("duration_seconds")) for trip in scoped_round_trips]
+    durations = [duration for duration in durations if duration is not None]
+    avg_hold_time_seconds = (sum(durations) / len(durations)) if durations else None
 
     slippages = [_parse_numeric(item.get("slippage_pct")) for item in scoped_stop_exits]
     slippages = [slippage for slippage in slippages if slippage is not None]
     avg_slippage_pct = (sum(slippages) / len(slippages)) if slippages else None
     max_slippage_pct = max(slippages) if slippages else None
+    fee_total = sum(commissions) if commissions else None
+    if fee_total is None:
+        stop_exit_commissions = [_parse_numeric(item.get("commission")) for item in scoped_stop_exits]
+        stop_exit_commissions = [commission for commission in stop_exit_commissions if commission is not None]
+        fee_total = sum(stop_exit_commissions) if stop_exit_commissions else None
 
     blocked_reason_counts = Counter(
         reason
@@ -445,12 +469,17 @@ def build_trader_summary_metrics(
             "avg_slippage_pct": avg_slippage_pct,
             "max_slippage_pct": max_slippage_pct,
             "stop_exit_count": len(scoped_stop_exits),
+            "fee_total": fee_total,
         },
         "performance": {
             "win_rate": win_rate,
             "profit_factor": profit_factor,
             "current_streak": _current_streak_from_round_trips(scoped_round_trips),
             "trade_count": total_trades,
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "expectancy": expectancy,
+            "avg_hold_time_seconds": avg_hold_time_seconds,
         },
         "signals": {
             "blocked_reason_counts": dict(sorted(blocked_reason_counts.items())),
@@ -1271,6 +1300,21 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
 
     performance_win_rate = trader_metrics["performance"].get("win_rate")
+    blocked_reason_counts = trader_metrics["signals"].get("blocked_reason_counts", {})
+    blocked_reason_summary = ", ".join(
+        f"{reason}: {count}"
+        for reason, count in blocked_reason_counts.items()
+    ) or "n/a"
+    blocked_reason_breakdown_html = (
+        "<div class='signal-breakdown'>"
+        + "".join(
+            f"<div class='signal-breakdown-item'><span class='signal-breakdown-label'>{escape(str(reason))}</span><span class='signal-breakdown-count'>{escape(str(count))}</span></div>"
+            for reason, count in blocked_reason_counts.items()
+        )
+        + "</div>"
+        if blocked_reason_counts
+        else "<div class='signal-breakdown empty'><div class='signal-breakdown-empty'>No blocked signals</div></div>"
+    )
     top_metric_cards = [
         (
             "TODAY NET PNL",
@@ -1312,6 +1356,26 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
             "</div>"
         )
         for label, value, subtext in top_metric_cards
+    )
+    execution_summary_html = (
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('avg_slippage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Max Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('max_slippage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Stop Exits</div><div class='decision-value'>{escape(str(trader_metrics['execution'].get('stop_exit_count') or 0))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Fee Total</div><div class='decision-value'>{escape(_format_metric(trader_metrics['execution'].get('fee_total')))}</div></div>"
+        "</div>"
+    )
+    performance_summary_html = (
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Win Rate</div><div class='decision-value'>{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else 'n/a')}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Profit Factor</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('profit_factor')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Win</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_win')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Loss</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_loss'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Expectancy</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('expectancy'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Hold</div><div class='decision-value'>{escape(_format_duration_seconds(trader_metrics['performance'].get('avg_hold_time_seconds')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Current Streak</div><div class='decision-value'>{escape(str((trader_metrics['performance'].get('current_streak') or {}).get('label') or 'n/a'))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Trade Count</div><div class='decision-value'>{escape(str(trader_metrics['performance'].get('trade_count') or 0))}</div></div>"
+        "</div>"
     )
 
     return f"""<!doctype html>
@@ -1596,6 +1660,44 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       font-weight: 600;
       word-break: break-word;
     }}
+    .signal-breakdown {{
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }}
+    .signal-breakdown-item {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }}
+    .signal-breakdown-label {{
+      font-size: 0.8rem;
+      color: var(--fg);
+      word-break: break-word;
+    }}
+    .signal-breakdown-count {{
+      min-width: 28px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(0,212,255,0.12);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-align: center;
+    }}
+    .signal-breakdown-empty {{
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.18);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      color: var(--fg-muted);
+    }}
     .pulse-container {{
       display: flex;
       align-items: flex-end;
@@ -1833,10 +1935,19 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
             <div class="decision-label">Blocked Reason</div>
             <div class="decision-value">{escape(str(blocked_reason or 'None'))}</div>
           </div>
-          <div class="decision-item">
-            <div class="decision-label">Decision Time</div>
-            <div class="decision-value">{escape(latest_signal_time)}</div>
-          </div>
+        <div class="decision-item">
+          <div class="decision-label">Decision Time</div>
+          <div class="decision-value">{escape(latest_signal_time)}</div>
+        </div>
+        <div class="decision-item">
+          <div class="decision-label">Rotation Count</div>
+          <div class="decision-value">{escape(str(trader_metrics["signals"].get("rotation_count") or 0))}</div>
+        </div>
+        <div class="decision-item">
+          <div class="decision-label">Blocked Reasons</div>
+          <div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>
+          {blocked_reason_breakdown_html}
+        </div>
         </div>
         <div class="source-tags" style="margin-top:12px;">{source_html}</div>
       </div>
@@ -1848,6 +1959,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     <section class="dashboard-section">
       <div class="section-header">EXECUTION QUALITY</div>
       <div class="analytics-grid">
+        <div class="chart-card">
+          <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Execution Summary</div>
+          {execution_summary_html}
+        </div>
         <div class="chart-card">
           <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Recent Fills</div>
           {trade_history_html}
@@ -1866,24 +1981,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
           {closed_trades_html}
         </div>
         <div class="chart-card">
-          <div class="decision-grid">
-            <div class="decision-item">
-              <div class="decision-label">Win Rate</div>
-              <div class="decision-value">{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else "n/a")}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Profit Factor</div>
-              <div class="decision-value">{escape(_format_metric(trader_metrics["performance"].get("profit_factor")))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Current Streak</div>
-              <div class="decision-value">{escape(str((trader_metrics["performance"].get("current_streak") or {}).get("label") or "n/a"))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Trade Count</div>
-              <div class="decision-value">{escape(str(trader_metrics["performance"].get("trade_count") or 0))}</div>
-            </div>
-          </div>
+          {performance_summary_html}
         </div>
       </div>
     </section>
