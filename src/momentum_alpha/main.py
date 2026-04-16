@@ -120,6 +120,43 @@ def _merge_save_strategy_state(
         runtime_state_store.merge_save(state)
 
 
+def _serialize_snapshot_position(position) -> dict:
+    legs = []
+    for leg in getattr(position, "legs", ()) or ():
+        legs.append(
+            {
+                "symbol": leg.symbol,
+                "quantity": str(leg.quantity),
+                "entry_price": str(leg.entry_price),
+                "stop_price": str(leg.stop_price),
+                "opened_at": leg.opened_at.isoformat(),
+                "leg_type": leg.leg_type,
+            }
+        )
+    payload = {
+        "symbol": getattr(position, "symbol", None),
+        "stop_price": str(getattr(position, "stop_price", None)),
+        "legs": legs,
+    }
+    total_quantity = getattr(position, "total_quantity", None)
+    if total_quantity is not None:
+        payload["total_quantity"] = str(total_quantity)
+    return payload
+
+
+def _build_snapshot_market_context_payload(
+    *,
+    leader_symbol: str | None,
+    market_payloads: dict[str, dict] | None,
+    leader_gap_pct: Decimal | None,
+) -> dict:
+    return {
+        "leader_symbol": leader_symbol,
+        "leader_gap_pct": str(leader_gap_pct) if leader_gap_pct is not None else None,
+        "candidates": list((market_payloads or {}).values())[:5],
+    }
+
+
 def _record_position_snapshot(
     *,
     audit_recorder: AuditRecorder | None,
@@ -131,11 +168,25 @@ def _record_position_snapshot(
     submit_orders: bool | None = None,
     restore_positions: bool | None = None,
     execute_stop_replacements: bool | None = None,
+    positions: dict[str, object] | None = None,
+    market_payloads: dict[str, dict] | None = None,
+    market_context: dict | None = None,
     payload: dict | None = None,
 ) -> None:
     if audit_recorder is None or audit_recorder.runtime_db_path is None:
         return
     try:
+        snapshot_payload = dict(payload or {})
+        snapshot_positions: dict[str, dict] = {}
+        for symbol, position in (positions or {}).items():
+            position_payload = _serialize_snapshot_position(position)
+            if market_payloads is not None and symbol in market_payloads:
+                position_payload.update(market_payloads[symbol])
+            snapshot_positions[symbol] = position_payload
+        if snapshot_positions:
+            snapshot_payload["positions"] = snapshot_positions
+        if market_context is not None:
+            snapshot_payload["market_context"] = market_context
         insert_position_snapshot(
             path=audit_recorder.runtime_db_path,
             timestamp=now,
@@ -147,7 +198,7 @@ def _record_position_snapshot(
             submit_orders=submit_orders,
             restore_positions=restore_positions,
             execute_stop_replacements=execute_stop_replacements,
-            payload=payload or {},
+            payload=snapshot_payload,
         )
     except Exception:
         pass
@@ -796,7 +847,7 @@ def run_once_live(
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
-        market_payloads, _leader_gap_pct = _build_market_context_payloads(snapshots=snapshots)
+        market_payloads, leader_gap_pct = _build_market_context_payloads(snapshots=snapshots)
         audit_recorder.record(
             event_type="tick_result",
             now=now,
@@ -875,6 +926,11 @@ def run_once_live(
                 stop_replacement_count=len(stop_replacements),
                 payload=payload,
             )
+        market_context = _build_snapshot_market_context_payload(
+            leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            market_payloads=market_payloads,
+            leader_gap_pct=leader_gap_pct,
+        )
         _record_position_snapshot(
             audit_recorder=audit_recorder,
             now=now,
@@ -885,6 +941,9 @@ def run_once_live(
             submit_orders=submit_orders,
             restore_positions=restore_positions,
             execute_stop_replacements=execute_stop_replacements,
+            positions=result.runtime_result.next_state.positions,
+            market_payloads=market_payloads,
+            market_context=market_context,
             payload={
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
@@ -1130,6 +1189,7 @@ def run_user_stream(
             leader_symbol=state.previous_leader_symbol,
             position_count=len(state.positions),
             order_status_count=len(order_statuses),
+            positions=state.positions,
             payload={"event_type": event.event_type, "symbol": event.symbol},
         )
 

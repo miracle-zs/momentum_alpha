@@ -345,7 +345,7 @@ class MainTests(unittest.TestCase):
     def test_run_once_live_records_blocked_reason_when_leader_switch_does_not_open_position(self) -> None:
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
-        from momentum_alpha.runtime_store import fetch_recent_signal_decisions
+        from momentum_alpha.runtime_store import fetch_recent_position_snapshots, fetch_recent_signal_decisions
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -411,11 +411,13 @@ class MainTests(unittest.TestCase):
             )
 
             signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
+            snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
 
             self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
             self.assertEqual(result.runtime_result.decision.base_entries, [])
             self.assertEqual(signal_decisions[0]["decision_type"], "no_action")
             self.assertEqual(signal_decisions[0]["payload"]["blocked_reason"], "invalid_stop_price")
+            self.assertNotIn("positions", snapshots[0]["payload"])
 
     def test_run_once_live_uses_utc_midnight_minute_as_daily_open_source(self) -> None:
         from momentum_alpha.main import run_once_live
@@ -1361,6 +1363,7 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.runtime_store import (
             fetch_recent_audit_events,
             fetch_recent_broker_orders,
+            fetch_recent_position_snapshots,
             fetch_recent_trade_fills,
         )
         from momentum_alpha.user_stream import parse_user_stream_event
@@ -1418,6 +1421,9 @@ class MainTests(unittest.TestCase):
             self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
             self.assertEqual(events[0]["payload"]["testnet"], True)
             self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
+            snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
+            self.assertNotIn("market_context", snapshots[0]["payload"])
+            self.assertNotIn("positions", snapshots[0]["payload"])
             self.assertEqual(broker_orders[0]["symbol"], "ETHUSDT")
             self.assertEqual(broker_orders[0]["order_status"], "FILLED")
             self.assertEqual(trade_fills[0]["symbol"], "ETHUSDT")
@@ -2460,6 +2466,79 @@ class MainTests(unittest.TestCase):
             self.assertEqual(db_events[0]["event_type"], "poll_worker_start")
             self.assertEqual(snapshots[0]["leader_symbol"], None)
             self.assertEqual(snapshots[0]["symbol_count"], 1)
+            self.assertNotIn("market_context", snapshots[0]["payload"])
+            self.assertNotIn("positions", snapshots[0]["payload"])
+
+    def test_record_position_snapshot_persists_live_market_context(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.main import _build_market_context_payloads, _build_snapshot_market_context_payload, _record_position_snapshot
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import fetch_recent_position_snapshots
+
+        with TemporaryDirectory() as tmpdir:
+            audit_path = Path(tmpdir) / "audit.jsonl"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            market_payloads, leader_gap_pct = _build_market_context_payloads(
+                snapshots=[
+                    {
+                        "symbol": "BASEUSDT",
+                        "latest_price": Decimal("108"),
+                        "daily_open_price": Decimal("100"),
+                        "previous_hour_low": Decimal("98"),
+                        "current_hour_low": Decimal("99"),
+                    },
+                    {
+                        "symbol": "ALTUSDT",
+                        "latest_price": Decimal("206"),
+                        "daily_open_price": Decimal("200"),
+                        "previous_hour_low": Decimal("195"),
+                        "current_hour_low": Decimal("197"),
+                    },
+                ]
+            )
+            _record_position_snapshot(
+                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
+                now=datetime(2026, 4, 17, 0, 4, tzinfo=timezone.utc),
+                leader_symbol="BASEUSDT",
+                position_count=1,
+                order_status_count=0,
+                positions={
+                    "BASEUSDT": Position(
+                        symbol="BASEUSDT",
+                        stop_price=Decimal("0.15"),
+                        legs=(
+                            PositionLeg(
+                                symbol="BASEUSDT",
+                                quantity=Decimal("3.5"),
+                                entry_price=Decimal("0.17"),
+                                stop_price=Decimal("0.15"),
+                                opened_at=datetime(2026, 4, 16, 23, 30, tzinfo=timezone.utc),
+                                leg_type="base",
+                            ),
+                        ),
+                    )
+                },
+                payload={},
+                market_payloads=market_payloads,
+                market_context=_build_snapshot_market_context_payload(
+                    leader_symbol="BASEUSDT",
+                    market_payloads=market_payloads,
+                    leader_gap_pct=leader_gap_pct,
+                ),
+            )
+
+            snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=1)
+            payload = snapshots[0]["payload"]
+            self.assertEqual(payload["positions"]["BASEUSDT"]["symbol"], "BASEUSDT")
+            self.assertEqual(payload["positions"]["BASEUSDT"]["stop_price"], "0.15")
+            self.assertEqual(payload["positions"]["BASEUSDT"]["total_quantity"], "3.5")
+            self.assertEqual(payload["positions"]["BASEUSDT"]["legs"][0]["quantity"], "3.5")
+            self.assertEqual(payload["positions"]["BASEUSDT"]["latest_price"], "108")
+            self.assertEqual(payload["positions"]["BASEUSDT"]["daily_change_pct"], "0.08")
+            self.assertEqual(payload["market_context"]["leader_symbol"], "BASEUSDT")
+            self.assertEqual(payload["market_context"]["leader_gap_pct"], "0.05")
+            self.assertEqual(payload["market_context"]["candidates"][0]["latest_price"], "108")
+            self.assertEqual(payload["market_context"]["candidates"][0]["daily_change_pct"], "0.08")
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever
