@@ -176,13 +176,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("INUSDT", html)
         self.assertIn("tick_result", html)
         self.assertIn("setInterval(refreshDashboard, 5000)", html)
-        self.assertIn("/api/dashboard", html)
+        self.assertIn("window.location.pathname", html)
         self.assertIn("app", html)
-        self.assertIn("pulse-bar", html)
         self.assertIn("metric", html)
-        self.assertIn("POSITION DIAGNOSTICS", html)
+        self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("ACCOUNT METRICS", html)
-        self.assertIn("SIGNAL & ROTATION", html)
+        self.assertIn("LIVE OVERVIEW", html)
         self.assertIn("LEADER ROTATION", html)
         self.assertIn("EXECUTION QUALITY", html)
         self.assertIn("SYSTEM HEALTH", html)
@@ -299,24 +298,22 @@ class DashboardTests(unittest.TestCase):
         )
 
         for label in (
-            "TODAY NET PNL",
             "EQUITY",
-            "AVAILABLE BALANCE",
-            "MARGIN USAGE",
+            "TODAY NET PNL",
             "OPEN RISK / EQUITY",
-            "CURRENT DRAWDOWN",
-            "POSITION DIAGNOSTICS",
+            "SYSTEM HEALTH",
+            "ACTIVE POSITIONS",
             "EXECUTION QUALITY",
             "STRATEGY PERFORMANCE",
-            "SIGNAL & ROTATION",
+            "LIVE OVERVIEW",
             "SYSTEM OPERATIONS",
         ):
             self.assertIn(label, html)
 
-        self.assertLess(html.index("POSITION DIAGNOSTICS"), html.index("SYSTEM OPERATIONS"))
+        self.assertLess(html.index("ACTIVE POSITIONS"), html.index("SYSTEM OPERATIONS"))
         self.assertLess(html.index("EXECUTION QUALITY"), html.index("SYSTEM OPERATIONS"))
         self.assertLess(html.index("STRATEGY PERFORMANCE"), html.index("SYSTEM OPERATIONS"))
-        self.assertLess(html.index("SIGNAL & ROTATION"), html.index("SYSTEM OPERATIONS"))
+        self.assertLess(html.index("LIVE OVERVIEW"), html.index("SYSTEM OPERATIONS"))
 
     def test_render_dashboard_html_marks_live_price_dependent_metrics_unavailable(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -462,9 +459,10 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("EQUITY", html)
         self.assertIn("1,000.00", html)
-        self.assertIn("AVAILABLE BALANCE", html)
+        self.assertIn("Available Balance", html)
         self.assertIn("850.00", html)
-        self.assertIn("MARGIN USAGE", html)
+        self.assertIn("Capital Pressure", html)
+        self.assertIn("Margin Usage", html)
         self.assertIn("15.00%", html)
 
     def test_build_trader_summary_metrics_limits_today_net_pnl_to_display_calendar_day(self) -> None:
@@ -1670,11 +1668,11 @@ console.log(JSON.stringify(cases));
         self.assertIn("81000", html)
         self.assertIn("17.50", html)
         self.assertIn("83000", html)
-        self.assertIn("1245.00", html)
         self.assertIn("12.50", html)
         self.assertIn("1.00", html)
-        self.assertIn("2.00", html)
-        self.assertIn("0.25", html)
+        self.assertNotIn("1245.00", html)
+        self.assertNotIn("2.00", html)
+        self.assertNotIn("0.25", html)
         self.assertIn("base", html)
         self.assertIn("add_on", html)
 
@@ -1809,7 +1807,7 @@ console.log(JSON.stringify(cases));
             "warnings": [],
         }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False})
 
-        self.assertIn("POSITION DIAGNOSTICS", html)
+        self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("EXECUTION QUALITY", html)
         self.assertIn("SYSTEM OPERATIONS", html)
         self.assertIn("Stop Budget", html)
@@ -2442,6 +2440,247 @@ console.log(JSON.stringify(cases));
         self.assertIn("BASEUSDT → ORDIUSDT → BASEUSDT", html)
         self.assertIn("metric warning", html)
         self.assertIn("No blocked signals", html)
+
+    def test_render_dashboard_html_refreshes_in_place_and_persists_account_controls(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "BASEUSDT",
+                    "position_count": 1,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {}},
+                    "latest_account_snapshot": {
+                        "equity": "1100.00",
+                        "available_balance": "840.00",
+                        "wallet_balance": "1060.00",
+                        "unrealized_pnl": "40.00",
+                        "position_count": 1,
+                        "open_order_count": 1,
+                    },
+                    "latest_signal_decision": {},
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-17T00:00:00+00:00",
+                        "equity": "1000.00",
+                        "wallet_balance": "1000.00",
+                        "available_balance": "930.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                    {
+                        "timestamp": "2026-04-17T01:00:00+00:00",
+                        "equity": "1100.00",
+                        "wallet_balance": "1060.00",
+                        "available_balance": "840.00",
+                        "unrealized_pnl": "40.00",
+                        "position_count": 1,
+                        "open_order_count": 1,
+                    },
+                ],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "leader_history": [],
+                "recent_events": [],
+                "recent_broker_orders": [],
+                "event_counts": {},
+                "source_counts": {},
+                "pulse_points": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertNotIn("window.location.reload()", html)
+        self.assertIn("new DOMParser()", html)
+        self.assertIn("localStorage.getItem('dashboard.account.metric')", html)
+        self.assertIn("localStorage.getItem('dashboard.account.range')", html)
+        self.assertIn("document.getElementById('manual-refresh-button')", html)
+        self.assertIn("replaceSectionFromDocument", html)
+        self.assertIn("data-dashboard-section=\"account\"", html)
+
+    def test_render_dashboard_html_prioritizes_live_overview_and_compacts_position_cards(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "BTCUSDT",
+                    "position_count": 1,
+                    "order_status_count": 1,
+                    "latest_position_snapshot": {
+                        "payload": {
+                            "positions": {
+                                "BTCUSDT": {
+                                    "symbol": "BTCUSDT",
+                                    "stop_price": "81000",
+                                    "latest_price": "83500",
+                                    "legs": [
+                                        {
+                                            "symbol": "BTCUSDT",
+                                            "quantity": "0.01",
+                                            "entry_price": "82000",
+                                            "stop_price": "81000",
+                                            "opened_at": "2026-04-15T09:15:00+00:00",
+                                            "leg_type": "base",
+                                        }
+                                    ],
+                                }
+                            }
+                        }
+                    },
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000",
+                        "available_balance": "750",
+                        "equity": "1080",
+                        "unrealized_pnl": "15",
+                    },
+                    "latest_signal_decision": {
+                        "decision_type": "base_entry",
+                        "symbol": "BTCUSDT",
+                        "timestamp": "2026-04-15T10:00:00+00:00",
+                        "payload": {},
+                    },
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-15T00:00:00+00:00",
+                        "wallet_balance": "1000",
+                        "available_balance": "900",
+                        "equity": "1000",
+                        "unrealized_pnl": "0",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                    {
+                        "timestamp": "2026-04-15T10:00:00+00:00",
+                        "wallet_balance": "1000",
+                        "available_balance": "750",
+                        "equity": "1080",
+                        "unrealized_pnl": "15",
+                        "position_count": 1,
+                        "open_order_count": 1,
+                    },
+                ],
+                "recent_broker_orders": [],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [{"timestamp": "2026-04-15T10:00:00+00:00", "symbol": "BTCUSDT"}],
+                "pulse_points": [],
+                "warnings": [],
+            },
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False},
+        )
+
+        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("RISK &amp; DEPLOYMENT", html)
+        self.assertIn("ACTIVE SIGNAL", html)
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("SYSTEM HEALTH", html)
+        self.assertIn("MANUAL REFRESH", html)
+        self.assertIn("Last update", html)
+        self.assertNotIn("Dist to Stop", html)
+        self.assertNotIn("Notional", html)
+
+    def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "FAIL", "items": [{"name": "poll", "status": "FAIL", "message": "stale"}]},
+                "runtime": {
+                    "previous_leader_symbol": "ETHUSDT",
+                    "position_count": 0,
+                    "order_status_count": 0,
+                    "latest_signal_decision": {},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000",
+                        "available_balance": "1000",
+                        "equity": "1000",
+                        "unrealized_pnl": "0",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                },
+                "recent_account_snapshots": [],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [],
+                "pulse_points": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertIn("section-toggle", html)
+        self.assertIn("data-section-toggle", html)
+        self.assertIn("collapsed-sections", html)
+        self.assertIn("refresh-indicator error", html)
+        self.assertIn("setRefreshIndicatorState('error'", html)
+        self.assertIn("Unable to refresh", html)
+
+    def test_render_dashboard_html_mobile_layout_uses_record_cards_and_scroll_fallbacks(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "SOLUSDT",
+                    "position_count": 0,
+                    "order_status_count": 0,
+                    "latest_signal_decision": {},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000",
+                        "available_balance": "920",
+                        "equity": "1010",
+                        "unrealized_pnl": "10",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                },
+                "recent_account_snapshots": [],
+                "recent_trade_round_trips": [
+                    {"round_trip_id": "SOLUSDT:1", "symbol": "SOLUSDT", "opened_at": "2026-04-15T09:00:00+00:00", "closed_at": "2026-04-15T10:00:00+00:00", "net_pnl": "12.00", "exit_reason": "signal_flip"}
+                ],
+                "recent_stop_exit_summaries": [
+                    {"symbol": "SOLUSDT", "trigger_price": "120.00", "average_exit_price": "119.50", "slippage_pct": "0.42", "net_pnl": "-3.50"}
+                ],
+                "recent_trade_fills": [
+                    {"timestamp": "2026-04-15T09:30:00+00:00", "symbol": "SOLUSDT", "side": "BUY", "quantity": "1.25", "average_price": "120.55", "commission": "0.10", "order_status": "FILLED"}
+                ],
+                "recent_signal_decisions": [],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [],
+                "pulse_points": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertIn("analytics-card-list", html)
+        self.assertIn("trade-card-list", html)
+        self.assertIn("table-scroll", html)
+        self.assertIn(".analytics-table.desktop-only", html)
+        self.assertIn(".analytics-card-list.mobile-only", html)
+        self.assertIn(".trade-history.desktop-only", html)
+        self.assertIn(".trade-card-list.mobile-only", html)
 
     def test_build_account_metrics_panel_surfaces_large_jump_note(self) -> None:
         from momentum_alpha.dashboard import _build_account_metrics_panel
