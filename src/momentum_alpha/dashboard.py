@@ -1362,6 +1362,28 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
     )
 
 
+def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
+    return (
+        "<section class='dashboard-section account-snapshot-panel'>"
+        "<div class='section-header'>ACCOUNT SNAPSHOT</div>"
+        "<div class='account-snapshot-grid'>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Equity</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_metric(stats.get('current_equity')))}</div>"
+        "<div class='account-snapshot-sub'>Latest visible account equity</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Available</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_metric(stats.get('current_wallet')))}</div>"
+        "<div class='account-snapshot-sub'>Wallet balance on record</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Drawdown</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_metric(stats.get('drawdown_abs'), signed=True))}</div>"
+        f"<div class='account-snapshot-sub'>{escape(_format_metric(stats.get('drawdown_pct'), signed=True))}% vs visible peak</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Exposure</div>"
+        f"<div class='account-snapshot-value'>{escape(str(stats.get('current_positions') or 0))} / {escape(str(stats.get('current_orders') or 0))}</div>"
+        "<div class='account-snapshot-sub'>positions / orders</div></div>"
+        "</div>"
+        "</section>"
+    )
+
+
 def normalize_dashboard_tab(value: str | None) -> str:
     tab = (value or "").strip().lower()
     return tab if tab in DASHBOARD_TABS else "overview"
@@ -1388,7 +1410,7 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     )
 
 
-def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html: str, account_metrics_panel_html: str, hero_html: str) -> str:
+def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html: str, account_snapshot_html: str, hero_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
         f"<div class='metrics-grid'>{top_metrics_html}</div>"
@@ -1400,13 +1422,7 @@ def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html:
         "</div>"
         f"<div class='dashboard-section section-body'>{position_cards_html}</div>"
         "</section>"
-        "<section class='section-frame' data-collapsible-section='account'>"
-        "<div class='section-topbar'>"
-        "<div class='section-header'>ACCOUNT METRICS</div>"
-        "<button type='button' class='section-toggle' data-section-toggle='account'>Collapse</button>"
-        "</div>"
-        f"<div class='section-body'>{account_metrics_panel_html}</div>"
-        "</section>"
+        f"{account_snapshot_html}"
         "</div>"
     )
 
@@ -1440,7 +1456,7 @@ def render_dashboard_execution_tab(*, execution_summary_html: str, trade_history
     )
 
 
-def render_dashboard_performance_tab(*, closed_trades_html: str, performance_summary_html: str) -> str:
+def render_dashboard_performance_tab(*, closed_trades_html: str, performance_summary_html: str, account_metrics_panel_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="performance">'
         "<section class='section-frame' data-collapsible-section='performance'>"
@@ -1457,6 +1473,13 @@ def render_dashboard_performance_tab(*, closed_trades_html: str, performance_sum
         f"<div class='chart-card'>{performance_summary_html}</div>"
         "</div>"
         "</div>"
+        "</section>"
+        "<section class='section-frame' data-collapsible-section='account'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>ACCOUNT METRICS</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='account'>Collapse</button>"
+        "</div>"
+        f"<div class='section-body'>{account_metrics_panel_html}</div>"
         "</section>"
         "</div>"
     )
@@ -1533,6 +1556,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
     account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
     account_range_stats = _compute_account_range_stats(timeseries["account"])
+    account_snapshot_html = _build_account_snapshot_panel(account_range_stats)
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
     leader_history = list(reversed(snapshot.get("leader_history", [])))
@@ -1759,7 +1783,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         "overview": render_dashboard_overview_tab(
             top_metrics_html=top_metrics_html,
             position_cards_html=position_cards_html,
-            account_metrics_panel_html=account_metrics_panel_html,
+            account_snapshot_html=account_snapshot_html,
             hero_html=hero_html,
         ),
         "execution": render_dashboard_execution_tab(
@@ -1770,6 +1794,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         "performance": render_dashboard_performance_tab(
             closed_trades_html=closed_trades_html,
             performance_summary_html=performance_summary_html,
+            account_metrics_panel_html=account_metrics_panel_html,
         ),
         "system": render_dashboard_system_tab(
             config_html=config_html,
@@ -2424,6 +2449,24 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     .charts-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
     .chart-card {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
     .account-metrics-panel {{ padding: 20px; }}
+    .account-snapshot-panel {{ padding: 18px; margin-bottom: 20px; }}
+    .account-snapshot-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }}
+    .account-snapshot-card {{
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      min-height: 112px;
+    }}
+    .account-snapshot-label {{
+      font-size: 0.68rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }}
+    .account-snapshot-value {{ font-size: 1.18rem; font-weight: 700; }}
+    .account-snapshot-sub {{ margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }}
     .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
     .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
     .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
@@ -2469,6 +2512,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .decision-row {{ grid-template-columns: 1fr; }}
       .bottom-row {{ grid-template-columns: 1fr; }}
       .account-overview-grid {{ grid-template-columns: repeat(3, 1fr); }}
+      .account-snapshot-grid {{ grid-template-columns: repeat(2, 1fr); }}
       .account-panel-header, .account-main-toolbar {{ flex-direction: column; align-items: flex-start; }}
     }}
     @media (max-width: 768px) {{
@@ -2484,6 +2528,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .analytics-grid {{ grid-template-columns: 1fr; }}
       .analytics-row {{ min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
       .account-overview-grid {{ grid-template-columns: 1fr; }}
+      .account-snapshot-grid {{ grid-template-columns: 1fr; }}
       .desktop-only {{ display: none; }}
       .mobile-only {{ display: block; }}
       .analytics-table.desktop-only {{ display: none; }}

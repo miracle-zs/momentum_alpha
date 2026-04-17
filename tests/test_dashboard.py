@@ -163,6 +163,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('data-dashboard-tab-content="overview"', html)
         self.assertIn("LIVE OVERVIEW", html)
         self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("ACCOUNT SNAPSHOT", html)
+        self.assertNotIn("ACCOUNT OVERVIEW", html)
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
@@ -178,6 +180,20 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("LIVE OVERVIEW", html)
         self.assertNotIn("ACTIVE POSITIONS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
+
+    def test_render_dashboard_html_moves_full_account_metrics_to_performance_tab(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        overview_html = render_dashboard_html(self._build_tabbed_snapshot())
+        performance_html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+
+        self.assertIn("ACCOUNT SNAPSHOT", overview_html)
+        self.assertNotIn("ACCOUNT OVERVIEW", overview_html)
+        self.assertNotIn("data-account-range=\"24H\"", overview_html)
+        self.assertIn("ACCOUNT METRICS", performance_html)
+        self.assertIn("ACCOUNT OVERVIEW", performance_html)
+        self.assertIn("data-account-range=\"24H\"", performance_html)
+        self.assertIn("data-account-metric=\"equity\"", performance_html)
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
@@ -342,7 +358,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
         self.assertIn("ACTIVE POSITIONS", overview_html)
-        self.assertIn("ACCOUNT METRICS", overview_html)
+        self.assertIn("ACCOUNT SNAPSHOT", overview_html)
         self.assertIn("LIVE OVERVIEW", overview_html)
         self.assertIn("LEADER ROTATION", overview_html)
         self.assertIn("SYSTEM HEALTH", overview_html)
@@ -2239,6 +2255,7 @@ console.log(JSON.stringify(cases));
                 "warnings": [],
             },
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+            active_tab="performance",
         )
 
         self.assertIn("ACCOUNT METRICS", html)
