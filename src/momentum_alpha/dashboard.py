@@ -1384,6 +1384,78 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
     )
 
 
+def _build_overview_home_command(
+    *,
+    position_details: list[dict],
+    trader_metrics: dict[str, dict[str, object | None]],
+    account_range_stats: dict[str, float | None],
+    health_status: str,
+) -> str:
+    def _format_pct_short(value: object | None) -> str:
+        numeric = _parse_numeric(value)
+        if numeric is None:
+            return "n/a"
+        return f"{numeric:,.2f}%"
+
+    primary_position = position_details[0] if position_details else {}
+    mtm_total = sum((_parse_numeric(position.get("mark_to_market_pnl")) or 0.0) for position in position_details)
+    position_summary_items = [
+        ("Live Positions", str(len(position_details))),
+        ("Lead Symbol", str(primary_position.get("symbol") or "flat")),
+        ("Risk %", _format_pct_short(trader_metrics["account"].get("open_risk_pct"))),
+        ("MTM", _format_metric(mtm_total, signed=True)),
+    ]
+    account_pulse_items = [
+        ("Available", _format_metric(trader_metrics["account"].get("current_available_balance"))),
+        ("Drawdown", _format_metric(account_range_stats.get("drawdown_abs"), signed=True)),
+        ("Exposure", f"{str(trader_metrics['account'].get('current_positions') or 0)} / {str(trader_metrics['account'].get('current_orders') or 0)}"),
+        ("Health", str(health_status)),
+    ]
+    action_cards = [
+        ("Execution", "Trace fills, stop behavior, and broker actions.", "?tab=execution"),
+        ("Performance", "Review streak, expectancy, and account curve.", "?tab=performance"),
+        ("System", "Check freshness, warnings, and runtime health.", "?tab=system"),
+    ]
+    return (
+        "<section class='dashboard-section home-command-panel'>"
+        "<div class='section-header'>HOME COMMAND</div>"
+        "<div class='home-command-grid'>"
+        "<div class='home-command-column'>"
+        "<div class='home-command-card'>"
+        "<div class='home-command-card-header'>POSITION SUMMARY</div>"
+        "<div class='home-command-stat-grid'>"
+        + "".join(
+            f"<div class='home-command-stat'><div class='home-command-label'>{escape(label)}</div><div class='home-command-value'>{escape(value)}</div></div>"
+            for label, value in position_summary_items
+        )
+        + "</div>"
+        "</div>"
+        "<div class='home-command-card home-command-card-muted'>"
+        "<div class='home-command-card-header'>ACCOUNT PULSE</div>"
+        "<div class='home-command-chip-grid'>"
+        + "".join(
+            f"<div class='home-command-chip'><span>{escape(label)}</span><strong>{escape(value)}</strong></div>"
+            for label, value in account_pulse_items
+        )
+        + "</div>"
+        "</div>"
+        "</div>"
+        "<div class='home-command-column'>"
+        "<div class='home-command-card'>"
+        "<div class='home-command-card-header'>NEXT ACTIONS</div>"
+        "<div class='next-actions-grid'>"
+        + "".join(
+            f"<a class='next-action-card' href='{href}'><span class='next-action-label'>{escape(label)}</span><span class='next-action-copy'>{escape(copy)}</span></a>"
+            for label, copy, href in action_cards
+        )
+        + "</div>"
+        "</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+    )
+
+
 def _build_execution_flow_panel(
     *,
     recent_broker_orders: list[dict],
@@ -1466,19 +1538,12 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     )
 
 
-def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html: str, account_snapshot_html: str, hero_html: str) -> str:
+def render_dashboard_overview_tab(*, top_metrics_html: str, hero_html: str, home_command_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
         f"<div class='metrics-grid'>{top_metrics_html}</div>"
         f"{hero_html}"
-        "<section class='section-frame' data-collapsible-section='positions'>"
-        "<div class='section-topbar'>"
-        "<div class='section-header'>ACTIVE POSITIONS</div>"
-        "<button type='button' class='section-toggle' data-section-toggle='positions'>Collapse</button>"
-        "</div>"
-        f"<div class='dashboard-section section-body'>{position_cards_html}</div>"
-        "</section>"
-        f"{account_snapshot_html}"
+        f"{home_command_html}"
         "</div>"
     )
 
@@ -1623,7 +1688,6 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
     account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
     account_range_stats = _compute_account_range_stats(timeseries["account"])
-    account_snapshot_html = _build_account_snapshot_panel(account_range_stats)
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
     leader_history = list(reversed(snapshot.get("leader_history", [])))
@@ -1642,7 +1706,12 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         position_details=position_details,
         range_key="24H",
     )
-    position_cards_html = render_position_cards(position_details)
+    home_command_html = _build_overview_home_command(
+        position_details=position_details,
+        trader_metrics=trader_metrics,
+        account_range_stats=account_range_stats,
+        health_status=health_status,
+    )
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_broker_orders = snapshot.get("recent_broker_orders") or []
@@ -1886,9 +1955,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     tab_content_html = {
         "overview": render_dashboard_overview_tab(
             top_metrics_html=top_metrics_html,
-            position_cards_html=position_cards_html,
-            account_snapshot_html=account_snapshot_html,
             hero_html=hero_html,
+            home_command_html=home_command_html,
         ),
         "execution": render_dashboard_execution_tab(
             execution_flow_html=execution_flow_html,
@@ -2141,6 +2209,110 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       font-size: 0.84rem;
       color: var(--fg-muted);
       margin-bottom: 16px;
+    }}
+    .home-command-panel {{ padding: 20px; }}
+    .home-command-grid {{
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+    }}
+    .home-command-column {{
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }}
+    .home-command-card {{
+      background: rgba(0,0,0,0.2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+    }}
+    .home-command-card-muted {{
+      background: linear-gradient(145deg, rgba(11,19,32,0.92), rgba(10,14,24,0.88));
+    }}
+    .home-command-card-header {{
+      font-size: 0.72rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 14px;
+    }}
+    .home-command-stat-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }}
+    .home-command-stat {{
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+    }}
+    .home-command-label {{
+      font-size: 0.68rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }}
+    .home-command-value {{
+      font-size: 1.02rem;
+      font-weight: 700;
+      word-break: break-word;
+    }}
+    .home-command-chip-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }}
+    .home-command-chip {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(0,212,255,0.05);
+      border: 1px solid rgba(0,212,255,0.12);
+      color: var(--fg-muted);
+      font-size: 0.76rem;
+    }}
+    .home-command-chip strong {{
+      color: var(--fg);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }}
+    .next-actions-grid {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }}
+    .next-action-card {{
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 16px;
+      text-decoration: none;
+      color: var(--fg);
+      background: linear-gradient(145deg, rgba(9,17,29,0.95), rgba(7,13,23,0.9));
+      border: 1px solid rgba(100,130,170,0.18);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }}
+    .next-action-card:hover {{
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.22);
+    }}
+    .next-action-label {{
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--fg);
+    }}
+    .next-action-copy {{
+      font-size: 0.8rem;
+      line-height: 1.5;
+      color: var(--fg-muted);
     }}
     .toolbar {{
       display: flex;
@@ -2647,6 +2819,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     @media (max-width: 1200px) {{
       .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
       .hero-grid {{ grid-template-columns: 1fr; }}
+      .home-command-grid {{ grid-template-columns: 1fr; }}
       .charts-row {{ grid-template-columns: 1fr; }}
       .decision-row {{ grid-template-columns: 1fr; }}
       .bottom-row {{ grid-template-columns: 1fr; }}
@@ -2663,6 +2836,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .dashboard-tabs {{ padding: 8px; gap: 8px; }}
       .dashboard-tab {{ flex: 1 1 calc(50% - 8px); min-width: 0; }}
       .decision-grid {{ grid-template-columns: 1fr; }}
+      .home-command-stat-grid,
+      .home-command-chip-grid {{ grid-template-columns: 1fr; }}
       .positions-grid {{ grid-template-columns: 1fr; }}
       .trade-row {{ min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }}
       .analytics-grid {{ grid-template-columns: 1fr; }}

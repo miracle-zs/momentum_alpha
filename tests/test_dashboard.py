@@ -162,8 +162,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('dashboard-tab is-active', html)
         self.assertIn('data-dashboard-tab-content="overview"', html)
         self.assertIn("LIVE OVERVIEW", html)
-        self.assertIn("ACTIVE POSITIONS", html)
-        self.assertIn("ACCOUNT SNAPSHOT", html)
+        self.assertIn("POSITION SUMMARY", html)
+        self.assertIn("HOME COMMAND", html)
+        self.assertIn("NEXT ACTIONS", html)
         self.assertNotIn("ACCOUNT OVERVIEW", html)
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
@@ -247,7 +248,7 @@ class DashboardTests(unittest.TestCase):
         overview_html = render_dashboard_html(self._build_tabbed_snapshot())
         performance_html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
 
-        self.assertIn("ACCOUNT SNAPSHOT", overview_html)
+        self.assertIn("HOME COMMAND", overview_html)
         self.assertNotIn("ACCOUNT OVERVIEW", overview_html)
         self.assertNotIn("data-account-range=\"24H\"", overview_html)
         self.assertIn("ACCOUNT METRICS", performance_html)
@@ -417,8 +418,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
-        self.assertIn("ACTIVE POSITIONS", overview_html)
-        self.assertIn("ACCOUNT SNAPSHOT", overview_html)
+        self.assertIn("POSITION SUMMARY", overview_html)
+        self.assertIn("HOME COMMAND", overview_html)
         self.assertIn("LIVE OVERVIEW", overview_html)
         self.assertIn("LEADER ROTATION", overview_html)
         self.assertIn("SYSTEM HEALTH", overview_html)
@@ -576,7 +577,7 @@ class DashboardTests(unittest.TestCase):
             "TODAY NET PNL",
             "OPEN RISK / EQUITY",
             "SYSTEM HEALTH",
-            "ACTIVE POSITIONS",
+            "POSITION SUMMARY",
             "LIVE OVERVIEW",
         ):
             self.assertIn(label, overview_html)
@@ -584,7 +585,21 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("STRATEGY PERFORMANCE", overview_html)
         self.assertNotIn("SYSTEM OPERATIONS", overview_html)
-        self.assertLess(overview_html.index("LIVE OVERVIEW"), overview_html.index("ACTIVE POSITIONS"))
+        self.assertLess(overview_html.index("LIVE OVERVIEW"), overview_html.index("POSITION SUMMARY"))
+
+    def test_render_dashboard_html_refocuses_overview_as_home_entry(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot())
+
+        self.assertIn("HOME COMMAND", html)
+        self.assertIn("POSITION SUMMARY", html)
+        self.assertIn("NEXT ACTIONS", html)
+        self.assertIn("Execution", html)
+        self.assertIn("Performance", html)
+        self.assertIn("System", html)
+        self.assertNotIn("ACCOUNT SNAPSHOT", html)
+        self.assertNotIn("ACTIVE POSITIONS", html)
 
     def test_render_dashboard_html_marks_live_price_dependent_metrics_unavailable(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2108,7 +2123,7 @@ console.log(JSON.stringify(cases));
             active_tab="system",
         )
 
-        self.assertIn("ACTIVE POSITIONS", overview_html)
+        self.assertIn("POSITION SUMMARY", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertIn("SYSTEM OPERATIONS", system_html)
         self.assertIn("Stop Budget", system_html)
@@ -2892,7 +2907,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("LIVE OVERVIEW", html)
         self.assertIn("RISK &amp; DEPLOYMENT", html)
         self.assertIn("ACTIVE SIGNAL", html)
-        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("POSITION SUMMARY", html)
         self.assertIn("SYSTEM HEALTH", html)
         self.assertIn("MANUAL REFRESH", html)
         self.assertIn("Last update", html)
