@@ -1535,10 +1535,54 @@ console.log(JSON.stringify(cases));
         self.assertIn("16:30:15", html)
         self.assertIn("0.015", html)
         self.assertIn("0.12", html)
-        self.assertIn("82166.5", html)
-        self.assertIn("3010.2", html)
+        self.assertIn("82,166.50", html)
+        self.assertIn("3,010.20", html)
         self.assertIn("0.03", html)
         self.assertIn("FILLED", html)
+
+    def test_render_dashboard_html_uses_explicit_headers_and_trimmed_precision(self) -> None:
+        from momentum_alpha.dashboard import render_closed_trades_table, render_stop_slippage_table
+
+        stop_html = render_stop_slippage_table(
+            [
+                {
+                    "symbol": "KOMAUSDT",
+                    "trigger_price": "0.011133889229651234",
+                    "average_exit_price": "0.0098",
+                    "slippage_pct": "-11.52678424",
+                    "net_pnl": "-12.3456789",
+                }
+            ]
+        )
+        round_trip_html = render_closed_trades_table(
+            [
+                {
+                    "symbol": "ORDIUSDT",
+                    "round_trip_id": "ORDIUSDT:1",
+                    "opened_at": "2026-04-17T11:41:01+08:00",
+                    "closed_at": "2026-04-17T19:00:52+08:00",
+                    "exit_reason": "sell",
+                    "net_pnl": "73.12954018",
+                }
+            ]
+        )
+
+        self.assertIn("SYMBOL", stop_html)
+        self.assertIn("STOP", stop_html)
+        self.assertIn("EXEC", stop_html)
+        self.assertIn("SLIP %", stop_html)
+        self.assertIn("PNL", stop_html)
+        self.assertIn("0.011134", stop_html)
+        self.assertNotIn("0.011133889229651234", stop_html)
+        self.assertIn("-11.53%", stop_html)
+        self.assertIn("-12.35", stop_html)
+        self.assertIn("SYMBOL", round_trip_html)
+        self.assertIn("OPEN", round_trip_html)
+        self.assertIn("CLOSE", round_trip_html)
+        self.assertIn("EXIT", round_trip_html)
+        self.assertIn("PNL", round_trip_html)
+        self.assertIn("73.13", round_trip_html)
+        self.assertNotIn("73.12954018", round_trip_html)
 
     def test_render_dashboard_html_trade_history_prefers_trade_fills(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

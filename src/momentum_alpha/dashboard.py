@@ -622,9 +622,9 @@ def render_trade_history_table(fills: list[dict]) -> str:
         symbol = escape(str(fill.get("symbol") or "-"))
         side = fill.get("side") or "-"
         side_class = "side-buy" if side == "BUY" else "side-sell"
-        qty = fill.get("quantity") or fill.get("cumulative_quantity") or "-"
-        last_price = fill.get("last_price") or fill.get("average_price") or "-"
-        commission = fill.get("commission") or "-"
+        qty = _format_quantity(fill.get("quantity") or fill.get("cumulative_quantity"))
+        last_price = _format_price(fill.get("last_price") or fill.get("average_price"))
+        commission = _format_metric(_parse_numeric(fill.get("commission")))
         status = fill.get("order_status") or "-"
         status_class = "status-filled" if status == "FILLED" else "status-pending"
 
@@ -647,15 +647,25 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
     if not round_trips:
         return "<div class='trade-history-empty'>No closed trades</div>"
 
+    header = (
+        "<div class='analytics-row analytics-row-header'>"
+        "<span class='analytics-main'>SYMBOL</span>"
+        "<span>OPEN</span>"
+        "<span>CLOSE</span>"
+        "<span>EXIT</span>"
+        "<span>PNL</span>"
+        "</div>"
+    )
     rows = ""
     for trip in round_trips[:10]:
         symbol = escape(str(trip.get("symbol") or "-"))
         round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
         opened_at = _format_time_only(trip.get("opened_at"))
         closed_at = _format_time_only(trip.get("closed_at"))
-        net_pnl = escape(str(trip.get("net_pnl") or "-"))
+        net_pnl_value = _format_metric(_parse_numeric(trip.get("net_pnl")), signed=True)
+        net_pnl = escape(net_pnl_value)
         exit_reason = escape(str(trip.get("exit_reason") or "-"))
-        pnl_class = "side-buy" if not str(net_pnl).startswith("-") else "side-sell"
+        pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
         rows += (
             f"<div class='analytics-row'>"
             f"<span class='analytics-main'><b>{symbol}</b> · {round_trip_id}</span>"
@@ -665,31 +675,42 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
             f"<span class='{pnl_class}'>{net_pnl}</span>"
             f"</div>"
         )
-    return f"<div class='analytics-table'>{rows}</div>"
+    return f"<div class='analytics-table'>{header}{rows}</div>"
 
 
 def render_stop_slippage_table(stop_exits: list[dict]) -> str:
     if not stop_exits:
         return "<div class='trade-history-empty'>No stop exits</div>"
 
+    header = (
+        "<div class='analytics-row analytics-row-header'>"
+        "<span class='analytics-main'>SYMBOL</span>"
+        "<span>STOP</span>"
+        "<span>EXEC</span>"
+        "<span>SLIP %</span>"
+        "<span>PNL</span>"
+        "</div>"
+    )
     rows = ""
     for item in stop_exits[:10]:
         symbol = escape(str(item.get("symbol") or "-"))
-        trigger_price = escape(str(item.get("trigger_price") or "-"))
-        average_exit_price = escape(str(item.get("average_exit_price") or "-"))
-        slippage_pct = escape(str(item.get("slippage_pct") or "-"))
-        net_pnl = escape(str(item.get("net_pnl") or "-"))
-        pnl_class = "side-buy" if not str(net_pnl).startswith("-") else "side-sell"
+        trigger_price = escape(_format_price(item.get("trigger_price")))
+        average_exit_price = escape(_format_price(item.get("average_exit_price")))
+        slippage_pct_value = _format_pct_value(item.get("slippage_pct"), signed=True)
+        slippage_pct = escape(slippage_pct_value)
+        net_pnl_value = _format_metric(_parse_numeric(item.get("net_pnl")), signed=True)
+        net_pnl = escape(net_pnl_value)
+        pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
         rows += (
             f"<div class='analytics-row'>"
             f"<span class='analytics-main'><b>{symbol}</b></span>"
             f"<span>{trigger_price}</span>"
             f"<span>{average_exit_price}</span>"
-            f"<span>{slippage_pct}%</span>"
+            f"<span>{slippage_pct}</span>"
             f"<span class='{pnl_class}'>{net_pnl}</span>"
             f"</div>"
         )
-    return f"<div class='analytics-table'>{rows}</div>"
+    return f"<div class='analytics-table'>{header}{rows}</div>"
 
 
 def build_strategy_config(
@@ -1017,6 +1038,34 @@ def _format_metric(value: float | None, *, signed: bool = False) -> str:
     if signed:
         return f"{numeric_value:+,.2f}"
     return f"{numeric_value:,.2f}"
+
+
+def _format_price(value: object | None) -> str:
+    numeric = _parse_numeric(value)
+    if numeric is None:
+        return "n/a"
+    magnitude = abs(numeric)
+    if magnitude >= 100:
+        return f"{numeric:,.2f}"
+    if magnitude >= 1:
+        return f"{numeric:,.4f}"
+    return f"{numeric:,.6f}"
+
+
+def _format_quantity(value: object | None) -> str:
+    numeric = _parse_numeric(value)
+    if numeric is None:
+        return "n/a"
+    return f"{numeric:,.4f}".rstrip("0").rstrip(".")
+
+
+def _format_pct_value(value: object | None, *, signed: bool = False) -> str:
+    numeric = _parse_numeric(value)
+    if numeric is None:
+        return "n/a"
+    if signed and numeric != 0:
+        return f"{numeric:+,.2f}%"
+    return f"{numeric:,.2f}%"
 
 
 def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str, show_grid: bool = True) -> str:
