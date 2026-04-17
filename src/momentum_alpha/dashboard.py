@@ -1377,7 +1377,7 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     links = "".join(
         (
             f'<a class="dashboard-tab{" is-active" if tab == active_tab else ""}" '
-            f'data-dashboard-tab="{tab}" href="/?tab={tab}">{escape(labels[tab])}</a>'
+            f'data-dashboard-tab="{tab}" href="?tab={tab}">{escape(labels[tab])}</a>'
         )
         for tab in DASHBOARD_TABS
     )

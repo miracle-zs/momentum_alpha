@@ -1946,6 +1946,15 @@ console.log(JSON.stringify(cases));
         self.assertIn("STOP SLIPPAGE ANALYSIS", execution_html)
         self.assertIn("0.17687", execution_html)
 
+    def test_render_dashboard_tab_bar_uses_relative_tab_links(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_tab_bar
+
+        html = render_dashboard_tab_bar("overview")
+
+        self.assertIn('href="?tab=overview"', html)
+        self.assertIn('href="?tab=execution"', html)
+        self.assertNotIn('href="/?tab=overview"', html)
+
     def test_render_dashboard_html_includes_positions_section(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
