@@ -1539,7 +1539,7 @@ def cli_main(
                 audit_log_path=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
             ),
             now_provider=now_provider,
-            stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "20"),
+            stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "10"),
             testnet=runtime_settings["use_testnet"],
             submit_orders=submit_orders_env,
         )
