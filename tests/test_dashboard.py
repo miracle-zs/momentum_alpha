@@ -428,6 +428,40 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("RECENT EVENTS", system_html)
         self.assertIn("2026-04-15 14:59:01", system_html)
 
+    def test_render_dashboard_html_system_tab_surfaces_operational_diagnostics(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["health"] = {
+            "overall_status": "DEGRADED",
+            "items": [{"name": "poll", "status": "WARN", "message": "lagging"}],
+        }
+        snapshot["runtime"]["latest_tick_result_timestamp"] = "2026-04-17T01:05:00+00:00"
+        snapshot["recent_events"] = [
+            {
+                "timestamp": "2026-04-17T01:05:00+00:00",
+                "event_type": "tick_result",
+                "payload": {"symbol": "BTCUSDT"},
+                "source": "poll",
+            }
+        ]
+        snapshot["source_counts"] = {"poll": 3, "user-stream": 1}
+        snapshot["warnings"] = ["state file missing path=/tmp/runtime.json", "audit file invalid path=/tmp/audit.log"]
+
+        html = render_dashboard_html(snapshot, active_tab="system")
+
+        self.assertIn("SYSTEM DIAGNOSTICS", html)
+        self.assertIn("Health Status", html)
+        self.assertIn("DEGRADED", html)
+        self.assertIn("Data Freshness", html)
+        self.assertIn("2026-04-17 09:05:00", html)
+        self.assertIn("Warning Count", html)
+        self.assertIn(">2<", html)
+        self.assertIn("Primary Source", html)
+        self.assertIn("poll · 3", html)
+        self.assertIn("ACTIVE WARNINGS", html)
+        self.assertIn("state file missing path=/tmp/runtime.json", html)
+
     def test_render_dashboard_html_rebuilds_layout_around_trader_priorities(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 

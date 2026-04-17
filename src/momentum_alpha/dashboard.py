@@ -1542,7 +1542,15 @@ def render_dashboard_performance_tab(*, closed_trades_html: str, performance_sum
     )
 
 
-def render_dashboard_system_tab(*, config_html: str, source_html: str, health_items_html: str, recent_events_html: str) -> str:
+def render_dashboard_system_tab(
+    *,
+    diagnostics_html: str,
+    warning_list_html: str,
+    config_html: str,
+    source_html: str,
+    health_items_html: str,
+    recent_events_html: str,
+) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="system">'
         "<section class='section-frame' data-collapsible-section='system'>"
@@ -1550,6 +1558,8 @@ def render_dashboard_system_tab(*, config_html: str, source_html: str, health_it
         "<div class='section-header'>SYSTEM PANELS</div>"
         "<button type='button' class='section-toggle' data-section-toggle='system'>Collapse</button>"
         "</div>"
+        f"{diagnostics_html}"
+        f"{warning_list_html}"
         "<div class='dashboard-section bottom-row section-body'>"
         "<div class='bottom-col'>"
         "<div class='section-header'>SYSTEM OPERATIONS</div>"
@@ -1689,6 +1699,34 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
         for src, cnt in sorted(source_counts.items())[:4]
     ) or "<div class='source-tag empty'>No sources</div>"
+    warnings = snapshot.get("warnings", [])
+    primary_source, primary_source_count = max(
+        source_counts.items(),
+        key=lambda item: (item[1], item[0]),
+        default=("n/a", 0),
+    )
+    primary_source_label = primary_source if primary_source_count <= 0 else f"{primary_source} · {primary_source_count}"
+    diagnostics_html = (
+        "<div class='dashboard-section system-diagnostics-panel section-body'>"
+        "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Primary Source</div><div class='decision-value'>{escape(primary_source_label)}</div></div>"
+        "</div>"
+        "</div>"
+    )
+    warning_list_html = (
+        "<div class='dashboard-section system-warning-panel section-body'>"
+        "<div class='section-header'>ACTIVE WARNINGS</div>"
+        "<div class='system-warning-list'>"
+        + "".join(f"<div class='system-warning-item'>{escape(str(warning))}</div>" for warning in warnings[:5])
+        + "</div>"
+        "</div>"
+        if warnings
+        else ""
+    )
 
     def _format_pct(value: float | None, *, signed: bool = False) -> str:
         if value is None:
@@ -1864,6 +1902,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
             account_metrics_panel_html=account_metrics_panel_html,
         ),
         "system": render_dashboard_system_tab(
+            diagnostics_html=diagnostics_html,
+            warning_list_html=warning_list_html,
             config_html=config_html,
             source_html=source_html,
             health_items_html=health_items_html,
@@ -2553,6 +2593,19 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     .execution-flow-primary {{ font-size: 1rem; font-weight: 700; word-break: break-word; }}
     .execution-flow-secondary {{ margin-top: 8px; font-size: 0.8rem; color: var(--fg); word-break: break-word; }}
     .execution-flow-detail {{ margin-top: 6px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; word-break: break-word; }}
+    .system-diagnostics-panel,
+    .system-warning-panel {{ margin-bottom: 20px; }}
+    .system-warning-list {{ display: flex; flex-direction: column; gap: 10px; }}
+    .system-warning-item {{
+      padding: 12px 14px;
+      background: rgba(255,184,0,0.08);
+      border: 1px solid rgba(255,184,0,0.22);
+      border-radius: 12px;
+      color: var(--warning);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      word-break: break-word;
+    }}
     .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
     .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
     .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
