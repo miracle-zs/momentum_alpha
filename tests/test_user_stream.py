@@ -709,3 +709,112 @@ class UserStreamTests(unittest.TestCase):
         )
         self.assertEqual(updated.positions["BTCUSDT"].stop_price, Decimal("61000"))
         self.assertEqual(updated.positions["BTCUSDT"].legs[0].stop_price, Decimal("61000"))
+
+    def test_apply_account_update_flat_position_records_stop_loss_exit_when_stop_order_exists(self) -> None:
+        """Test that when a position goes flat and there's a stop order, recent_stop_loss_exits is updated.
+
+        This prevents race conditions between poll and user-stream processes:
+        - ACCOUNT_UPDATE removes the position
+        - At the same time, recent_stop_loss_exits should be updated
+        - This ensures poll process sees consistent state
+        """
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("2"), Decimal("108"), Decimal("106"), opened_at, "base"),),
+                )
+            },
+            recent_stop_loss_exits={},
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776215220000,  # 2026-04-15 01:07:00 UTC
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "ETHUSDT",
+                            "pa": "0",
+                            "ep": "0",
+                        }
+                    ],
+                },
+            }
+        )
+        # Simulate having a stop-loss order in order_statuses
+        order_statuses = {
+            "algo:2000000786682809": {
+                "symbol": "ETHUSDT",
+                "status": "NEW",
+                "side": "SELL",
+                "original_order_type": "STOP_MARKET",
+                "stop_price": "106",
+                "client_order_id": "ma_260415010700_ETHUSDT_b00s",
+            }
+        }
+        updated = apply_user_stream_event_to_state(state=state, event=event, order_statuses=order_statuses)
+
+        # Position should be removed
+        self.assertNotIn("ETHUSDT", updated.positions)
+        # recent_stop_loss_exits should be updated
+        self.assertIn("ETHUSDT", updated.recent_stop_loss_exits)
+        self.assertEqual(
+            updated.recent_stop_loss_exits["ETHUSDT"],
+            datetime(2026, 4, 15, 1, 7, tzinfo=timezone.utc),
+        )
+
+    def test_apply_account_update_flat_position_does_not_record_exit_without_stop_order(self) -> None:
+        """Test that recent_stop_loss_exits is NOT updated when there's no stop order.
+
+        This ensures we don't incorrectly mark positions as stop-loss exits
+        when they're closed for other reasons (manual close, take-profit, etc.)
+        """
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("2"), Decimal("108"), Decimal("106"), opened_at, "base"),),
+                )
+            },
+            recent_stop_loss_exits={},
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776215220000,
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "ETHUSDT",
+                            "pa": "0",
+                            "ep": "0",
+                        }
+                    ],
+                },
+            }
+        )
+        # No stop order in order_statuses
+        order_statuses = {}
+        updated = apply_user_stream_event_to_state(state=state, event=event, order_statuses=order_statuses)
+
+        # Position should be removed
+        self.assertNotIn("ETHUSDT", updated.positions)
+        # recent_stop_loss_exits should NOT be updated
+        self.assertNotIn("ETHUSDT", updated.recent_stop_loss_exits)

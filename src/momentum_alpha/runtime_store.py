@@ -272,6 +272,34 @@ class RuntimeStateStore:
                 (_json_dumps(_serialize_state(merged)),),
             )
 
+    def atomic_update(
+        self,
+        updater: "Callable[[StoredStrategyState | None], StoredStrategyState]",
+    ) -> StoredStrategyState:
+        """Atomically update state within a single transaction.
+
+        This method ensures that the read-modify-write operation is atomic,
+        preventing race conditions between poll and user-stream processes.
+
+        Args:
+            updater: A function that takes the current state and returns the new state.
+                     The function should merge its changes with the existing state.
+
+        Returns:
+            The new state after update.
+        """
+        bootstrap_runtime_db(path=self.path)
+        with _connect(self.path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
+            existing = _deserialize_state(json.loads(row[0])) if row else None
+            new_state = updater(existing)
+            connection.execute(
+                "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
+                (_json_dumps(_serialize_state(new_state)),),
+            )
+            return new_state
+
 def _json_dumps(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)
 

@@ -17,7 +17,7 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"', content)
         self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
-        self.assertIn('--state-file "${STATE_FILE}"', content)
+        self.assertIn('--runtime-db-file "${RUNTIME_DB_FILE}"', content)
 
     def test_install_logrotate_script_installs_project_policy(self) -> None:
         content = (ROOT / "scripts" / "install_logrotate.sh").read_text()

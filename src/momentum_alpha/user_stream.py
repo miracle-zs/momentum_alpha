@@ -281,6 +281,28 @@ def _is_strategy_stop_fill(event: UserStreamEvent) -> bool:
     return bool(event.client_order_id and event.client_order_id.endswith("s"))
 
 
+def _is_strategy_stop_order_for_symbol(symbol: str, order_statuses: dict[str, dict] | None) -> bool:
+    """Check if there's a strategy stop-loss order for the given symbol.
+
+    This is used to detect when a position is closed due to stop-loss trigger.
+    """
+    if order_statuses is None:
+        return False
+    for order_id, snapshot in order_statuses.items():
+        if snapshot is None:
+            continue
+        if snapshot.get("symbol") != symbol:
+            continue
+        # Check if it's a stop-loss order
+        order_type = snapshot.get("original_order_type")
+        client_order_id = snapshot.get("client_order_id", "")
+        if order_type == "STOP_MARKET":
+            return True
+        if is_strategy_client_order_id(client_order_id) and client_order_id.endswith("s"):
+            return True
+    return False
+
+
 def apply_user_stream_event_to_state(
     *,
     state: StrategyState,
@@ -290,8 +312,16 @@ def apply_user_stream_event_to_state(
     if event.event_type == "ACCOUNT_UPDATE":
         flat_symbols = extract_flat_position_symbols(event)
         positions = dict(state.positions)
+        recent_stop_loss_exits = dict(state.recent_stop_loss_exits)
+
+        # When a position goes flat, check if it's due to stop-loss trigger
+        # and update recent_stop_loss_exits accordingly
         for symbol in flat_symbols:
             positions.pop(symbol, None)
+            # Check if this symbol had a position before and if there's a stop order
+            if symbol in state.positions and _is_strategy_stop_order_for_symbol(symbol, order_statuses):
+                recent_stop_loss_exits[symbol] = event.event_time or datetime.now(timezone.utc)
+
         restored_at = event.event_time or datetime.now(timezone.utc)
         for symbol, quantity, entry_price in extract_positive_account_positions(event):
             existing_position = positions.get(symbol)
@@ -316,9 +346,9 @@ def apply_user_stream_event_to_state(
                     ),
                 ),
             )
-        if positions == state.positions:
+        if positions == state.positions and recent_stop_loss_exits == state.recent_stop_loss_exits:
             return state
-        return replace(state, positions=positions)
+        return replace(state, positions=positions, recent_stop_loss_exits=recent_stop_loss_exits)
 
     if event.event_type != "ORDER_TRADE_UPDATE" or event.order_status != "FILLED" or event.symbol is None:
         return state

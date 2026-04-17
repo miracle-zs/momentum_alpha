@@ -262,7 +262,7 @@ class MainTests(unittest.TestCase):
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
         )
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -310,7 +310,6 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "state.json"
             runtime_db_path = Path(tmpdir) / "runtime.db"
             result = run_once_live(
                 symbols=["BTCUSDT"],
@@ -319,7 +318,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=True,
-                state_store=FileStateStore(path=state_path),
+                runtime_state_store=RuntimeStateStore(path=runtime_db_path),
                 audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
             )
 
@@ -881,7 +880,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_once_live_can_persist_previous_leader(self) -> None:
         from momentum_alpha.main import run_once_live
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
         from momentum_alpha.models import Position, PositionLeg
 
         class FakeClient:
@@ -916,7 +915,7 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(
                 StoredStrategyState(
                     current_day="2026-04-15",
@@ -946,7 +945,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=False,
-                state_store=store,
+                runtime_state_store=store,
             )
             stored = store.load()
             self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
@@ -955,7 +954,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_once_live_uses_previous_leader_from_state_store_when_not_provided(self) -> None:
         from momentum_alpha.main import run_once_live
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -989,7 +988,7 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT"))
             result = run_once_live(
                 symbols=["BTCUSDT"],
@@ -998,14 +997,14 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=False,
-                state_store=store,
+                runtime_state_store=store,
             )
             self.assertEqual(result.execution_plan.entry_orders, [])
             self.assertEqual(result.runtime_result.next_state.previous_leader_symbol, "BTCUSDT")
 
     def test_cli_main_can_use_state_file_for_previous_leader(self) -> None:
         from momentum_alpha.main import cli_main
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -1039,14 +1038,14 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "state.json"
-            FileStateStore(path=state_path).save(
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            RuntimeStateStore(path=runtime_db_path).save(
                 StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
             )
             out = StringIO()
             with redirect_stdout(out):
                 exit_code = cli_main(
-                    argv=["run-once-live", "--symbols", "BTCUSDT", "--state-file", str(state_path)],
+                    argv=["run-once-live", "--symbols", "BTCUSDT", "--runtime-db-file", str(runtime_db_path)],
                     client_factory=lambda: FakeClient(),
                     broker_factory=lambda client: FakeBroker(),
                     now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
@@ -1064,7 +1063,7 @@ class MainTests(unittest.TestCase):
             return 0
 
         exit_code = cli_main(
-            argv=["poll", "--symbols", "BTCUSDT", "--state-file", "/tmp/state.json"],
+            argv=["poll", "--symbols", "BTCUSDT", "--runtime-db-file", "/tmp/runtime.db"],
             run_forever_fn=fake_run_forever,
         )
         self.assertEqual(exit_code, 0)
@@ -1114,9 +1113,9 @@ class MainTests(unittest.TestCase):
             calls.append(("client", testnet))
             return FakeClient()
 
-        def fake_run_user_stream(*, client, testnet, logger):
-            calls.append(("stream", testnet, client.__class__.__name__))
-            logger("user-stream-started")
+        def fake_run_user_stream(**kwargs):
+            calls.append(("stream", kwargs.get("testnet"), kwargs.get("client").__class__.__name__))
+            kwargs.get("logger")("user-stream-started")
             return 0
 
         out = StringIO()
@@ -1314,7 +1313,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_persists_updated_state(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1343,12 +1342,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1533,7 +1532,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
 
         class FakeClient:
             def __init__(self) -> None:
@@ -1570,12 +1569,12 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             client = FakeClient()
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=client,
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1590,7 +1589,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_reconnects_after_stream_failure_and_reprewarms_state(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
 
         class FakeClient:
             def __init__(self) -> None:
@@ -1632,14 +1631,14 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             client = FakeClient()
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             logs = []
             sleep_calls = []
             exit_code = run_user_stream(
                 client=client,
                 testnet=True,
                 logger=lambda message: logs.append(message),
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
                 reconnect_sleep_fn=lambda seconds: sleep_calls.append(seconds),
@@ -1655,7 +1654,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_persists_order_status_updates(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1683,12 +1682,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1700,7 +1699,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_skips_duplicate_trade_event(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1731,12 +1730,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1747,7 +1746,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_applies_non_trade_order_status_transitions_with_same_order_id(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1790,12 +1789,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1806,7 +1805,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_account_update_can_clear_local_position(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1855,12 +1854,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1870,7 +1869,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_account_update_can_restore_missing_local_position(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1899,12 +1898,12 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             exit_code = run_user_stream(
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1915,7 +1914,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_account_update_can_sync_existing_local_position(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
         from momentum_alpha.models import Position, PositionLeg
         from momentum_alpha.user_stream import parse_user_stream_event
 
@@ -1945,7 +1944,7 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(
                 StoredStrategyState(
                     current_day="2026-04-15",
@@ -1972,7 +1971,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -1984,7 +1983,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_account_update_can_restore_stop_price_from_order_statuses(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -2013,7 +2012,7 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(
                 StoredStrategyState(
                     current_day="2026-04-15",
@@ -2033,7 +2032,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -2044,7 +2043,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_account_update_ignores_canceled_stop_and_uses_active_one(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -2073,7 +2072,7 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(
                 StoredStrategyState(
                     current_day="2026-04-15",
@@ -2100,7 +2099,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -2110,7 +2109,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_user_stream_removes_filled_stop_order_from_order_statuses(self) -> None:
         from momentum_alpha.main import run_user_stream
-        from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -2140,7 +2139,7 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            store = FileStateStore(path=Path(tmpdir) / "state.json")
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             store.save(
                 StoredStrategyState(
                     current_day="2026-04-15",
@@ -2160,7 +2159,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 testnet=True,
                 logger=lambda message: None,
-                state_store=store,
+                runtime_state_store=store,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
             )
@@ -2183,8 +2182,8 @@ class MainTests(unittest.TestCase):
                     "--symbols",
                     "BTCUSDT",
                     "ETHUSDT",
-                    "--state-file",
-                    "/tmp/state.json",
+                    "--runtime-db-file",
+                    "/tmp/runtime.db",
                     "--restore-positions",
                 ],
                 run_forever_fn=fake_run_forever,
@@ -2252,8 +2251,8 @@ class MainTests(unittest.TestCase):
                 "poll",
                 "--symbols",
                 "BTCUSDT",
-                "--state-file",
-                "/tmp/state.json",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
                 "--restore-positions",
                 "--execute-stop-replacements",
                 "--submit-orders",
@@ -2281,7 +2280,7 @@ class MainTests(unittest.TestCase):
             symbols=["BTCUSDT"],
             previous_leader_symbol=None,
             submit_orders=True,
-            state_store=None,
+            runtime_state_store=None,
             client_factory=lambda: object(),
             broker_factory=lambda client: object(),
             now_provider=lambda: next(times),
@@ -2346,7 +2345,7 @@ class MainTests(unittest.TestCase):
             symbols=[],
             previous_leader_symbol=None,
             submit_orders=False,
-            state_store=None,
+            runtime_state_store=None,
             client_factory=lambda: FakeClient(),
             broker_factory=lambda client: object(),
             now_provider=lambda: next(times),
@@ -2404,7 +2403,7 @@ class MainTests(unittest.TestCase):
             symbols=["BTCUSDT"],
             previous_leader_symbol=None,
             submit_orders=True,
-            state_store=None,
+            runtime_state_store=None,
             client_factory=lambda: FakeClient(),
             broker_factory=lambda client: object(),
             now_provider=lambda: next(times),
@@ -2447,7 +2446,7 @@ class MainTests(unittest.TestCase):
                 symbols=["BTCUSDT"],
                 previous_leader_symbol=None,
                 submit_orders=True,
-                state_store=None,
+                runtime_state_store=None,
                 client_factory=lambda: FakeClient(),
                 broker_factory=lambda client: object(),
                 now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
@@ -2542,7 +2541,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever
-        from momentum_alpha.state_store import FileStateStore
+        from momentum_alpha.runtime_store import RuntimeStateStore
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -2590,7 +2589,7 @@ class MainTests(unittest.TestCase):
                 symbols=["BTCUSDT"],
                 previous_leader_symbol=None,
                 submit_orders=False,
-                state_store=FileStateStore(path=Path(tmpdir) / "state.json"),
+                runtime_state_store=RuntimeStateStore(path=Path(tmpdir) / "runtime.db"),
                 client_factory=lambda: FakeClient(),
                 broker_factory=lambda client: FakeBroker(),
                 now_provider=lambda: next(times),
@@ -2630,7 +2629,7 @@ class MainTests(unittest.TestCase):
             symbols=["BTCUSDT"],
             previous_leader_symbol=None,
             submit_orders=False,
-            state_store=None,
+            runtime_state_store=None,
             client_factory=lambda: FakeClient(),
             broker_factory=lambda client: FakeBroker(),
             now_provider=lambda: next(times),
@@ -2689,7 +2688,7 @@ class MainTests(unittest.TestCase):
             symbols=["BTCUSDT"],
             previous_leader_symbol=None,
             submit_orders=False,
-            state_store=None,
+            runtime_state_store=None,
             client_factory=lambda: FakeClient(),
             broker_factory=lambda client: FakeBroker(),
             now_provider=lambda: next(times),

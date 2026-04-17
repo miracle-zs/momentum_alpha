@@ -36,7 +36,7 @@ from momentum_alpha.runtime_store import (
     insert_trade_fill,
     rebuild_trade_analytics,
 )
-from momentum_alpha.state_store import FileStateStore, StoredStrategyState
+from momentum_alpha.state_store import StoredStrategyState
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
     apply_user_stream_event_to_state,
@@ -60,64 +60,75 @@ class RunOnceResult:
         return self.runtime_result.execution_plan
 
 
-def resolve_audit_log_path(*, explicit_path: str | None, state_store) -> Path | None:
-    if explicit_path:
-        return Path(os.path.abspath(explicit_path))
-    env_path = os.environ.get("AUDIT_LOG_FILE")
-    if env_path:
-        return Path(os.path.abspath(env_path))
-    if state_store is not None:
-        return state_store.path.parent / "audit.jsonl"
-    return None
+def resolve_runtime_db_path(*, explicit_path: str | None, default_dir: Path | None = None) -> Path | None:
+    """Resolve the runtime database path.
 
-
-def resolve_runtime_db_path(*, explicit_path: str | None, state_store, audit_log_path: Path | None = None) -> Path | None:
+    Priority:
+    1. Explicit path provided
+    2. RUNTIME_DB_FILE environment variable
+    3. default_dir/runtime.db if default_dir is provided
+    """
     if explicit_path:
         return Path(os.path.abspath(explicit_path))
     env_path = os.environ.get("RUNTIME_DB_FILE")
     if env_path:
         return Path(os.path.abspath(env_path))
-    if audit_log_path is not None:
-        return audit_log_path.parent / "runtime.db"
-    if state_store is not None:
-        return state_store.path.parent / "runtime.db"
+    if default_dir is not None:
+        return default_dir / "runtime.db"
+    return None
+
+
+def resolve_audit_log_path(*, explicit_path: str | None, runtime_db_path: Path | None = None) -> Path | None:
+    """Resolve the audit log path.
+
+    Priority:
+    1. Explicit path provided
+    2. AUDIT_LOG_FILE environment variable
+    3. Same directory as runtime.db
+    """
+    if explicit_path:
+        return Path(os.path.abspath(explicit_path))
+    env_path = os.environ.get("AUDIT_LOG_FILE")
+    if env_path:
+        return Path(os.path.abspath(env_path))
+    if runtime_db_path is not None:
+        return runtime_db_path.parent / "audit.jsonl"
     return None
 
 
 def _build_audit_recorder(
     *,
     explicit_path: str | None,
-    explicit_runtime_db_path: str | None,
-    state_store,
+    runtime_db_path: Path | None,
     source: str | None = None,
 ) -> AuditRecorder | None:
-    path = resolve_audit_log_path(explicit_path=explicit_path, state_store=state_store)
-    runtime_db_path = resolve_runtime_db_path(
-        explicit_path=explicit_runtime_db_path,
-        state_store=state_store,
-        audit_log_path=path,
+    """Build an AuditRecorder with resolved paths."""
+    resolved_audit_log = resolve_audit_log_path(
+        explicit_path=explicit_path,
+        runtime_db_path=runtime_db_path,
     )
-    if path is None and runtime_db_path is None:
+    if resolved_audit_log is None and runtime_db_path is None:
         return None
-    return AuditRecorder(path=path, runtime_db_path=runtime_db_path, source=source)
+    return AuditRecorder(path=resolved_audit_log, runtime_db_path=runtime_db_path, source=source)
 
 
-def _build_runtime_state_store(*, audit_recorder: AuditRecorder | None) -> RuntimeStateStore | None:
-    if audit_recorder is None or audit_recorder.runtime_db_path is None:
+def _build_runtime_state_store(*, runtime_db_path: Path | None) -> RuntimeStateStore | None:
+    """Build a RuntimeStateStore for state persistence."""
+    if runtime_db_path is None:
         return None
-    return RuntimeStateStore(path=audit_recorder.runtime_db_path)
+    return RuntimeStateStore(path=runtime_db_path)
 
 
-def _merge_save_strategy_state(
+def _save_strategy_state(
     *,
-    state_store,
-    runtime_state_store: RuntimeStateStore | None,
+    runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
 ) -> None:
-    if state_store is not None:
-        state_store.merge_save(state)
-    if runtime_state_store is not None:
-        runtime_state_store.merge_save(state)
+    """Save strategy state to the runtime database.
+
+    This is now the single source of truth for state persistence.
+    """
+    runtime_state_store.save(state)
 
 
 def _serialize_snapshot_position(position) -> dict:
@@ -717,12 +728,11 @@ def run_once_live(
     submit_orders: bool,
     restore_positions: bool = False,
     execute_stop_replacements: bool = False,
-    state_store=None,
+    runtime_state_store: RuntimeStateStore | None = None,
     market_data_cache: LiveMarketDataCache | None = None,
     audit_recorder: AuditRecorder | None = None,
     last_add_on_hour: int | None = None,
 ) -> RunOnceResult:
-    runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
     position_side: str | None = None
     fetch_position_mode = getattr(client, "fetch_position_mode", None)
     if callable(fetch_position_mode):
@@ -733,8 +743,8 @@ def run_once_live(
         dual_side = None if position_mode is None else position_mode.get("dualSidePosition")
         if dual_side in (True, "true", "TRUE", "True"):
             position_side = "LONG"
-    if previous_leader_symbol is None and state_store is not None:
-        stored_state = state_store.load()
+    if previous_leader_symbol is None and runtime_state_store is not None:
+        stored_state = runtime_state_store.load()
         if stored_state is not None:
             previous_leader_symbol = stored_state.previous_leader_symbol
 
@@ -750,8 +760,8 @@ def run_once_live(
             position_risk=client.fetch_position_risk(),
             open_orders=open_orders,
         )
-        if state_store is not None:
-            stored_state = state_store.load()
+        if runtime_state_store is not None:
+            stored_state = runtime_state_store.load()
             if stored_state is not None:
                 initial_state = replace(
                     initial_state,
@@ -831,19 +841,23 @@ def run_once_live(
     if submit_orders:
         broker_responses = broker.submit_execution_plan(result.execution_plan)
         result = replace(result, broker_responses=broker_responses)
-    if state_store is not None:
-        _merge_save_strategy_state(
-            state_store=state_store,
-            runtime_state_store=runtime_state_store,
-                state=StoredStrategyState(
-                    current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
-                    previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
-                    recent_stop_loss_exits={
-                        symbol: timestamp.isoformat()
-                        for symbol, timestamp in result.runtime_result.next_state.recent_stop_loss_exits.items()
-                    },
-                ),
-            )
+    if runtime_state_store is not None:
+        stored_state = runtime_state_store.load()
+        # Merge positions: start with stored positions, update with new state
+        merged_positions = dict(stored_state.positions) if stored_state is not None and stored_state.positions else {}
+        merged_positions.update(result.runtime_result.next_state.positions)
+        merged_state = StoredStrategyState(
+            current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
+            previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            positions=merged_positions,
+            recent_stop_loss_exits={
+                symbol: timestamp.isoformat()
+                for symbol, timestamp in result.runtime_result.next_state.recent_stop_loss_exits.items()
+            },
+            processed_event_ids=stored_state.processed_event_ids if stored_state is not None else [],
+            order_statuses=stored_state.order_statuses if stored_state is not None else {},
+        )
+        _save_strategy_state(runtime_state_store=runtime_state_store, state=merged_state)
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
@@ -1006,7 +1020,7 @@ def run_user_stream(
     client,
     testnet: bool,
     logger,
-    state_store=None,
+    runtime_state_store: RuntimeStateStore | None = None,
     now_provider=None,
     stream_client_factory=None,
     reconnect_sleep_fn=None,
@@ -1017,11 +1031,12 @@ def run_user_stream(
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
     audit_recorder = (
         AuditRecorder(path=audit_recorder_path, runtime_db_path=runtime_db_path, source="user-stream")
-        if audit_recorder_path is not None
+        if audit_recorder_path is not None or runtime_db_path is not None
         else None
     )
-    runtime_state_store = _build_runtime_state_store(audit_recorder=audit_recorder)
-    stored_state = state_store.load() if state_store is not None else None
+    if runtime_state_store is None and runtime_db_path is not None:
+        runtime_state_store = RuntimeStateStore(path=runtime_db_path)
+    stored_state = runtime_state_store.load() if runtime_state_store is not None else None
     current_now = now_provider()
     state = StrategyState(
         current_day=current_now.date(),
@@ -1167,9 +1182,8 @@ def run_user_stream(
         state = apply_user_stream_event_to_state(state=state, event=event, order_statuses=order_statuses)
         if event_id is not None:
             processed_event_ids.add(event_id)
-        if state_store is not None:
-            _merge_save_strategy_state(
-                state_store=state_store,
+        if runtime_state_store is not None:
+            _save_strategy_state(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
@@ -1243,9 +1257,8 @@ def run_user_stream(
                 "stop_price": algo_order.get("triggerPrice"),
                 "event_time": None,
             }
-        if state_store is not None:
-            _merge_save_strategy_state(
-                state_store=state_store,
+        if runtime_state_store is not None:
+            _save_strategy_state(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
@@ -1310,27 +1323,24 @@ def cli_main(
     run_once_live_parser = subparsers.add_parser("run-once-live")
     run_once_live_parser.add_argument("--symbols", nargs="+")
     run_once_live_parser.add_argument("--previous-leader")
-    run_once_live_parser.add_argument("--state-file")
+    run_once_live_parser.add_argument("--runtime-db-file")
     run_once_live_parser.add_argument("--testnet", action="store_true")
     run_once_live_parser.add_argument("--submit-orders", action="store_true")
     run_once_live_parser.add_argument("--audit-log-file")
-    run_once_live_parser.add_argument("--runtime-db-file")
     poll_parser = subparsers.add_parser("poll")
     poll_parser.add_argument("--symbols", nargs="+")
     poll_parser.add_argument("--previous-leader")
-    poll_parser.add_argument("--state-file")
+    poll_parser.add_argument("--runtime-db-file")
     poll_parser.add_argument("--testnet", action="store_true")
     poll_parser.add_argument("--submit-orders", action="store_true")
     poll_parser.add_argument("--restore-positions", action="store_true")
     poll_parser.add_argument("--execute-stop-replacements", action="store_true")
     poll_parser.add_argument("--max-ticks", type=int)
     poll_parser.add_argument("--audit-log-file")
-    poll_parser.add_argument("--runtime-db-file")
     user_stream_parser = subparsers.add_parser("user-stream")
     user_stream_parser.add_argument("--testnet", action="store_true")
-    user_stream_parser.add_argument("--state-file")
-    user_stream_parser.add_argument("--audit-log-file")
     user_stream_parser.add_argument("--runtime-db-file")
+    user_stream_parser.add_argument("--audit-log-file")
     healthcheck_parser = subparsers.add_parser("healthcheck")
     healthcheck_parser.add_argument("--state-file", required=True)
     healthcheck_parser.add_argument("--poll-log-file", required=True)
@@ -1384,11 +1394,11 @@ def cli_main(
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         broker = broker_factory(client)
-        state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
+        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
             explicit_path=args.audit_log_file,
-            explicit_runtime_db_path=args.runtime_db_file,
-            state_store=state_store,
+            runtime_db_path=runtime_db_path,
             source="run-once-live",
         )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
@@ -1399,7 +1409,7 @@ def cli_main(
             client=client,
             broker=broker,
             submit_orders=args.submit_orders,
-            state_store=state_store,
+            runtime_state_store=runtime_state_store,
             audit_recorder=audit_recorder,
         )
         entry_symbols = [order["symbol"] for order in result.execution_plan.entry_orders]
@@ -1412,11 +1422,11 @@ def cli_main(
     if args.command == "poll":
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
-        state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
+        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
             explicit_path=args.audit_log_file,
-            explicit_runtime_db_path=args.runtime_db_file,
-            state_store=state_store,
+            runtime_db_path=runtime_db_path,
             source="poll",
         )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
@@ -1432,7 +1442,7 @@ def cli_main(
             symbols=args.symbols,
             previous_leader_symbol=args.previous_leader,
             submit_orders=args.submit_orders,
-            state_store=state_store,
+            runtime_state_store=runtime_state_store,
             client_factory=lambda: _build_client_from_factory(client_factory=client_factory, testnet=use_testnet),
             broker_factory=broker_factory,
             now_provider=now_provider,
@@ -1446,25 +1456,21 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
-        state_store = FileStateStore(path=Path(os.path.abspath(args.state_file))) if args.state_file else None
-        audit_path = resolve_audit_log_path(explicit_path=args.audit_log_file, state_store=state_store)
-        runtime_db_path = resolve_runtime_db_path(
-            explicit_path=args.runtime_db_file,
-            state_store=state_store,
-            audit_log_path=audit_path,
+        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
+        audit_path = resolve_audit_log_path(
+            explicit_path=args.audit_log_file,
+            runtime_db_path=runtime_db_path,
         )
         print(f"starting user-stream testnet={use_testnet}")
-        try:
-            return run_user_stream_fn(
-                client=client,
-                testnet=use_testnet,
-                logger=print,
-                state_store=state_store,
-                audit_recorder_path=audit_path,
-                runtime_db_path=runtime_db_path,
-            )
-        except TypeError:
-            return run_user_stream_fn(client=client, testnet=use_testnet, logger=print)
+        return run_user_stream_fn(
+            client=client,
+            testnet=use_testnet,
+            logger=print,
+            runtime_state_store=runtime_state_store,
+            audit_recorder_path=audit_path,
+            runtime_db_path=runtime_db_path,
+        )
 
     if args.command == "healthcheck":
         report = build_runtime_health_report(
@@ -1526,18 +1532,19 @@ def cli_main(
     if args.command == "dashboard":
         runtime_settings = load_runtime_settings_from_env()
         submit_orders_env = os.environ.get("SUBMIT_ORDERS", "").strip().lower() in {"1", "true", "yes", "on"}
+        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        audit_path = resolve_audit_log_path(
+            explicit_path=args.audit_log_file,
+            runtime_db_path=runtime_db_path,
+        )
         return run_dashboard_fn(
             host=args.host,
             port=args.port,
             state_file=Path(os.path.abspath(args.state_file)),
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
-            audit_log_file=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else Path(os.path.abspath(args.runtime_db_file)).with_name("audit.jsonl"),
-            runtime_db_file=resolve_runtime_db_path(
-                explicit_path=args.runtime_db_file,
-                state_store=None,
-                audit_log_path=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
-            ),
+            audit_log_file=audit_path,
+            runtime_db_file=runtime_db_path,
             now_provider=now_provider,
             stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "10"),
             testnet=runtime_settings["use_testnet"],
@@ -1552,7 +1559,7 @@ def run_forever(
     symbols: list[str] | None,
     previous_leader_symbol: str | None,
     submit_orders: bool,
-    state_store,
+    runtime_state_store: RuntimeStateStore | None,
     client_factory,
     broker_factory,
     now_provider,
@@ -1620,7 +1627,7 @@ def run_forever(
                     client=client,
                     broker=broker,
                     submit_orders=submit_orders,
-                    state_store=state_store,
+                    runtime_state_store=runtime_state_store,
                     restore_positions=restore_positions,
                     execute_stop_replacements=execute_stop_replacements,
                     market_data_cache=market_data_cache,
@@ -1635,7 +1642,7 @@ def run_forever(
                     client=client,
                     broker=broker,
                     submit_orders=submit_orders,
-                    state_store=state_store,
+                    runtime_state_store=runtime_state_store,
                     restore_positions=restore_positions,
                     execute_stop_replacements=execute_stop_replacements,
                     last_add_on_hour=last_add_on_hour,
