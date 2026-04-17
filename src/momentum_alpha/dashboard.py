@@ -1384,6 +1384,62 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
     )
 
 
+def _build_execution_flow_panel(
+    *,
+    recent_broker_orders: list[dict],
+    recent_algo_orders: list[dict],
+    recent_trade_fills: list[dict],
+    recent_stop_exit_summaries: list[dict],
+) -> str:
+    latest_broker_order = recent_broker_orders[0] if recent_broker_orders else {}
+    latest_algo_order = recent_algo_orders[0] if recent_algo_orders else {}
+    latest_trade_fill = recent_trade_fills[0] if recent_trade_fills else {}
+    latest_stop_exit = recent_stop_exit_summaries[0] if recent_stop_exit_summaries else {}
+
+    def _execution_flow_card(*, label: str, primary: str, secondary: str, detail: str) -> str:
+        return (
+            "<div class='execution-flow-card'>"
+            f"<div class='execution-flow-label'>{escape(label)}</div>"
+            f"<div class='execution-flow-primary'>{escape(primary or 'n/a')}</div>"
+            f"<div class='execution-flow-secondary'>{escape(secondary or 'n/a')}</div>"
+            f"<div class='execution-flow-detail'>{escape(detail or 'n/a')}</div>"
+            "</div>"
+        )
+
+    broker_card = _execution_flow_card(
+        label="Latest Broker Action",
+        primary=str(latest_broker_order.get("action_type") or "n/a"),
+        secondary=f"{latest_broker_order.get('symbol') or '-'} · {latest_broker_order.get('order_type') or '-'}",
+        detail=f"{latest_broker_order.get('order_status') or '-'} · {format_timestamp_for_display(latest_broker_order.get('timestamp'))}",
+    )
+    algo_card = _execution_flow_card(
+        label="Latest Stop Order",
+        primary=str(latest_algo_order.get("algo_status") or "n/a"),
+        secondary=f"{latest_algo_order.get('symbol') or '-'} · {latest_algo_order.get('order_type') or '-'}",
+        detail=f"Trigger {latest_algo_order.get('trigger_price') or 'n/a'} · {format_timestamp_for_display(latest_algo_order.get('timestamp'))}",
+    )
+    fill_card = _execution_flow_card(
+        label="Latest Fill",
+        primary=str(latest_trade_fill.get("trade_id") or "n/a"),
+        secondary=f"{latest_trade_fill.get('symbol') or '-'} · {latest_trade_fill.get('side') or '-'} · {latest_trade_fill.get('order_type') or '-'}",
+        detail=f"{latest_trade_fill.get('quantity') or 'n/a'} @ {latest_trade_fill.get('average_price') or latest_trade_fill.get('last_price') or 'n/a'}",
+    )
+    stop_exit_card = _execution_flow_card(
+        label="Latest Stop Exit",
+        primary=str(latest_stop_exit.get("symbol") or "n/a"),
+        secondary=f"Trigger {latest_stop_exit.get('trigger_price') or 'n/a'} · Exit {latest_stop_exit.get('average_exit_price') or 'n/a'}",
+        detail=f"Slip {latest_stop_exit.get('slippage_pct') or 'n/a'}% · {format_timestamp_for_display(latest_stop_exit.get('timestamp'))}",
+    )
+    return (
+        "<section class='dashboard-section execution-flow-panel'>"
+        "<div class='section-header'>ORDER FLOW</div>"
+        "<div class='execution-flow-grid'>"
+        f"{broker_card}{algo_card}{fill_card}{stop_exit_card}"
+        "</div>"
+        "</section>"
+    )
+
+
 def normalize_dashboard_tab(value: str | None) -> str:
     tab = (value or "").strip().lower()
     return tab if tab in DASHBOARD_TABS else "overview"
@@ -1427,9 +1483,10 @@ def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html:
     )
 
 
-def render_dashboard_execution_tab(*, execution_summary_html: str, trade_history_html: str, stop_slippage_html: str) -> str:
+def render_dashboard_execution_tab(*, execution_flow_html: str, execution_summary_html: str, trade_history_html: str, stop_slippage_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="execution">'
+        f"{execution_flow_html}"
         "<section class='section-frame' data-collapsible-section='execution'>"
         "<div class='section-topbar'>"
         "<div class='section-header'>EXECUTION QUALITY</div>"
@@ -1578,9 +1635,18 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     position_cards_html = render_position_cards(position_details)
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
+    recent_broker_orders = snapshot.get("recent_broker_orders") or []
+    recent_algo_orders = snapshot.get("recent_algo_orders") or []
+    recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
     trade_history_html = render_trade_history_table(trade_fills)
     closed_trades_html = render_closed_trades_table(snapshot.get("recent_trade_round_trips") or [])
-    stop_slippage_html = render_stop_slippage_table(snapshot.get("recent_stop_exit_summaries") or [])
+    stop_slippage_html = render_stop_slippage_table(recent_stop_exit_summaries)
+    execution_flow_html = _build_execution_flow_panel(
+        recent_broker_orders=recent_broker_orders,
+        recent_algo_orders=recent_algo_orders,
+        recent_trade_fills=trade_fills,
+        recent_stop_exit_summaries=recent_stop_exit_summaries,
+    )
     # Build strategy config
     config = strategy_config or snapshot.get("strategy_config") or {}
     config_html = (
@@ -1787,6 +1853,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
             hero_html=hero_html,
         ),
         "execution": render_dashboard_execution_tab(
+            execution_flow_html=execution_flow_html,
             execution_summary_html=execution_summary_html,
             trade_history_html=trade_history_html,
             stop_slippage_html=stop_slippage_html,
@@ -2467,6 +2534,25 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     }}
     .account-snapshot-value {{ font-size: 1.18rem; font-weight: 700; }}
     .account-snapshot-sub {{ margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }}
+    .execution-flow-panel {{ padding: 18px; margin-bottom: 20px; }}
+    .execution-flow-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }}
+    .execution-flow-card {{
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      min-height: 116px;
+    }}
+    .execution-flow-label {{
+      font-size: 0.68rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }}
+    .execution-flow-primary {{ font-size: 1rem; font-weight: 700; word-break: break-word; }}
+    .execution-flow-secondary {{ margin-top: 8px; font-size: 0.8rem; color: var(--fg); word-break: break-word; }}
+    .execution-flow-detail {{ margin-top: 6px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; word-break: break-word; }}
     .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
     .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
     .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
@@ -2513,6 +2599,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .bottom-row {{ grid-template-columns: 1fr; }}
       .account-overview-grid {{ grid-template-columns: repeat(3, 1fr); }}
       .account-snapshot-grid {{ grid-template-columns: repeat(2, 1fr); }}
+      .execution-flow-grid {{ grid-template-columns: repeat(2, 1fr); }}
       .account-panel-header, .account-main-toolbar {{ flex-direction: column; align-items: flex-start; }}
     }}
     @media (max-width: 768px) {{
@@ -2529,6 +2616,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .analytics-row {{ min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
       .account-overview-grid {{ grid-template-columns: 1fr; }}
       .account-snapshot-grid {{ grid-template-columns: 1fr; }}
+      .execution-flow-grid {{ grid-template-columns: 1fr; }}
       .desktop-only {{ display: none; }}
       .mobile-only {{ display: block; }}
       .analytics-table.desktop-only {{ display: none; }}

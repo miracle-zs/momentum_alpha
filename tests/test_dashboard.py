@@ -181,6 +181,66 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("ACTIVE POSITIONS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_render_dashboard_html_execution_tab_surfaces_order_flow_diagnostics(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["recent_broker_orders"] = [
+            {
+                "timestamp": "2026-04-17T00:41:00+00:00",
+                "symbol": "BTCUSDT",
+                "action_type": "replace_stop_order",
+                "order_type": "STOP_MARKET",
+                "side": "SELL",
+                "order_status": "NEW",
+            }
+        ]
+        snapshot["recent_algo_orders"] = [
+            {
+                "timestamp": "2026-04-17T00:41:10+00:00",
+                "symbol": "BTCUSDT",
+                "algo_id": "77",
+                "algo_status": "WORKING",
+                "order_type": "STOP_MARKET",
+                "trigger_price": "81000",
+            }
+        ]
+        snapshot["recent_trade_fills"] = [
+            {
+                "timestamp": "2026-04-17T00:42:00+00:00",
+                "trade_id": "fill-2",
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "quantity": "0.01",
+                "average_price": "82100",
+                "commission": "0.02",
+                "order_status": "FILLED",
+                "order_type": "MARKET",
+            }
+        ]
+        snapshot["recent_stop_exit_summaries"] = [
+            {
+                "timestamp": "2026-04-17T00:50:00+00:00",
+                "symbol": "BTCUSDT",
+                "trigger_price": "81000",
+                "average_exit_price": "80950",
+                "slippage_pct": "0.06",
+                "net_pnl": "-8.00",
+            }
+        ]
+
+        html = render_dashboard_html(snapshot, active_tab="execution")
+
+        self.assertIn("ORDER FLOW", html)
+        self.assertIn("Latest Broker Action", html)
+        self.assertIn("replace_stop_order", html)
+        self.assertIn("Latest Stop Order", html)
+        self.assertIn("WORKING", html)
+        self.assertIn("Latest Fill", html)
+        self.assertIn("fill-2", html)
+        self.assertIn("Latest Stop Exit", html)
+        self.assertIn("80950", html)
+
     def test_render_dashboard_html_moves_full_account_metrics_to_performance_tab(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
@@ -1789,7 +1849,8 @@ console.log(JSON.stringify(cases));
         }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True}, active_tab="execution")
 
         self.assertIn("BTCUSDT", html)
-        self.assertNotIn("stream_order_update", html)
+        fills_section = html[html.index("Recent Fills"):html.index("STOP SLIPPAGE ANALYSIS")]
+        self.assertNotIn("stream_order_update", fills_section)
 
     def test_render_trade_history_table_shows_empty_message(self) -> None:
         from momentum_alpha.dashboard import render_trade_history_table
