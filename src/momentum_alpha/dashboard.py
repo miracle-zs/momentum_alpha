@@ -8,6 +8,7 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from .health import build_runtime_health_report
 from .runtime_store import (
@@ -29,6 +30,7 @@ from .runtime_store import (
 
 DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
+DASHBOARD_TABS = ("overview", "execution", "performance", "system")
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
     if not path.exists():
@@ -1360,7 +1362,165 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
     )
 
 
-def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -> str:
+def normalize_dashboard_tab(value: str | None) -> str:
+    tab = (value or "").strip().lower()
+    return tab if tab in DASHBOARD_TABS else "overview"
+
+
+def render_dashboard_tab_bar(active_tab: str) -> str:
+    labels = {
+        "overview": "Overview",
+        "execution": "Execution",
+        "performance": "Performance",
+        "system": "System",
+    }
+    links = "".join(
+        (
+            f'<a class="dashboard-tab{" is-active" if tab == active_tab else ""}" '
+            f'data-dashboard-tab="{tab}" href="/?tab={tab}">{escape(labels[tab])}</a>'
+        )
+        for tab in DASHBOARD_TABS
+    )
+    return (
+        '<nav class="dashboard-tabs" data-dashboard-section="tab-bar" aria-label="Dashboard views">'
+        f"{links}"
+        "</nav>"
+    )
+
+
+def render_dashboard_overview_tab(*, top_metrics_html: str, position_cards_html: str, account_metrics_panel_html: str, hero_html: str) -> str:
+    return (
+        '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
+        f"<div class='metrics-grid'>{top_metrics_html}</div>"
+        f"{hero_html}"
+        "<section class='section-frame' data-collapsible-section='positions'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>ACTIVE POSITIONS</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='positions'>Collapse</button>"
+        "</div>"
+        f"<div class='dashboard-section section-body'>{position_cards_html}</div>"
+        "</section>"
+        "<section class='section-frame' data-collapsible-section='account'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>ACCOUNT METRICS</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='account'>Collapse</button>"
+        "</div>"
+        f"<div class='section-body'>{account_metrics_panel_html}</div>"
+        "</section>"
+        "</div>"
+    )
+
+
+def render_dashboard_execution_tab(*, execution_summary_html: str, trade_history_html: str, stop_slippage_html: str) -> str:
+    return (
+        '<div class="dashboard-tab-panel" data-dashboard-tab-content="execution">'
+        "<section class='section-frame' data-collapsible-section='execution'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>EXECUTION QUALITY</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='execution'>Collapse</button>"
+        "</div>"
+        "<div class='dashboard-section section-body'>"
+        "<div class='analytics-grid'>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Execution Summary</div>"
+        f"{execution_summary_html}"
+        "</div>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Recent Fills</div>"
+        f"<div class='table-scroll'>{trade_history_html}</div>"
+        "</div>"
+        "<div class='chart-card'>"
+        "<div class='section-header' style='margin-bottom:10px;'>STOP SLIPPAGE ANALYSIS</div>"
+        f"<div class='table-scroll'>{stop_slippage_html}</div>"
+        "</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+        "</div>"
+    )
+
+
+def render_dashboard_performance_tab(*, closed_trades_html: str, performance_summary_html: str) -> str:
+    return (
+        '<div class="dashboard-tab-panel" data-dashboard-tab-content="performance">'
+        "<section class='section-frame' data-collapsible-section='performance'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>STRATEGY PERFORMANCE</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='performance'>Collapse</button>"
+        "</div>"
+        "<div class='dashboard-section section-body'>"
+        "<div class='analytics-grid'>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Round Trips</div>"
+        f"<div class='table-scroll'>{closed_trades_html}</div>"
+        "</div>"
+        f"<div class='chart-card'>{performance_summary_html}</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+        "</div>"
+    )
+
+
+def render_dashboard_system_tab(*, config_html: str, source_html: str, health_items_html: str, recent_events_html: str) -> str:
+    return (
+        '<div class="dashboard-tab-panel" data-dashboard-tab-content="system">'
+        "<section class='section-frame' data-collapsible-section='system'>"
+        "<div class='section-topbar'>"
+        "<div class='section-header'>SYSTEM PANELS</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='system'>Collapse</button>"
+        "</div>"
+        "<div class='dashboard-section bottom-row section-body'>"
+        "<div class='bottom-col'>"
+        "<div class='section-header'>SYSTEM OPERATIONS</div>"
+        f"{config_html}"
+        "<div class='section-header' style='margin-top:12px;'>EVENT SOURCES</div>"
+        f"<div class='source-tags'>{source_html}</div>"
+        "</div>"
+        "<div class='bottom-col'>"
+        "<div class='section-header'>SYSTEM HEALTH</div>"
+        f"<div class='health-grid'>{health_items_html}</div>"
+        "</div>"
+        "<div class='bottom-col'>"
+        "<div class='section-header'>RECENT EVENTS</div>"
+        f"<div class='event-list' style='max-height:200px;overflow-y:auto;'>{recent_events_html}</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+        "</div>"
+    )
+
+
+def render_dashboard_shell(*, health_status: str, latest_update_display: str | None, active_tab: str, tab_bar_html: str, tab_content_html: str) -> str:
+    return (
+        "<body>"
+        "<div class='app'>"
+        "<div class='app-shell'>"
+        "<header class='header'>"
+        "<div class='header-left'>"
+        "<div class='logo'>M</div>"
+        "<div class='title-group'>"
+        "<h1>Momentum Alpha</h1>"
+        "<p>Leader Rotation Strategy · Real-time Trading Monitor</p>"
+        "</div>"
+        "</div>"
+        f"<div class='status-badge {'ok' if health_status == 'OK' else 'fail'}' data-dashboard-section='status'>{escape(health_status)}</div>"
+        "</header>"
+        "<div class='toolbar' data-dashboard-section='toolbar'>"
+        f"<div class='status-line'>Last update <strong id='last-updated-text'>{escape(format_timestamp_for_display(latest_update_display))}</strong></div>"
+        "<div class='status-line'>Auto refresh 5s</div>"
+        "<div class='toolbar-spacer'></div>"
+        "<button type='button' class='action-button' id='manual-refresh-button'>MANUAL REFRESH</button>"
+        "</div>"
+        f"{tab_bar_html}"
+        f"<div class='dashboard-tab-shell' data-dashboard-active-tab='{active_tab}'>{tab_content_html}</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, active_tab: str | None = None) -> str:
+    active_tab = normalize_dashboard_tab(active_tab)
     timeseries = build_dashboard_timeseries_payload(snapshot)
     runtime = snapshot["runtime"]
     latest_signal = runtime.get("latest_signal_decision") or {}
@@ -1543,6 +1703,81 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(trader_metrics['account'].get('current_positions') or 0))} / {escape(str(trader_metrics['account'].get('current_orders') or 0))}</div></div>"
         "</div>"
     )
+    hero_html = (
+        "<section class='hero-grid'>"
+        "<div class='hero-card hero-card-wide'>"
+        "<div class='hero-eyebrow'>LIVE OVERVIEW</div>"
+        "<div class='hero-title'>ACTIVE SIGNAL</div>"
+        "<div class='hero-copy'>Keep the current decision, rotation context, and blocked reasons in one glance before drilling into execution details.</div>"
+        "<div class='decision-grid'>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Decision Type</div>"
+        f"<div class='decision-value'>{escape(str(decision_status))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Target Symbol</div>"
+        f"<div class='decision-value'>{escape(str(latest_signal_symbol))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Blocked Reason</div>"
+        f"<div class='decision-value'>{escape(str(blocked_reason or 'None'))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Decision Time</div>"
+        f"<div class='decision-value'>{escape(latest_signal_time)}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Rotation Count</div>"
+        f"<div class='decision-value'>{escape(str(trader_metrics['signals'].get('rotation_count') or 0))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Blocked Reasons</div>"
+        f"{f'<div class=\"decision-value\" style=\"margin-bottom:8px;\">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}"
+        f"{blocked_reason_breakdown_html}"
+        "</div>"
+        "</div>"
+        "</div>"
+        "<div class='hero-card hero-card-compact'>"
+        "<div class='hero-eyebrow'>RISK &amp; DEPLOYMENT</div>"
+        "<div class='hero-title'>Capital Pressure</div>"
+        "<div class='hero-copy'>Balance available capital against live drawdown and deployed risk before the next tick updates the book.</div>"
+        f"{risk_overview_html}"
+        "</div>"
+        "<div class='hero-card hero-card-compact'>"
+        "<div class='hero-eyebrow'>LEADER ROTATION</div>"
+        "<div class='hero-title'>Sequence Monitor</div>"
+        f"<div class='chart-container'>{timeline_chart}</div>"
+        "<div class='rotation-summary'>"
+        "<div class='rotation-summary-label'>Recent Sequence</div>"
+        f"<div class='rotation-summary-value'>{escape(recent_leader_sequence_html)}</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+    )
+    tab_bar_html = render_dashboard_tab_bar(active_tab)
+    tab_content_html = {
+        "overview": render_dashboard_overview_tab(
+            top_metrics_html=top_metrics_html,
+            position_cards_html=position_cards_html,
+            account_metrics_panel_html=account_metrics_panel_html,
+            hero_html=hero_html,
+        ),
+        "execution": render_dashboard_execution_tab(
+            execution_summary_html=execution_summary_html,
+            trade_history_html=trade_history_html,
+            stop_slippage_html=stop_slippage_html,
+        ),
+        "performance": render_dashboard_performance_tab(
+            closed_trades_html=closed_trades_html,
+            performance_summary_html=performance_summary_html,
+        ),
+        "system": render_dashboard_system_tab(
+            config_html=config_html,
+            source_html=source_html,
+            health_items_html=health_items_html,
+            recent_events_html=recent_events_html,
+        ),
+    }[active_tab]
 
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -1781,6 +2016,48 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       gap: 12px;
       flex-wrap: wrap;
       margin-bottom: 20px;
+    }}
+    .dashboard-tabs {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.02);
+    }}
+    .dashboard-tab {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 120px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      color: var(--fg-muted);
+      text-decoration: none;
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: transform 0.2s, background 0.2s, border-color 0.2s, color 0.2s;
+    }}
+    .dashboard-tab:hover {{
+      transform: translateY(-1px);
+      color: var(--fg);
+      background: rgba(255,255,255,0.04);
+    }}
+    .dashboard-tab.is-active {{
+      color: var(--fg);
+      border-color: var(--border-accent);
+      background: rgba(0,212,255,0.1);
+      box-shadow: 0 0 0 1px rgba(0,212,255,0.08);
+    }}
+    .dashboard-tab-shell {{
+      min-height: 480px;
+    }}
+    .dashboard-tab-panel {{
+      display: block;
     }}
     .toolbar-spacer {{
       flex: 1;
@@ -2199,6 +2476,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       .app-shell {{ padding: 18px; border-radius: 18px; }}
       .metrics-grid {{ grid-template-columns: 1fr; }}
       .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
+      .dashboard-tabs {{ padding: 8px; gap: 8px; }}
+      .dashboard-tab {{ flex: 1 1 calc(50% - 8px); min-width: 0; }}
       .decision-grid {{ grid-template-columns: 1fr; }}
       .positions-grid {{ grid-template-columns: 1fr; }}
       .trade-row {{ min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }}
@@ -2214,157 +2493,13 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     }}
   </style>
 </head>
-<body>
-  <div class="app">
-    <div class="app-shell">
-      <header class="header">
-        <div class="header-left">
-          <div class="logo">M</div>
-          <div class="title-group">
-            <h1>Momentum Alpha</h1>
-            <p>Leader Rotation Strategy · Real-time Trading Monitor</p>
-          </div>
-        </div>
-        <div class="status-badge {'ok' if health_status == 'OK' else 'fail'}" data-dashboard-section="status">{escape(health_status)}</div>
-      </header>
-      <div class="toolbar">
-        <div class="status-line">Last update <strong id="last-updated-text">{escape(format_timestamp_for_display(latest_update_display))}</strong></div>
-        <div class="status-line">Auto refresh 5s</div>
-        <div class="toolbar-spacer"></div>
-        <button type="button" class="action-button" id="manual-refresh-button">MANUAL REFRESH</button>
-      </div>
-      <div class="metrics-grid" data-dashboard-section="top-metrics">{top_metrics_html}</div>
-      <section class="hero-grid" data-dashboard-section="hero">
-        <div class="hero-card hero-card-wide">
-          <div class="hero-eyebrow">LIVE OVERVIEW</div>
-          <div class="hero-title">ACTIVE SIGNAL</div>
-          <div class="hero-copy">Keep the current decision, rotation context, and blocked reasons in one glance before drilling into execution details.</div>
-          <div class="decision-grid">
-            <div class="decision-item">
-              <div class="decision-label">Decision Type</div>
-              <div class="decision-value">{escape(str(decision_status))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Target Symbol</div>
-              <div class="decision-value">{escape(str(latest_signal_symbol))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Blocked Reason</div>
-              <div class="decision-value">{escape(str(blocked_reason or 'None'))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Decision Time</div>
-              <div class="decision-value">{escape(latest_signal_time)}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Rotation Count</div>
-              <div class="decision-value">{escape(str(trader_metrics["signals"].get("rotation_count") or 0))}</div>
-            </div>
-            <div class="decision-item">
-              <div class="decision-label">Blocked Reasons</div>
-              {f'<div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}
-              {blocked_reason_breakdown_html}
-            </div>
-          </div>
-          <div class="source-tags" style="margin-top:12px;">{source_html}</div>
-        </div>
-        <div class="hero-card hero-card-compact">
-          <div class="hero-eyebrow">RISK &amp; DEPLOYMENT</div>
-          <div class="hero-title">Capital Pressure</div>
-          <div class="hero-copy">Balance available capital against live drawdown and deployed risk before the next tick updates the book.</div>
-          {risk_overview_html}
-        </div>
-        <div class="hero-card hero-card-compact">
-          <div class="hero-eyebrow">LEADER ROTATION</div>
-          <div class="hero-title">Sequence Monitor</div>
-          <div class="chart-container">{timeline_chart}</div>
-          <div class="rotation-summary">
-            <div class="rotation-summary-label">Recent Sequence</div>
-            <div class="rotation-summary-value">{escape(recent_leader_sequence_html)}</div>
-          </div>
-        </div>
-      </section>
-      <section class="section-frame" data-collapsible-section="positions" data-dashboard-section="positions">
-        <div class="section-topbar">
-          <div class="section-header">ACTIVE POSITIONS</div>
-          <button type="button" class="section-toggle" data-section-toggle="positions">Collapse</button>
-        </div>
-        <div class="dashboard-section section-body">
-          {position_cards_html}
-        </div>
-      </section>
-      <section class="section-frame" data-collapsible-section="account" data-dashboard-section="account">
-        <div class="section-topbar">
-          <div class="section-header">ACCOUNT METRICS</div>
-          <button type="button" class="section-toggle" data-section-toggle="account">Collapse</button>
-        </div>
-        <div class="section-body">
-          {account_metrics_panel_html}
-        </div>
-      </section>
-      <section class="section-frame" data-collapsible-section="execution" data-dashboard-section="execution">
-        <div class="section-topbar">
-          <div class="section-header">EXECUTION QUALITY</div>
-          <button type="button" class="section-toggle" data-section-toggle="execution">Collapse</button>
-        </div>
-        <div class="dashboard-section section-body">
-        <div class="analytics-grid">
-          <div class="chart-card">
-            <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Execution Summary</div>
-            {execution_summary_html}
-          </div>
-          <div class="chart-card">
-            <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Recent Fills</div>
-            <div class="table-scroll">{trade_history_html}</div>
-          </div>
-          <div class="chart-card">
-            <div class="section-header" style="margin-bottom:10px;">STOP SLIPPAGE ANALYSIS</div>
-            <div class="table-scroll">{stop_slippage_html}</div>
-          </div>
-        </div>
-        </div>
-      </section>
-      <section class="section-frame" data-collapsible-section="performance" data-dashboard-section="performance">
-        <div class="section-topbar">
-          <div class="section-header">STRATEGY PERFORMANCE</div>
-          <button type="button" class="section-toggle" data-section-toggle="performance">Collapse</button>
-        </div>
-        <div class="dashboard-section section-body">
-        <div class="analytics-grid">
-          <div class="chart-card">
-            <div style="font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;">Round Trips</div>
-            <div class="table-scroll">{closed_trades_html}</div>
-          </div>
-          <div class="chart-card">
-            {performance_summary_html}
-          </div>
-        </div>
-        </div>
-      </section>
-      <section class="section-frame" data-collapsible-section="system" data-dashboard-section="system">
-        <div class="section-topbar">
-          <div class="section-header">SYSTEM PANELS</div>
-          <button type="button" class="section-toggle" data-section-toggle="system">Collapse</button>
-        </div>
-        <div class="dashboard-section bottom-row section-body">
-        <div class="bottom-col">
-          <div class="section-header">SYSTEM OPERATIONS</div>
-          {config_html}
-          <div class="section-header" style="margin-top:12px;">EVENT SOURCES</div>
-          <div class="source-tags">{source_html}</div>
-        </div>
-        <div class="bottom-col">
-          <div class="section-header">SYSTEM HEALTH</div>
-          <div class="health-grid">{health_items_html}</div>
-        </div>
-        <div class="bottom-col">
-          <div class="section-header">RECENT EVENTS</div>
-          <div class="event-list" style="max-height:200px;overflow-y:auto;">{recent_events_html}</div>
-        </div>
-        </div>
-      </section>
-    </div>
-  </div>
+{render_dashboard_shell(
+    health_status=health_status,
+    latest_update_display=latest_update_display,
+    active_tab=active_tab,
+    tab_bar_html=tab_bar_html,
+    tab_content_html=tab_content_html,
+)}
   <div class="refresh-indicator {'error' if health_status != 'OK' else ''}" id="refresh-indicator">
     <div class="refresh-dot"></div>
     <span id="refresh-indicator-text">{'Unable to refresh' if health_status != 'OK' else 'Auto refresh: 5s'}</span>
@@ -2375,13 +2510,9 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     const COLLAPSED_SECTIONS_STORAGE_KEY = 'dashboard.collapsed-sections';
     const DASHBOARD_SECTION_SELECTORS = [
       '[data-dashboard-section="status"]',
-      '[data-dashboard-section="top-metrics"]',
-      '[data-dashboard-section="hero"]',
-      '[data-dashboard-section="positions"]',
-      '[data-dashboard-section="account"]',
-      '[data-dashboard-section="execution"]',
-      '[data-dashboard-section="performance"]',
-      '[data-dashboard-section="system"]',
+      '[data-dashboard-section="toolbar"]',
+      '[data-dashboard-section="tab-bar"]',
+      '[data-dashboard-active-tab]',
     ];
 
     function getAccountMetricsData() {{
@@ -2631,7 +2762,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       const refreshButton = document.getElementById('manual-refresh-button');
       try {{
         if (refreshButton) refreshButton.classList.add('is-refreshing');
-        const res = await fetch(window.location.pathname, {{ cache: 'no-store' }});
+        const currentUrl = `${{window.location.pathname}}${{window.location.search}}`;
+        const res = await fetch(currentUrl, {{ cache: 'no-store' }});
         if (!res.ok) {{
           setRefreshIndicatorState('error', 'Unable to refresh');
           return;
@@ -2682,6 +2814,9 @@ def run_dashboard_server(
 
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            active_tab = normalize_dashboard_tab(query_params.get("tab", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
                 state_file=state_file,
@@ -2695,12 +2830,12 @@ def run_dashboard_server(
                 testnet=testnet,
                 submit_orders=submit_orders,
             )
-            if self.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
-                if self.path == "/api/dashboard/summary":
+            if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
+                if parsed_url.path == "/api/dashboard/summary":
                     payload = build_dashboard_summary_payload(snapshot)
-                elif self.path == "/api/dashboard/timeseries":
+                elif parsed_url.path == "/api/dashboard/timeseries":
                     payload = build_dashboard_timeseries_payload(snapshot)
-                elif self.path == "/api/dashboard/tables":
+                elif parsed_url.path == "/api/dashboard/tables":
                     payload = build_dashboard_tables_payload(snapshot)
                 else:
                     payload = snapshot
@@ -2711,8 +2846,8 @@ def run_dashboard_server(
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if self.path == "/":
-                body = render_dashboard_html(snapshot).encode("utf-8")
+            if parsed_url.path == "/":
+                body = render_dashboard_html(snapshot, active_tab=active_tab).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
