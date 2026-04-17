@@ -2309,6 +2309,66 @@ console.log(JSON.stringify(cases));
         self.assertIn("signal-breakdown-label", html)
         self.assertIn("signal-breakdown-count", html)
 
+    def test_render_dashboard_html_falls_back_to_stop_prices_for_slippage_summary_and_compacts_empty_blocked_state(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "BASEUSDT",
+                    "position_count": 0,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {}},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000.00",
+                        "available_balance": "900.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {
+                        "decision_type": "no_action",
+                        "symbol": "BASEUSDT",
+                        "timestamp": "2026-04-17T00:04:00+00:00",
+                        "payload": {},
+                    },
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-17T00:00:00+00:00",
+                        "wallet_balance": "1000.00",
+                        "available_balance": "900.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    }
+                ],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [
+                    {"timestamp": "2026-04-15T00:35:00+00:00", "symbol": "BBBUSDT", "trigger_price": "10.0", "average_exit_price": "9.85", "commission": "0.20", "net_pnl": "-10.00"},
+                    {"timestamp": "2026-04-15T00:45:00+00:00", "symbol": "CCCUSDT", "trigger_price": "20.0", "average_exit_price": "19.50", "commission": "0.30", "net_pnl": "-20.00"},
+                ],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "leader_history": [],
+                "recent_events": [],
+                "recent_broker_orders": [],
+                "event_counts": {},
+                "source_counts": {},
+                "pulse_points": [],
+                "warnings": [],
+            }
+        )
+
+        self.assertIn("2.00%", html)
+        self.assertIn("2.50%", html)
+        self.assertIn("No blocked signals", html)
+        blocked_section = html[html.index("Blocked Reasons"):html.index("source-tags", html.index("Blocked Reasons"))]
+        self.assertNotIn('class="decision-value"', blocked_section)
+
     def test_render_dashboard_html_surfaces_rotation_summary_and_risk_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 

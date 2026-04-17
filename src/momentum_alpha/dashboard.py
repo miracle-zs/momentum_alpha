@@ -424,8 +424,16 @@ def build_trader_summary_metrics(
     durations = [duration for duration in durations if duration is not None]
     avg_hold_time_seconds = (sum(durations) / len(durations)) if durations else None
 
-    slippages = [_parse_numeric(item.get("slippage_pct")) for item in scoped_stop_exits]
-    slippages = [slippage for slippage in slippages if slippage is not None]
+    slippages: list[float] = []
+    for item in scoped_stop_exits:
+        slippage = _parse_numeric(item.get("slippage_pct"))
+        if slippage is None:
+            trigger_price = _parse_numeric(item.get("trigger_price"))
+            average_exit_price = _parse_numeric(item.get("average_exit_price"))
+            if trigger_price not in (None, 0) and average_exit_price is not None:
+                slippage = abs((average_exit_price - trigger_price) / trigger_price) * 100
+        if slippage is not None:
+            slippages.append(slippage)
     avg_slippage_pct = (sum(slippages) / len(slippages)) if slippages else None
     max_slippage_pct = max(slippages) if slippages else None
     fee_total = sum(commissions) if commissions else None
@@ -785,16 +793,16 @@ def render_position_cards(positions: list[dict]) -> str:
             f"<div class='position-metric'><span class='metric-label'>Qty</span><span class='metric-value'>{qty}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Entry</span><span class='metric-value'>{entry}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Stop</span><span class='metric-value metric-danger'>{stop}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Risk</span><span class='metric-value'>{risk}</span></div>"
+            f"<div class='position-metric position-risk'><span class='metric-label'>Risk</span><span class='metric-value'>{risk}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Risk %</span><span class='metric-value'>{risk_pct}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Legs</span><span class='metric-value'>{leg_count}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Opened</span><span class='metric-value'>{opened_at}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Last</span><span class='metric-value'>{latest_price}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>Last</span><span class='metric-value'>{latest_price}</span></div>"
             f"<div class='position-metric'><span class='metric-label'>Notional</span><span class='metric-value'>{notional_exposure}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>PnL %</span><span class='metric-value'>{pnl_pct}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Dist to Stop</span><span class='metric-value'>{distance_to_stop_pct}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>R</span><span class='metric-value'>{r_multiple}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>PnL %</span><span class='metric-value'>{pnl_pct}</span></div>"
+            f"<div class='position-metric position-risk'><span class='metric-label'>Dist to Stop</span><span class='metric-value'>{distance_to_stop_pct}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>R</span><span class='metric-value'>{r_multiple}</span></div>"
             f"</div>"
             f"<div class='position-legs'>{escape(legs_str)}</div>"
             f"</div>"
@@ -1422,7 +1430,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     blocked_reason_summary = ", ".join(
         f"{reason}: {count}"
         for reason, count in blocked_reason_counts.items()
-    ) or "n/a"
+    ) or "No blocked signals"
     blocked_reason_breakdown_html = (
         "<div class='signal-breakdown'>"
         + "".join(
@@ -1995,8 +2003,21 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .position-header {{ display: flex; justify-content: space-between; margin-bottom: 10px; }}
     .position-symbol {{ font-weight: 700; color: var(--accent); }}
     .position-direction {{ font-size: 0.75rem; color: var(--fg-muted); }}
-    .position-metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 0.8rem; }}
-    .position-metric {{ text-align: center; }}
+    .position-metrics {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 0.82rem; }}
+    .position-metric {{ text-align: center; padding: 4px 2px; }}
+    .position-metric.position-live {{
+      background: rgba(0,212,255,0.06);
+      border: 1px solid rgba(0,212,255,0.12);
+      border-radius: 8px;
+    }}
+    .position-metric.position-live .metric-value {{
+      font-size: 0.96rem;
+      font-weight: 700;
+    }}
+    .position-metric.position-risk .metric-value {{
+      font-size: 0.92rem;
+      font-weight: 700;
+    }}
     .metric-danger {{ color: var(--danger); }}
     .metric-note {{ display: block; margin-top: 4px; font-size: 0.62rem; color: var(--fg-muted); }}
     .position-legs {{ margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }}
@@ -2007,7 +2028,14 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .trade-row:last-child {{ border-bottom: none; }}
     .analytics-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
     .analytics-table {{ max-height: 220px; overflow-y: auto; }}
-    .analytics-row {{ display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr 0.7fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; align-items: center; }}
+    .analytics-row {{ display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr 0.7fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; align-items: center; }}
+    .analytics-row.analytics-row-header {{
+      color: var(--fg-muted);
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }}
     .analytics-row:last-child {{ border-bottom: none; }}
     .analytics-main {{ color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     .trade-time {{ color: var(--fg-muted); }}
@@ -2029,7 +2057,16 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
     .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
     .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
-    .account-panel-note {{ font-size: 0.74rem; color: var(--warning); max-width: 420px; line-height: 1.45; }}
+    .account-panel-note {{
+      font-size: 0.76rem;
+      color: var(--warning);
+      max-width: 420px;
+      line-height: 1.45;
+      padding: 10px 12px;
+      background: rgba(255,184,0,0.08);
+      border: 1px solid rgba(255,184,0,0.22);
+      border-radius: var(--radius-sm);
+    }}
     .account-range-switches, .account-metric-switches {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .account-chip {{ border: 1px solid var(--border); background: rgba(0,0,0,0.24); color: var(--fg-muted); border-radius: 999px; padding: 8px 12px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; }}
     .account-chip.active {{ color: var(--accent); border-color: var(--border-accent); background: rgba(0,212,255,0.08); }}
@@ -2118,7 +2155,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         </div>
         <div class="decision-item">
           <div class="decision-label">Blocked Reasons</div>
-          <div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>
+          {f'<div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}
           {blocked_reason_breakdown_html}
         </div>
         </div>
