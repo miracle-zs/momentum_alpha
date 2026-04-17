@@ -1247,8 +1247,20 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
     }
 
 
+def _detect_account_discontinuity(points: list[dict]) -> str | None:
+    parsed = [_parse_numeric(point.get("equity")) for point in points]
+    for previous, current in zip(parsed, parsed[1:]):
+        if previous in (None, 0) or current is None:
+            continue
+        if abs(current - previous) / abs(previous) >= 0.5:
+            return "Large equity jump detected in visible range; verify whether this reflects transfers, resets, or snapshot gaps."
+    return None
+
+
 def _build_account_metrics_panel(points: list[dict]) -> str:
     stats = _compute_account_range_stats(points)
+    discontinuity_note = _detect_account_discontinuity(points)
+    note_html = f"<div class='account-panel-note'>{escape(discontinuity_note)}</div>" if discontinuity_note else ""
     data_json = json.dumps(points, ensure_ascii=False)
     initial_chart = (
         "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for account history</span></div>"
@@ -1261,6 +1273,7 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<div class='account-panel-header'>"
         "<div><div class='account-panel-title'>ACCOUNT OVERVIEW</div>"
         "<div class='account-panel-subtitle'>Wallet, equity, drawdown, and time-ranged performance from account snapshots.</div></div>"
+        f"{note_html}"
         "<div class='account-range-switches'>"
         "<button type='button' class='account-chip' data-account-range=\"1H\">1H</button>"
         "<button type='button' class='account-chip' data-account-range=\"6H\">6H</button>"
@@ -1400,6 +1413,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     def _format_pct(value: float | None, *, signed: bool = False) -> str:
         if value is None:
             return "n/a"
+        if signed and float(value) == 0:
+            return "0.00%"
         return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
 
     performance_win_rate = trader_metrics["performance"].get("win_rate")
@@ -1416,49 +1431,70 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
         )
         + "</div>"
         if blocked_reason_counts
-        else "<div class='signal-breakdown empty'><div class='signal-breakdown-empty'>No blocked signals</div></div>"
+        else "<div class='signal-breakdown-empty compact'>No blocked signals</div>"
     )
+    recent_leader_sequence = [str(item.get("symbol") or "-") for item in leader_history[:5]]
+    recent_leader_sequence_html = (
+        " \u2192 ".join(recent_leader_sequence)
+        if len(recent_leader_sequence) >= 2
+        else "insufficient history"
+    )
+    open_risk_pct = trader_metrics["account"].get("open_risk_pct")
+    if open_risk_pct is None:
+        open_risk_state = ""
+    elif open_risk_pct > 60:
+        open_risk_state = "danger"
+    elif open_risk_pct >= 30:
+        open_risk_state = "warning"
+    else:
+        open_risk_state = "normal"
     top_metric_cards = [
         (
             "TODAY NET PNL",
             _format_metric(trader_metrics["account"].get("today_net_pnl"), signed=True),
             "Adjusted equity delta across visible account history",
+            "",
         ),
         (
             "EQUITY",
             _format_metric(trader_metrics["account"].get("current_equity")),
             "Latest account snapshot",
+            "",
         ),
         (
             "AVAILABLE BALANCE",
             _format_metric(trader_metrics["account"].get("current_available_balance")),
             "Capital free to deploy",
+            "",
         ),
         (
             "MARGIN USAGE",
             _format_pct(trader_metrics["account"].get("margin_usage_pct")),
             "1 - available balance / equity",
+            "",
         ),
         (
             "OPEN RISK / EQUITY",
             _format_pct(trader_metrics["account"].get("open_risk_pct")),
             f"{_format_metric(trader_metrics['account'].get('open_risk'))} USDT at risk",
+            open_risk_state,
         ),
         (
             "CURRENT DRAWDOWN",
             _format_metric(account_range_stats.get("drawdown_abs"), signed=True),
             _format_pct(account_range_stats.get("drawdown_pct"), signed=True),
+            "",
         ),
     ]
     top_metrics_html = "".join(
         (
-            "<div class='metric'>"
+            f"<div class='metric {metric_state}'>"
             f"<div class='metric-label'>{label}</div>"
             f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
             f"<div class='metric-sub'>{escape(subtext)}</div>"
             "</div>"
         )
-        for label, value, subtext in top_metric_cards
+        for label, value, subtext, metric_state in top_metric_cards
     )
     execution_summary_html = (
         "<div class='decision-grid'>"
@@ -1602,6 +1638,14 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .metric:hover {{
       transform: translateY(-2px);
       box-shadow: var(--shadow);
+    }}
+    .metric.warning {{
+      border-color: rgba(255,184,0,0.35);
+      box-shadow: 0 0 0 1px rgba(255,184,0,0.08);
+    }}
+    .metric.danger {{
+      border-color: rgba(255,68,102,0.38);
+      box-shadow: 0 0 0 1px rgba(255,68,102,0.1);
     }}
     .metric::before {{
       content: '';
@@ -1801,6 +1845,31 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       font-size: 0.78rem;
       color: var(--fg-muted);
     }}
+    .signal-breakdown-empty.compact {{
+      padding: 8px 10px;
+      display: inline-flex;
+      align-items: center;
+      min-height: auto;
+    }}
+    .rotation-summary {{
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.18);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+    }}
+    .rotation-summary-label {{
+      font-size: 0.68rem;
+      color: var(--fg-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }}
+    .rotation-summary-value {{
+      font-size: 0.82rem;
+      color: var(--fg);
+      word-break: break-word;
+    }}
     .pulse-container {{
       display: flex;
       align-items: flex-end;
@@ -1960,6 +2029,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
     .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
     .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
     .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
+    .account-panel-note {{ font-size: 0.74rem; color: var(--warning); max-width: 420px; line-height: 1.45; }}
     .account-range-switches, .account-metric-switches {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .account-chip {{ border: 1px solid var(--border); background: rgba(0,0,0,0.24); color: var(--fg-muted); border-radius: 999px; padding: 8px 12px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; }}
     .account-chip.active {{ color: var(--accent); border-color: var(--border-accent); background: rgba(0,212,255,0.08); }}
@@ -2057,6 +2127,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None) -
       <div class="decision-half">
         <div class="section-header">LEADER ROTATION</div>
         <div class="chart-container">{timeline_chart}</div>
+        <div class="rotation-summary">
+          <div class="rotation-summary-label">Recent Sequence</div>
+          <div class="rotation-summary-value">{escape(recent_leader_sequence_html)}</div>
+        </div>
       </div>
     </section>
     <section class="dashboard-section">

@@ -2308,3 +2308,105 @@ console.log(JSON.stringify(cases));
         self.assertIn("signal-breakdown-item", html)
         self.assertIn("signal-breakdown-label", html)
         self.assertIn("signal-breakdown-count", html)
+
+    def test_render_dashboard_html_surfaces_rotation_summary_and_risk_state(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "BASEUSDT",
+                    "position_count": 2,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {"market_context": {"candidates": []}}},
+                    "latest_account_snapshot": {
+                        "equity": "1367.35",
+                        "available_balance": "401.78",
+                        "wallet_balance": "952.03",
+                        "unrealized_pnl": "415.32",
+                        "position_count": 2,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {
+                        "decision_type": "no_action",
+                        "symbol": "BASEUSDT",
+                        "timestamp": "2026-04-17T00:04:00+00:00",
+                        "payload": {},
+                    },
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-16T00:00:00+00:00",
+                        "equity": "1000",
+                        "wallet_balance": "1000",
+                        "adjusted_equity": "1000",
+                        "unrealized_pnl": "0",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                    },
+                    {
+                        "timestamp": "2026-04-17T00:00:00+00:00",
+                        "equity": "1367.35",
+                        "wallet_balance": "952.03",
+                        "adjusted_equity": "1367.35",
+                        "unrealized_pnl": "415.32",
+                        "position_count": 2,
+                        "open_order_count": 0,
+                    },
+                ],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "leader_history": [
+                    {"timestamp": "2026-04-17T00:01:00+00:00", "symbol": "BASEUSDT"},
+                    {"timestamp": "2026-04-17T00:02:00+00:00", "symbol": "ORDIUSDT"},
+                    {"timestamp": "2026-04-17T00:03:00+00:00", "symbol": "BASEUSDT"},
+                ],
+                "recent_events": [],
+                "recent_broker_orders": [],
+                "event_counts": {},
+                "source_counts": {},
+                "pulse_points": [],
+                "warnings": [],
+                "strategy_config": {"submit_orders": True},
+                "state_positions": {
+                    "BASEUSDT": {"symbol": "BASEUSDT", "weighted_avg_entry_price": "0.17", "total_quantity": "31119", "stop_price": "0.15", "risk": "482.94"},
+                    "ORDIUSDT": {"symbol": "ORDIUSDT", "weighted_avg_entry_price": "7.04", "total_quantity": "62.6", "stop_price": "6.10", "risk": "440.76"},
+                },
+            }
+        )
+
+        self.assertIn("Recent Sequence", html)
+        self.assertIn("BASEUSDT → ORDIUSDT → BASEUSDT", html)
+        self.assertIn("metric warning", html)
+        self.assertIn("No blocked signals", html)
+
+    def test_build_account_metrics_panel_surfaces_large_jump_note(self) -> None:
+        from momentum_alpha.dashboard import _build_account_metrics_panel
+
+        html = _build_account_metrics_panel(
+            [
+                {
+                    "timestamp": "2026-04-16T00:00:00+00:00",
+                    "equity": "100.00",
+                    "wallet_balance": "100.00",
+                    "adjusted_equity": "100.00",
+                    "unrealized_pnl": "0.00",
+                    "position_count": 0,
+                    "open_order_count": 0,
+                },
+                {
+                    "timestamp": "2026-04-16T01:00:00+00:00",
+                    "equity": "1000.00",
+                    "wallet_balance": "1000.00",
+                    "adjusted_equity": "1000.00",
+                    "unrealized_pnl": "0.00",
+                    "position_count": 0,
+                    "open_order_count": 0,
+                },
+            ]
+        )
+
+        self.assertIn("Large equity jump detected", html)
