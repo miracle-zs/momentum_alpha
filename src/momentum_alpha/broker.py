@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from momentum_alpha.execution import ExecutionPlan
+from momentum_alpha.orders import is_strategy_client_order_id
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -17,7 +21,7 @@ class BinanceBroker:
                 responses.append(self.client.send(self.client.new_order(**order)))
                 submitted_entry_symbols.append(order.get("symbol"))
             except Exception as exc:
-                print(f"entry order failed for {order.get('symbol')}: {exc}")
+                logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
                 submitted_entry_symbols.append(None)
         for index, order in enumerate(plan.stop_orders):
             if index < len(submitted_entry_symbols) and submitted_entry_symbols[index] is None:
@@ -25,7 +29,7 @@ class BinanceBroker:
             try:
                 responses.append(self.client.send(self.client.new_algo_order(**order)))
             except Exception as exc:
-                print(f"stop order failed for {order.get('symbol')}: {exc}")
+                logger.error(f"stop order failed for {order.get('symbol')}: {exc}")
         return responses
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
@@ -39,10 +43,11 @@ class BinanceBroker:
             open_orders = self.client.fetch_open_algo_orders(symbol=symbol)
             for order in open_orders:
                 order_type = order.get("type") or order.get("orderType")
-                if order_type == "STOP_MARKET":
+                client_algo_id = order.get("clientAlgoId")
+                if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_algo_id):
                     self.client.cancel_algo_order(
                         algo_id=order.get("algoId"),
-                        client_algo_id=order.get("clientAlgoId"),
+                        client_algo_id=client_algo_id,
                     )
             order_params = {
                 "symbol": symbol,

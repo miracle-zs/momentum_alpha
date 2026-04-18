@@ -16,5 +16,5 @@ def run_loop(*, run_once, now_provider, sleep_fn, max_ticks: int | None = None, 
                 else:
                     raise
             last_seen_minute = minute_key
+            ticks += 1
         sleep_fn(1)
-        ticks += 1

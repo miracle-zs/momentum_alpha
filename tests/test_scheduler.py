@@ -37,7 +37,7 @@ class SchedulerTests(unittest.TestCase):
             run_once=fake_run_once,
             now_provider=fake_now,
             sleep_fn=fake_sleep,
-            max_ticks=3,
+            max_ticks=2,
         )
         self.assertEqual(len(calls), 2)
         self.assertEqual(calls[0].minute, 1)
@@ -51,6 +51,7 @@ class SchedulerTests(unittest.TestCase):
             [
                 datetime(2026, 4, 15, 1, 1, 1, tzinfo=timezone.utc),
                 datetime(2026, 4, 15, 1, 1, 20, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 1, 40, tzinfo=timezone.utc),
             ]
         )
         calls = []
@@ -59,7 +60,7 @@ class SchedulerTests(unittest.TestCase):
             run_once=lambda now: calls.append(now),
             now_provider=lambda: next(times),
             sleep_fn=lambda seconds: None,
-            max_ticks=2,
+            max_ticks=1,
         )
         self.assertEqual(len(calls), 1)
 
@@ -70,6 +71,7 @@ class SchedulerTests(unittest.TestCase):
             [
                 datetime(2026, 4, 15, 1, 1, 0, tzinfo=timezone.utc),
                 datetime(2026, 4, 15, 1, 2, 0, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 3, 0, tzinfo=timezone.utc),
             ]
         )
         calls = []
