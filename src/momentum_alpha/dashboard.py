@@ -970,7 +970,11 @@ def load_dashboard_snapshot(
 
     # Load state from runtime database
     if runtime_db_file.exists():
-        runtime_state = RuntimeStateStore(path=runtime_db_file).load()
+        try:
+            runtime_state = RuntimeStateStore(path=runtime_db_file).load()
+        except Exception as exc:
+            warnings.append(f"runtime state unavailable path={runtime_db_file} error={exc}")
+            runtime_state = None
         if runtime_state is not None:
             state_payload = {
                 "current_day": runtime_state.current_day,
@@ -3192,8 +3196,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       indicator.classList.toggle('error', state === 'error');
       indicatorText.textContent = label;
     }}
-    async function refreshDashboard() {{
+    async function refreshDashboard(force = false) {{
       const refreshButton = document.getElementById('manual-refresh-button');
+      const activeTab = document.querySelector('[data-dashboard-active-tab]')?.dataset.dashboardActiveTab;
+      if (!force && activeTab === 'performance') return;
       try {{
         if (refreshButton) refreshButton.classList.add('is-refreshing');
         const currentUrl = `${{window.location.pathname}}${{window.location.search}}`;
@@ -3220,7 +3226,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     }}
     initializeAccountMetrics();
     bindDashboardControls();
-    setInterval(refreshDashboard, 5000);
+    setInterval(() => refreshDashboard(false), 5000);
   </script>
 </body>
 </html>"""

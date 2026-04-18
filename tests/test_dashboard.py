@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -378,7 +379,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("交易监控面板", overview_html)
         self.assertIn("OK", overview_html)
         self.assertIn("INUSDT", overview_html)
-        self.assertIn("setInterval(refreshDashboard, 5000)", overview_html)
+        self.assertIn("setInterval(() => refreshDashboard(false), 5000)", overview_html)
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
@@ -1190,6 +1191,53 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["runtime"]["previous_leader_symbol"], "BLESSUSDT")
             self.assertEqual(snapshot["runtime"]["position_count"], 1)
             self.assertEqual(snapshot["runtime"]["order_status_count"], 4)
+
+    def test_load_dashboard_snapshot_degrades_when_runtime_state_load_fails(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import insert_account_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 18, 7, 0, tzinfo=timezone.utc)
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            runtime_db_file = root / "runtime.db"
+
+            for path in (poll_log_file, user_stream_log_file):
+                path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+
+            insert_account_snapshot(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=5),
+                source="poll",
+                wallet_balance="1000.00",
+                available_balance="950.00",
+                equity="1010.00",
+                unrealized_pnl="10.00",
+                position_count=1,
+                open_order_count=0,
+                leader_symbol="BTCUSDT",
+                payload={},
+            )
+
+            with patch(
+                "momentum_alpha.dashboard.RuntimeStateStore.load",
+                side_effect=Exception("database disk image is malformed"),
+            ):
+                snapshot = load_dashboard_snapshot(
+                    now=now,
+                    poll_log_file=poll_log_file,
+                    user_stream_log_file=user_stream_log_file,
+                    runtime_db_file=runtime_db_file,
+                    recent_limit=10,
+                )
+
+            self.assertEqual(snapshot["runtime"]["latest_account_snapshot"]["equity"], "1010.00")
+            self.assertTrue(
+                any("runtime state unavailable" in warning for warning in snapshot["warnings"]),
+                snapshot["warnings"],
+            )
 
     def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
@@ -2303,6 +2351,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("localStorage.getItem('dashboard.account.range') || '1D'", html)
         self.assertIn("/api/dashboard/timeseries", html)
         self.assertIn("range=${encodeURIComponent(range)}", html)
+        self.assertIn("const activeTab = document.querySelector('[data-dashboard-active-tab]')?.dataset.dashboardActiveTab;", html)
+        self.assertIn("if (!force && activeTab === 'performance') return;", html)
 
     def test_filter_rows_for_range_supports_requested_windows(self) -> None:
         from momentum_alpha.dashboard import _filter_rows_for_range
