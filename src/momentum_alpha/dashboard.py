@@ -3213,7 +3213,28 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         DASHBOARD_SECTION_SELECTORS.forEach((selector) => replaceSectionFromDocument(nextDocument, selector));
         const nextTitle = nextDocument.querySelector('title');
         if (nextTitle) document.title = nextTitle.textContent || document.title;
-        initializeAccountMetrics();
+        // Preserve user-selected range on refresh
+        const savedRange = localStorage.getItem('dashboard.account.range') || '1D';
+        if (savedRange !== '1D') {{
+          // User selected a non-default range, reload data via API
+          const savedMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
+          try {{
+            const tsRes = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(savedRange)}}`, {{ cache: 'no-store' }});
+            if (tsRes.ok) {{
+              const payload = await tsRes.json();
+              const accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
+              const chartNode = document.getElementById('account-metrics-chart');
+              if (chartNode && accountMetricsData.length) {{
+                chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, savedMetric);
+              }}
+              // Update button states
+              document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === savedMetric));
+              document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === savedRange));
+            }}
+          }} catch (e) {{
+            console.error('Failed to reload account metrics:', e);
+          }}
+        }}
         bindDashboardControls();
         setRefreshIndicatorState('ok', 'Auto refresh: 5s');
       }} catch (e) {{
