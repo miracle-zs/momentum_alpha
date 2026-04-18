@@ -251,10 +251,9 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("HOME COMMAND", overview_html)
         self.assertNotIn("ACCOUNT OVERVIEW", overview_html)
-        self.assertNotIn("data-account-range=\"24H\"", overview_html)
         self.assertIn("ACCOUNT METRICS", performance_html)
         self.assertIn("ACCOUNT OVERVIEW", performance_html)
-        self.assertIn("data-account-range=\"24H\"", performance_html)
+        self.assertIn("data-account-range=\"1D\"", performance_html)
         self.assertIn("data-account-metric=\"equity\"", performance_html)
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
@@ -307,7 +306,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=None,
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -334,7 +332,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=None,
                 runtime_db_file=runtime_db_file,
                 recent_limit=5,
             )
@@ -803,7 +800,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 25.0)
@@ -841,7 +838,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 35.0)
@@ -881,7 +878,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 35.0)
@@ -954,7 +951,7 @@ class DashboardTests(unittest.TestCase):
                 {"symbol": "AAAUSDT", "risk": "50.00"},
                 {"symbol": "BBBUSDT", "risk": "25.00"},
             ],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 80.0)
@@ -986,7 +983,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertIsNone(metrics["account"]["today_net_pnl"])
@@ -1034,7 +1031,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 0.0)
@@ -1054,7 +1051,7 @@ class DashboardTests(unittest.TestCase):
                 "leader_history": [],
             },
             position_details=[],
-            range_key="24H",
+            range_key="1D",
         )
 
         self.assertEqual(metrics["account"]["today_net_pnl"], 35.0)
@@ -1075,10 +1072,9 @@ class DashboardTests(unittest.TestCase):
             now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
-            audit_log_file = root / "audit.jsonl"
             runtime_db_file = root / "runtime.db"
 
-            for path in (poll_log_file, user_stream_log_file, audit_log_file):
+            for path in (poll_log_file, user_stream_log_file):
                 path.write_text("", encoding="utf-8")
                 os.utime(path, (now.timestamp(), now.timestamp()))
 
@@ -1126,7 +1122,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=audit_log_file,
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -1149,10 +1144,9 @@ class DashboardTests(unittest.TestCase):
             now = datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc)
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
-            audit_log_file = root / "audit.jsonl"
             runtime_db_file = root / "runtime.db"
 
-            for path in (poll_log_file, user_stream_log_file, audit_log_file):
+            for path in (poll_log_file, user_stream_log_file):
                 path.write_text("", encoding="utf-8")
                 os.utime(path, (now.timestamp(), now.timestamp()))
 
@@ -1189,7 +1183,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=audit_log_file,
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -1294,7 +1287,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=root / "missing-audit.jsonl",
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -1433,7 +1425,6 @@ class DashboardTests(unittest.TestCase):
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=root / "missing-audit.jsonl",
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -2183,94 +2174,6 @@ console.log(JSON.stringify(cases));
         self.assertIn("1.00%", html)
         self.assertNotIn("Risk %</span><span class='metric-value'>n/a", html)
 
-    def test_render_dashboard_html_positions_fall_back_to_state_positions(self) -> None:
-        from momentum_alpha.dashboard import render_dashboard_html
-
-        html = render_dashboard_html({
-            "health": {"overall_status": "OK", "items": []},
-            "runtime": {
-                "previous_leader_symbol": "BTCUSDT",
-                "position_count": 1,
-                "order_status_count": 0,
-                "latest_position_snapshot": {"payload": {}},
-                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
-                "latest_signal_decision": {},
-            },
-            "state_positions": {
-                "BTCUSDT": {
-                    "symbol": "BTCUSDT",
-                    "stop_price": "81000",
-                    "legs": [
-                        {
-                            "symbol": "BTCUSDT",
-                            "quantity": "0.01",
-                            "entry_price": "82000",
-                            "stop_price": "81000",
-                            "opened_at": "2026-04-15T09:15:00+00:00",
-                            "leg_type": "base",
-                        }
-                    ],
-                }
-            },
-            "recent_broker_orders": [],
-            "recent_account_snapshots": [],
-            "recent_events": [],
-            "event_counts": {},
-            "source_counts": {},
-            "leader_history": [],
-            "pulse_points": [],
-            "warnings": [],
-        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False})
-
-        self.assertIn("BTCUSDT", html)
-        self.assertNotIn("No positions", html)
-        self.assertIn("1.00%", html)
-
-    def test_render_dashboard_html_positions_fall_back_to_state_position_objects(self) -> None:
-        from momentum_alpha.dashboard import render_dashboard_html
-        from momentum_alpha.models import Position, PositionLeg
-        from decimal import Decimal
-
-        html = render_dashboard_html({
-            "health": {"overall_status": "OK", "items": []},
-            "runtime": {
-                "previous_leader_symbol": "BTCUSDT",
-                "position_count": 1,
-                "order_status_count": 0,
-                "latest_position_snapshot": {"payload": {}},
-                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
-                "latest_signal_decision": {},
-            },
-            "state_positions": {
-                "BTCUSDT": Position(
-                    symbol="BTCUSDT",
-                    stop_price=Decimal("81000"),
-                    legs=(
-                        PositionLeg(
-                            symbol="BTCUSDT",
-                            quantity=Decimal("0.01"),
-                            entry_price=Decimal("82000"),
-                            stop_price=Decimal("81000"),
-                            opened_at=datetime(2026, 4, 15, 9, 15, tzinfo=timezone.utc),
-                            leg_type="base",
-                        ),
-                    ),
-                ),
-            },
-            "recent_broker_orders": [],
-            "recent_account_snapshots": [],
-            "recent_events": [],
-            "event_counts": {},
-            "source_counts": {},
-            "leader_history": [],
-            "pulse_points": [],
-            "warnings": [],
-        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False})
-
-        self.assertIn("BTCUSDT", html)
-        self.assertNotIn("No positions", html)
-        self.assertIn("1.00%", html)
-
     def test_load_dashboard_snapshot_loads_extended_account_history_from_runtime_db(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_account_snapshot
@@ -2310,7 +2213,6 @@ console.log(JSON.stringify(cases));
                 now=now,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=root / "missing-audit.jsonl",
                 runtime_db_file=runtime_db_file,
                 recent_limit=10,
             )
@@ -2378,7 +2280,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("ACCOUNT OVERVIEW", html)
         self.assertIn("PEAK EQUITY", html)
         self.assertIn("CURRENT DRAWDOWN", html)
-        self.assertIn("data-account-range=\"24H\"", html)
+        for range_key in ("1H", "1D", "1W", "1M", "1Y", "ALL"):
+            self.assertIn(f"data-account-range=\"{range_key}\"", html)
         self.assertIn("data-account-range=\"ALL\"", html)
         self.assertIn("data-account-metric=\"equity\"", html)
         self.assertIn("data-account-metric=\"adjusted_equity\"", html)
@@ -2386,6 +2289,40 @@ console.log(JSON.stringify(cases));
         self.assertIn("data-account-metric=\"unrealized_pnl\"", html)
         self.assertIn("ADJUSTED EQUITY", html)
         self.assertIn("accountMetricsData", html)
+
+    def test_account_overview_js_supports_requested_range_windows(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+
+        self.assertIn("'1H': 1", html)
+        self.assertIn("'1D': 24", html)
+        self.assertIn("'1W': 24 * 7", html)
+        self.assertIn("'1M': 24 * 30", html)
+        self.assertIn("'1Y': 24 * 365", html)
+        self.assertIn("localStorage.getItem('dashboard.account.range') || '1D'", html)
+
+    def test_filter_rows_for_range_supports_requested_windows(self) -> None:
+        from momentum_alpha.dashboard import _filter_rows_for_range
+
+        rows = [
+            {"timestamp": "2026-01-01T00:00:00+00:00", "value": "old"},
+            {"timestamp": "2026-04-10T00:00:00+00:00", "value": "week"},
+            {"timestamp": "2026-04-17T00:00:00+00:00", "value": "latest"},
+        ]
+
+        self.assertEqual(
+            [row["value"] for row in _filter_rows_for_range(rows, timestamp_key="timestamp", range_key="1W")],
+            ["week", "latest"],
+        )
+        self.assertEqual(
+            [row["value"] for row in _filter_rows_for_range(rows, timestamp_key="timestamp", range_key="1D")],
+            ["latest"],
+        )
+        self.assertEqual(
+            [row["value"] for row in _filter_rows_for_range(rows, timestamp_key="timestamp", range_key="1Y")],
+            ["old", "week", "latest"],
+        )
 
     def test_render_dashboard_html_account_overview_js_preserves_missing_unrealized_pnl(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2703,7 +2640,27 @@ console.log(JSON.stringify(cases));
                     "previous_leader_symbol": "BASEUSDT",
                     "position_count": 2,
                     "order_status_count": 0,
-                    "latest_position_snapshot": {"payload": {"market_context": {"candidates": []}}},
+                    "latest_position_snapshot": {
+                        "payload": {
+                            "market_context": {"candidates": []},
+                            "positions": {
+                                "BASEUSDT": {
+                                    "symbol": "BASEUSDT",
+                                    "weighted_avg_entry_price": "0.17",
+                                    "total_quantity": "31119",
+                                    "stop_price": "0.15",
+                                    "risk": "482.94",
+                                },
+                                "ORDIUSDT": {
+                                    "symbol": "ORDIUSDT",
+                                    "weighted_avg_entry_price": "7.04",
+                                    "total_quantity": "62.6",
+                                    "stop_price": "6.10",
+                                    "risk": "440.76",
+                                },
+                            },
+                        }
+                    },
                     "latest_account_snapshot": {
                         "equity": "1367.35",
                         "available_balance": "401.78",
@@ -2755,10 +2712,6 @@ console.log(JSON.stringify(cases));
                 "pulse_points": [],
                 "warnings": [],
                 "strategy_config": {"submit_orders": True},
-                "state_positions": {
-                    "BASEUSDT": {"symbol": "BASEUSDT", "weighted_avg_entry_price": "0.17", "total_quantity": "31119", "stop_price": "0.15", "risk": "482.94"},
-                    "ORDIUSDT": {"symbol": "ORDIUSDT", "weighted_avg_entry_price": "7.04", "total_quantity": "62.6", "stop_price": "6.10", "risk": "440.76"},
-                },
             }
         )
 

@@ -11,7 +11,6 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
-AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 SINCE_MINUTES="${SINCE_MINUTES:-1440}"
 LIMIT="${LIMIT:-20}"
 
@@ -21,9 +20,5 @@ ARGS=(
   --since-minutes "${SINCE_MINUTES}"
   --limit "${LIMIT}"
 )
-
-if [[ -n "${AUDIT_LOG_FILE}" ]]; then
-  ARGS+=(--audit-log-file "${AUDIT_LOG_FILE}")
-fi
 
 exec "${VENV_PYTHON}" -m momentum_alpha.main "${ARGS[@]}"

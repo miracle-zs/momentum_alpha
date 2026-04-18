@@ -80,24 +80,6 @@ def _format_time_short(timestamp: str | None) -> str:
         return str(timestamp)[:5] if len(str(timestamp)) >= 5 else str(timestamp)
 
 
-def _load_recent_events(*, path: Path, recent_limit: int) -> tuple[list[dict], list[str]]:
-    if not path.exists():
-        return [], [f"audit file missing path={path}"]
-    events: list[dict] = []
-    warnings: list[str] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError as exc:
-            warnings.append(f"audit file invalid path={path} line={line_number} error={exc}")
-    sorted_events = sorted(events, key=lambda item: item.get("timestamp", ""), reverse=True)
-    for event in sorted_events:
-        event.setdefault("source", "audit-file")
-    return sorted_events[:recent_limit], warnings
-
-
 def _normalize_events(events: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     for event in events:
@@ -216,7 +198,13 @@ def _object_field(value: object, field_name: str) -> object | None:
 def _filter_rows_for_range(rows: list[dict], *, timestamp_key: str, range_key: str) -> list[dict]:
     if range_key == "ALL":
         return list(rows)
-    hours = {"1H": 1, "6H": 6, "24H": 24}.get(range_key)
+    hours = {
+        "1H": 1,
+        "1D": 24,
+        "1W": 24 * 7,
+        "1M": 24 * 30,
+        "1Y": 24 * 365,
+    }.get(range_key)
     if not hours or not rows:
         return list(rows)
     parsed_rows = [row for row in rows if row.get(timestamp_key)]
@@ -300,7 +288,7 @@ def build_trader_summary_metrics(
     snapshot: dict,
     *,
     position_details: list[dict],
-    range_key: str = "24H",
+    range_key: str = "1D",
 ) -> dict:
     account_timeline = build_dashboard_timeseries_payload(snapshot).get("account", [])
     account_rows = sorted(snapshot.get("recent_account_snapshots", []), key=lambda item: item.get("timestamp") or "")
@@ -615,10 +603,6 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
         })
 
     return details
-
-
-def _build_position_details_from_state_positions(positions: dict, *, equity_value: object | None = None) -> list[dict]:
-    return build_position_details({"payload": {"positions": positions or {}}}, equity_value=equity_value)
 
 
 def render_trade_history_table(fills: list[dict]) -> str:
@@ -945,7 +929,6 @@ def load_dashboard_snapshot(
     now: datetime,
     poll_log_file: Path,
     user_stream_log_file: Path,
-    audit_log_file: Path | None = None,
     runtime_db_file: Path,
     recent_limit: int = 20,
     stop_budget_usdt: str | None = None,
@@ -959,7 +942,6 @@ def load_dashboard_snapshot(
         poll_log_file=poll_log_file,
         user_stream_log_file=user_stream_log_file,
         runtime_db_file=runtime_db_file,
-        audit_log_file=audit_log_file,
     )
     warnings: list[str] = []
     state_payload: dict = {}
@@ -1000,10 +982,6 @@ def load_dashboard_snapshot(
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=1440)
-    elif audit_log_file is not None and audit_log_file.exists():
-        events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
-        warnings.extend(audit_warnings)
-        events_for_metrics = _normalize_events(events_for_metrics)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
@@ -1065,7 +1043,6 @@ def load_dashboard_snapshot(
         "recent_stop_exit_summaries": recent_stop_exit_summaries,
         "recent_position_snapshots": recent_position_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
-        "state_positions": state_payload.get("positions") or {},
         "recent_events": recent_events,
         "warnings": warnings,
         "strategy_config": build_strategy_config(
@@ -1329,8 +1306,10 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         f"{note_html}"
         "<div class='account-range-switches'>"
         "<button type='button' class='account-chip' data-account-range=\"1H\">1H</button>"
-        "<button type='button' class='account-chip' data-account-range=\"6H\">6H</button>"
-        "<button type='button' class='account-chip active' data-account-range=\"24H\">24H</button>"
+        "<button type='button' class='account-chip active' data-account-range=\"1D\">1D</button>"
+        "<button type='button' class='account-chip' data-account-range=\"1W\">1W</button>"
+        "<button type='button' class='account-chip' data-account-range=\"1M\">1M</button>"
+        "<button type='button' class='account-chip' data-account-range=\"1Y\">1Y</button>"
         "<button type='button' class='account-chip' data-account-range=\"ALL\">ALL</button>"
         "</div></div>"
         "<div class='account-overview-grid'>"
@@ -1733,15 +1712,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     # Build position cards
     equity_value = latest_account_snapshot.get("equity")
     position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
-    if not position_details and snapshot.get("state_positions"):
-        position_details = _build_position_details_from_state_positions(
-            snapshot.get("state_positions") or {},
-            equity_value=equity_value,
-        )
     trader_metrics = build_trader_summary_metrics(
         snapshot,
         position_details=position_details,
-        range_key="24H",
+        range_key="1D",
     )
     home_command_html = _build_overview_home_command(
         position_details=position_details,
@@ -3002,7 +2976,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     }}
     function filterAccountPoints(points, range) {{
       if (!points.length || range === 'ALL') return points;
-      const hours = {{ '1H': 1, '6H': 6, '24H': 24 }}[range] || 24;
+      const hours = {{ '1H': 1, '1D': 24, '1W': 24 * 7, '1M': 24 * 30, '1Y': 24 * 365 }}[range] || 24;
       const latest = new Date(points[points.length - 1].timestamp).getTime();
       const cutoff = latest - hours * 60 * 60 * 1000;
       const filtered = points.filter((point) => new Date(point.timestamp).getTime() >= cutoff);
@@ -3117,7 +3091,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       const accountMetricsData = getAccountMetricsData();
       if (!Array.isArray(accountMetricsData)) return;
       let activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
-      let activeRange = localStorage.getItem('dashboard.account.range') || '24H';
+      let activeRange = localStorage.getItem('dashboard.account.range') || '1D';
       const chartNode = document.getElementById('account-metrics-chart');
       const render = () => {{
         const visible = filterAccountPoints(accountMetricsData, activeRange);
@@ -3218,7 +3192,6 @@ def run_dashboard_server(
     port: int,
     poll_log_file: Path,
     user_stream_log_file: Path,
-    audit_log_file: Path | None,
     runtime_db_file: Path,
     now_provider=None,
     server_factory=ThreadingHTTPServer,
@@ -3239,7 +3212,6 @@ def run_dashboard_server(
                 now=now_provider().astimezone(),
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
-                audit_log_file=audit_log_file,
                 runtime_db_file=runtime_db_file,
                 stop_budget_usdt=stop_budget_usdt,
                 entry_start_hour_utc=entry_start_hour_utc,

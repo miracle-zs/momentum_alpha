@@ -339,6 +339,6 @@ class StrategyTests(unittest.TestCase):
             ),
         }
 
-        result = process_clock_tick(now=now, state=state, market=market)
+        result = process_clock_tick(now=now, state=state, market=market, last_add_on_hour=0)
         self.assertEqual(result.base_entries[0].symbol, "SOLUSDT")
         self.assertEqual(result.add_on_entries[0].symbol, "BTCUSDT")

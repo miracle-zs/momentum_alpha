@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import HTTPError
 
-from momentum_alpha.audit import AuditRecorder, summarize_audit_events
+from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.binance_client import BINANCE_TESTNET_FAPI_BASE_URL, BinanceRestClient
 from momentum_alpha.dashboard import run_dashboard_server
@@ -35,6 +35,7 @@ from momentum_alpha.runtime_store import (
     insert_signal_decision,
     insert_trade_fill,
     rebuild_trade_analytics,
+    summarize_audit_events,
 )
 from momentum_alpha.state_store import StoredStrategyState
 from momentum_alpha.user_stream import (
@@ -78,38 +79,10 @@ def resolve_runtime_db_path(*, explicit_path: str | None, default_dir: Path | No
     return None
 
 
-def resolve_audit_log_path(*, explicit_path: str | None, runtime_db_path: Path | None = None) -> Path | None:
-    """Resolve the audit log path.
-
-    Priority:
-    1. Explicit path provided
-    2. AUDIT_LOG_FILE environment variable
-    3. Same directory as runtime.db
-    """
-    if explicit_path:
-        return Path(os.path.abspath(explicit_path))
-    env_path = os.environ.get("AUDIT_LOG_FILE")
-    if env_path:
-        return Path(os.path.abspath(env_path))
-    if runtime_db_path is not None:
-        return runtime_db_path.parent / "audit.jsonl"
-    return None
-
-
-def _build_audit_recorder(
-    *,
-    explicit_path: str | None,
-    runtime_db_path: Path | None,
-    source: str | None = None,
-) -> AuditRecorder | None:
-    """Build an AuditRecorder with resolved paths."""
-    resolved_audit_log = resolve_audit_log_path(
-        explicit_path=explicit_path,
-        runtime_db_path=runtime_db_path,
-    )
-    if resolved_audit_log is None and runtime_db_path is None:
+def _build_audit_recorder(*, runtime_db_path: Path | None, source: str | None = None) -> AuditRecorder | None:
+    if runtime_db_path is None:
         return None
-    return AuditRecorder(path=resolved_audit_log, runtime_db_path=runtime_db_path, source=source)
+    return AuditRecorder(runtime_db_path=runtime_db_path, source=source)
 
 
 def _build_runtime_state_store(*, runtime_db_path: Path | None) -> RuntimeStateStore | None:
@@ -514,54 +487,44 @@ def _current_hour_window_ms(*, now: datetime) -> tuple[int, int]:
 
 def _fetch_daily_open_klines(*, client, symbol: str, now: datetime):
     day_open_start_ms, day_open_end_ms = _utc_midnight_window_ms(now=now)
-    try:
-        klines = client.fetch_klines(
-            symbol=symbol,
-            interval="1m",
-            limit=1,
-            start_time_ms=day_open_start_ms,
-            end_time_ms=day_open_end_ms,
-        )
-        if klines:
-            return klines
-        return client.fetch_klines(
-            symbol=symbol,
-            interval="1m",
-            limit=1,
-            start_time_ms=day_open_start_ms,
-            end_time_ms=int(now.astimezone(timezone.utc).timestamp() * 1000),
-        )
-    except TypeError:
-        # Backward-compatible for simple test doubles that still expose the old signature.
-        return client.fetch_klines(symbol=symbol, interval="1m", limit=1)
+    klines = client.fetch_klines(
+        symbol=symbol,
+        interval="1m",
+        limit=1,
+        start_time_ms=day_open_start_ms,
+        end_time_ms=day_open_end_ms,
+    )
+    if klines:
+        return klines
+    return client.fetch_klines(
+        symbol=symbol,
+        interval="1m",
+        limit=1,
+        start_time_ms=day_open_start_ms,
+        end_time_ms=int(now.astimezone(timezone.utc).timestamp() * 1000),
+    )
 
 
 def _fetch_previous_hour_klines(*, client, symbol: str, now: datetime):
     previous_hour_start_ms, previous_hour_end_ms = _previous_closed_hour_window_ms(now=now)
-    try:
-        return client.fetch_klines(
-            symbol=symbol,
-            interval="1h",
-            limit=1,
-            start_time_ms=previous_hour_start_ms,
-            end_time_ms=previous_hour_end_ms,
-        )
-    except TypeError:
-        return client.fetch_klines(symbol=symbol, interval="1h", limit=1)
+    return client.fetch_klines(
+        symbol=symbol,
+        interval="1h",
+        limit=1,
+        start_time_ms=previous_hour_start_ms,
+        end_time_ms=previous_hour_end_ms,
+    )
 
 
 def _fetch_current_hour_klines(*, client, symbol: str, now: datetime):
     current_hour_start_ms, current_hour_end_ms = _current_hour_window_ms(now=now)
-    try:
-        return client.fetch_klines(
-            symbol=symbol,
-            interval="1h",
-            limit=1,
-            start_time_ms=current_hour_start_ms,
-            end_time_ms=current_hour_end_ms,
-        )
-    except TypeError:
-        return client.fetch_klines(symbol=symbol, interval="1h", limit=1)
+    return client.fetch_klines(
+        symbol=symbol,
+        interval="1h",
+        limit=1,
+        start_time_ms=current_hour_start_ms,
+        end_time_ms=current_hour_end_ms,
+    )
 
 
 class LiveMarketDataCache:
@@ -1024,14 +987,13 @@ def run_user_stream(
     now_provider=None,
     stream_client_factory=None,
     reconnect_sleep_fn=None,
-    audit_recorder_path: Path | None = None,
     runtime_db_path: Path | None = None,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
     audit_recorder = (
-        AuditRecorder(path=audit_recorder_path, runtime_db_path=runtime_db_path, source="user-stream")
-        if audit_recorder_path is not None or runtime_db_path is not None
+        AuditRecorder(runtime_db_path=runtime_db_path, source="user-stream")
+        if runtime_db_path is not None
         else None
     )
     if runtime_state_store is None and runtime_db_path is not None:
@@ -1326,7 +1288,6 @@ def cli_main(
     run_once_live_parser.add_argument("--runtime-db-file")
     run_once_live_parser.add_argument("--testnet", action="store_true")
     run_once_live_parser.add_argument("--submit-orders", action="store_true")
-    run_once_live_parser.add_argument("--audit-log-file")
     poll_parser = subparsers.add_parser("poll")
     poll_parser.add_argument("--symbols", nargs="+")
     poll_parser.add_argument("--previous-leader")
@@ -1336,24 +1297,19 @@ def cli_main(
     poll_parser.add_argument("--restore-positions", action="store_true")
     poll_parser.add_argument("--execute-stop-replacements", action="store_true")
     poll_parser.add_argument("--max-ticks", type=int)
-    poll_parser.add_argument("--audit-log-file")
     user_stream_parser = subparsers.add_parser("user-stream")
     user_stream_parser.add_argument("--testnet", action="store_true")
     user_stream_parser.add_argument("--runtime-db-file")
-    user_stream_parser.add_argument("--audit-log-file")
     healthcheck_parser = subparsers.add_parser("healthcheck")
     healthcheck_parser.add_argument("--poll-log-file", required=True)
     healthcheck_parser.add_argument("--user-stream-log-file", required=True)
     healthcheck_parser.add_argument("--runtime-db-file", required=True)
-    healthcheck_parser.add_argument("--audit-log-file")
     healthcheck_parser.add_argument("--max-state-age-seconds", type=int, default=3600)
     healthcheck_parser.add_argument("--max-poll-log-age-seconds", type=int, default=180)
     healthcheck_parser.add_argument("--max-user-stream-log-age-seconds", type=int, default=1800)
     healthcheck_parser.add_argument("--max-runtime-db-age-seconds", type=int, default=1800)
-    healthcheck_parser.add_argument("--max-audit-log-age-seconds", type=int, default=1800)
     audit_report_parser = subparsers.add_parser("audit-report")
-    audit_report_parser.add_argument("--audit-log-file")
-    audit_report_parser.add_argument("--runtime-db-file")
+    audit_report_parser.add_argument("--runtime-db-file", required=True)
     audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
     audit_report_parser.add_argument("--limit", type=int, default=20)
     backfill_account_flows_parser = subparsers.add_parser("backfill-account-flows")
@@ -1366,7 +1322,6 @@ def cli_main(
     dashboard_parser.add_argument("--port", type=int, default=8080)
     dashboard_parser.add_argument("--poll-log-file", required=True)
     dashboard_parser.add_argument("--user-stream-log-file", required=True)
-    dashboard_parser.add_argument("--audit-log-file")
     dashboard_parser.add_argument("--runtime-db-file", required=True)
 
     args = parser.parse_args(argv)
@@ -1395,7 +1350,6 @@ def cli_main(
         runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
-            explicit_path=args.audit_log_file,
             runtime_db_path=runtime_db_path,
             source="run-once-live",
         )
@@ -1423,7 +1377,6 @@ def cli_main(
         runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
-            explicit_path=args.audit_log_file,
             runtime_db_path=runtime_db_path,
             source="poll",
         )
@@ -1456,17 +1409,12 @@ def cli_main(
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
-        audit_path = resolve_audit_log_path(
-            explicit_path=args.audit_log_file,
-            runtime_db_path=runtime_db_path,
-        )
         print(f"starting user-stream testnet={use_testnet}")
         return run_user_stream_fn(
             client=client,
             testnet=use_testnet,
             logger=print,
             runtime_state_store=runtime_state_store,
-            audit_recorder_path=audit_path,
             runtime_db_path=runtime_db_path,
         )
 
@@ -1476,12 +1424,10 @@ def cli_main(
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
             runtime_db_file=Path(os.path.abspath(args.runtime_db_file)),
-            audit_log_file=Path(os.path.abspath(args.audit_log_file)) if args.audit_log_file else None,
             max_state_age_seconds=args.max_state_age_seconds,
             max_poll_log_age_seconds=args.max_poll_log_age_seconds,
             max_user_stream_log_age_seconds=args.max_user_stream_log_age_seconds,
             max_runtime_db_age_seconds=args.max_runtime_db_age_seconds,
-            max_audit_log_age_seconds=args.max_audit_log_age_seconds,
         )
         print(f"overall={report.overall_status}")
         for item in report.items:
@@ -1489,22 +1435,12 @@ def cli_main(
         return 0 if report.overall_status == "OK" else 1
 
     if args.command == "audit-report":
-        if args.runtime_db_file:
-            from momentum_alpha.runtime_store import summarize_audit_events as summarize_runtime_db_events
-
-            summary = summarize_runtime_db_events(
-                path=Path(os.path.abspath(args.runtime_db_file)),
-                now=now_provider(),
-                since_minutes=args.since_minutes,
-                limit=args.limit,
-            )
-        else:
-            summary = summarize_audit_events(
-                path=Path(os.path.abspath(args.audit_log_file)),
-                now=now_provider(),
-                since_minutes=args.since_minutes,
-                limit=args.limit,
-            )
+        summary = summarize_audit_events(
+            path=Path(os.path.abspath(args.runtime_db_file)),
+            now=now_provider(),
+            since_minutes=args.since_minutes,
+            limit=args.limit,
+        )
         print(f"total_events={summary['total_events']}")
         for event_type, count in summary["counts"].items():
             print(f"{event_type}={count}")
@@ -1530,16 +1466,11 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         submit_orders_env = os.environ.get("SUBMIT_ORDERS", "").strip().lower() in {"1", "true", "yes", "on"}
         runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
-        audit_path = resolve_audit_log_path(
-            explicit_path=args.audit_log_file,
-            runtime_db_path=runtime_db_path,
-        )
         return run_dashboard_fn(
             host=args.host,
             port=args.port,
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
-            audit_log_file=audit_path,
             runtime_db_file=runtime_db_path,
             now_provider=now_provider,
             stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "10"),

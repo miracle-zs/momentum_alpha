@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -27,58 +25,18 @@ def _coerce_json_value(value):
 
 @dataclass(frozen=True)
 class AuditRecorder:
-    path: Path | None
-    runtime_db_path: Path | None = None
+    runtime_db_path: Path
     source: str | None = None
     db_insert_fn: Callable = insert_audit_event
 
     def record(self, *, event_type: str, now: datetime, payload: dict) -> None:
-        event = {
-            "timestamp": now.astimezone(timezone.utc).isoformat(),
-            "event_type": event_type,
-            "payload": _coerce_json_value(payload),
-        }
-        if self.path is not None:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event, ensure_ascii=False))
-                handle.write("\n")
-        if self.runtime_db_path is not None:
-            try:
-                self.db_insert_fn(
-                    path=self.runtime_db_path,
-                    timestamp=now,
-                    event_type=event_type,
-                    payload=event["payload"],
-                    source=self.source,
-                )
-            except Exception:
-                pass
-
-
-def read_audit_events(*, path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    events: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        events.append(json.loads(line))
-    return events
-
-
-def summarize_audit_events(*, path: Path, now: datetime, since_minutes: int, limit: int) -> dict:
-    events = read_audit_events(path=path)
-    cutoff = now.astimezone(timezone.utc) - timedelta(minutes=since_minutes)
-    filtered = [
-        event
-        for event in events
-        if datetime.fromisoformat(event["timestamp"]) >= cutoff
-    ]
-    counts = Counter(event["event_type"] for event in filtered)
-    recent_events = sorted(filtered, key=lambda item: item["timestamp"], reverse=True)[:limit]
-    return {
-        "total_events": len(filtered),
-        "counts": dict(sorted(counts.items())),
-        "recent_events": recent_events,
-    }
+        try:
+            self.db_insert_fn(
+                path=self.runtime_db_path,
+                timestamp=now.astimezone(timezone.utc),
+                event_type=event_type,
+                payload=_coerce_json_value(payload),
+                source=self.source,
+            )
+        except Exception:
+            pass

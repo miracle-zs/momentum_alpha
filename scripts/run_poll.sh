@@ -11,7 +11,6 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
-AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 SYMBOLS="${SYMBOLS:-}"
 
 ARGS=(poll)
@@ -23,9 +22,6 @@ if [[ -n "${SYMBOLS// }" ]]; then
 fi
 
 ARGS+=(--runtime-db-file "${RUNTIME_DB_FILE}" --restore-positions --execute-stop-replacements)
-if [[ -n "${AUDIT_LOG_FILE}" ]]; then
-  ARGS+=(--audit-log-file "${AUDIT_LOG_FILE}")
-fi
 
 if [[ "${BINANCE_USE_TESTNET:-0}" == "1" ]]; then
   ARGS+=(--testnet)

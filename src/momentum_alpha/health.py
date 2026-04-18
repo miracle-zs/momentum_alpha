@@ -21,7 +21,7 @@ class RuntimeHealthReport:
     def overall_status(self) -> str:
         if any(item.status == "FAIL" for item in self.items):
             return "FAIL"
-        if any(item.status == "WARN" and item.name != "audit_log" for item in self.items):
+        if any(item.status == "WARN" for item in self.items):
             return "WARN"
         return "OK"
 
@@ -112,11 +112,9 @@ def build_runtime_health_report(
     poll_log_file: Path,
     user_stream_log_file: Path,
     runtime_db_file: Path,
-    audit_log_file: Path | None = None,
     max_poll_log_age_seconds: int = 180,
     max_user_stream_log_age_seconds: int = 1800,
     max_runtime_db_age_seconds: int = 1800,
-    max_audit_log_age_seconds: int = 1800,
     max_state_age_seconds: int = 3600,
 ) -> RuntimeHealthReport:
     items = [
@@ -130,14 +128,4 @@ def build_runtime_health_report(
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
     ]
-    if audit_log_file is not None:
-        audit_item = _check_file_freshness(
-            name="audit_log",
-            path=audit_log_file,
-            now=now,
-            max_age_seconds=max_audit_log_age_seconds,
-        )
-        if audit_item.status == "FAIL":
-            audit_item = HealthCheckItem(name=audit_item.name, status="WARN", message=audit_item.message)
-        items.append(audit_item)
     return RuntimeHealthReport(items=items)

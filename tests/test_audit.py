@@ -1,4 +1,3 @@
-import json
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -13,12 +12,13 @@ if str(SRC) not in sys.path:
 
 
 class AuditTests(unittest.TestCase):
-    def test_audit_recorder_appends_json_lines(self) -> None:
-        from momentum_alpha.audit import AuditRecorder, read_audit_events
+    def test_audit_recorder_writes_runtime_db_events(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
 
         with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "audit.jsonl"
-            recorder = AuditRecorder(path=path)
+            db_path = Path(tmpdir) / "runtime.db"
+            recorder = AuditRecorder(runtime_db_path=db_path, source="poll")
             recorder.record(
                 event_type="tick_result",
                 now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
@@ -30,24 +30,27 @@ class AuditTests(unittest.TestCase):
                 payload={"symbol": "BTCUSDT", "order_status": "FILLED"},
             )
 
-            events = read_audit_events(path=path)
+            events = fetch_recent_audit_events(path=db_path, limit=10)
             self.assertEqual(len(events), 2)
-            self.assertEqual(events[0]["event_type"], "tick_result")
-            self.assertEqual(events[1]["payload"]["order_status"], "FILLED")
+            self.assertEqual(events[0]["event_type"], "user_stream_event")
+            self.assertEqual(events[0]["payload"]["order_status"], "FILLED")
+            self.assertEqual(events[0]["source"], "poll")
+            self.assertEqual(events[1]["event_type"], "tick_result")
 
     def test_summarize_recent_events_groups_by_type(self) -> None:
-        from momentum_alpha.audit import AuditRecorder, summarize_audit_events
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.runtime_store import summarize_audit_events
 
         with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "audit.jsonl"
-            recorder = AuditRecorder(path=path)
+            db_path = Path(tmpdir) / "runtime.db"
+            recorder = AuditRecorder(runtime_db_path=db_path, source="poll")
             base_time = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
             recorder.record(event_type="tick_result", now=base_time, payload={"symbol": "BTCUSDT"})
             recorder.record(event_type="tick_result", now=base_time + timedelta(minutes=1), payload={"symbol": "ETHUSDT"})
             recorder.record(event_type="poll_error", now=base_time + timedelta(minutes=2), payload={"message": "boom"})
 
             summary = summarize_audit_events(
-                path=path,
+                path=db_path,
                 now=base_time + timedelta(minutes=3),
                 since_minutes=10,
                 limit=10,
@@ -57,47 +60,30 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(summary["counts"]["poll_error"], 1)
             self.assertEqual(summary["recent_events"][0]["event_type"], "poll_error")
 
-    def test_audit_recorder_can_dual_write_jsonl_and_sqlite(self) -> None:
-        from momentum_alpha.audit import AuditRecorder, read_audit_events
-        from momentum_alpha.runtime_store import fetch_recent_audit_events
-
-        with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "audit.jsonl"
-            db_path = Path(tmpdir) / "runtime.db"
-            recorder = AuditRecorder(path=path, runtime_db_path=db_path, source="poll")
-            recorder.record(
-                event_type="poll_tick",
-                now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
-                payload={"symbol_count": 538},
-            )
-
-            file_events = read_audit_events(path=path)
-            db_events = fetch_recent_audit_events(path=db_path, limit=10)
-
-            self.assertEqual(file_events[0]["event_type"], "poll_tick")
-            self.assertEqual(db_events[0]["event_type"], "poll_tick")
-            self.assertEqual(db_events[0]["source"], "poll")
-
-    def test_audit_recorder_can_write_sqlite_without_jsonl(self) -> None:
+    def test_audit_recorder_coerces_payload_values_for_runtime_db(self) -> None:
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.runtime_store import fetch_recent_audit_events
 
         with TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "runtime.db"
-            recorder = AuditRecorder(path=None, runtime_db_path=db_path, source="user-stream")
+            recorder = AuditRecorder(runtime_db_path=db_path, source="user-stream")
             recorder.record(
-                event_type="user_stream_worker_start",
+                event_type="payload_coercion",
                 now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
-                payload={"position_count": 0},
+                payload={
+                    "timestamp": datetime(2026, 4, 15, 14, 1, tzinfo=timezone.utc),
+                    "values": (1, 2),
+                    "nested": {"seen": True},
+                },
             )
 
-            db_events = fetch_recent_audit_events(path=db_path, limit=10)
-            self.assertEqual(len(db_events), 1)
-            self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
-            self.assertEqual(db_events[0]["source"], "user-stream")
+            events = fetch_recent_audit_events(path=db_path, limit=10)
+            self.assertEqual(events[0]["payload"]["timestamp"], "2026-04-15T14:01:00+00:00")
+            self.assertEqual(events[0]["payload"]["values"], [1, 2])
+            self.assertEqual(events[0]["payload"]["nested"], {"seen": True})
 
-    def test_audit_recorder_swallows_sqlite_write_failures(self) -> None:
-        from momentum_alpha.audit import AuditRecorder, read_audit_events
+    def test_audit_recorder_swallows_runtime_db_write_failures(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
 
         calls = []
 
@@ -106,9 +92,7 @@ class AuditTests(unittest.TestCase):
             raise RuntimeError("db down")
 
         with TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "audit.jsonl"
             recorder = AuditRecorder(
-                path=path,
                 runtime_db_path=Path(tmpdir) / "runtime.db",
                 db_insert_fn=failing_writer,
             )
@@ -118,6 +102,5 @@ class AuditTests(unittest.TestCase):
                 payload={"symbol": "BTCUSDT"},
             )
 
-            events = read_audit_events(path=path)
             self.assertEqual(len(calls), 1)
-            self.assertEqual(events[0]["event_type"], "tick_result")
+            self.assertEqual(calls[0]["event_type"], "tick_result")

@@ -68,7 +68,7 @@ Market Snapshots → Strategy Evaluation → Execution Plan → Broker → Binan
                          ↓
                    State Persistence (state.json)
                          ↓
-                   Telemetry (runtime.db / audit.jsonl)
+                   Telemetry (runtime.db)
 ```
 
 ### Key Modules
@@ -147,7 +147,6 @@ Runtime directories initialized by `scripts/init_runtime_dirs.sh`:
 - `var/state.json`: Strategy state
 - `var/runtime.db`: SQLite telemetry
 - `var/log/`: Service logs
-- `var/audit.jsonl`: Legacy audit log (migration in progress)
 
 ## Safety Model
 

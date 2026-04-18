@@ -99,15 +99,9 @@ def process_clock_tick(
     updated_stop_prices: dict[str, Decimal] = {}
     new_last_add_on_hour = last_add_on_hour
     current_hour = now.hour
-    # Execute add-on when:
-    # 1. last_add_on_hour is None and we're at minute 0 (backward compatible)
-    # 2. OR we're in a new hour (current_hour > last_add_on_hour or crossed midnight)
     should_execute_add_on = (
-        (last_add_on_hour is None and now.minute == 0)
-        or (
-            last_add_on_hour is not None
-            and (current_hour > last_add_on_hour or (current_hour == 0 and last_add_on_hour == 23))
-        )
+        last_add_on_hour is not None
+        and (current_hour > last_add_on_hour or (current_hour == 0 and last_add_on_hour == 23))
     )
     if should_execute_add_on:
         latest_hour_lows = {

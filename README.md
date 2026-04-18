@@ -186,7 +186,6 @@ The dashboard reads:
 
 - `state.json`
 - `runtime.db` for event queries
-- `audit.jsonl` during the migration window
 - `momentum-alpha.log`
 - `momentum-alpha-user-stream.log`
 
@@ -202,4 +201,4 @@ Pre-go-live review:
 - `run-once-live` and `poll` default to dry-run mode.
 - Real order submission only happens when `--submit-orders` is explicitly provided.
 - State persistence now stores previous leader, local position view, processed user-stream event ids, and tracked order statuses.
-- Structured audit events now default to `AUDIT_LOG_FILE` and can be replayed with `audit-report`.
+- Structured audit events are stored in `runtime.db` and can be replayed with `audit-report`.

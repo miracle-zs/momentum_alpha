@@ -94,7 +94,7 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.items[1].name, "poll_log")
             self.assertEqual(report.items[1].status, "FAIL")
 
-    def test_build_health_report_allows_missing_audit_log_when_runtime_db_is_fresh(self) -> None:
+    def test_build_health_report_uses_runtime_db_for_audit_freshness(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
@@ -126,9 +126,8 @@ class HealthTests(unittest.TestCase):
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
                 runtime_db_file=runtime_db_file,
-                audit_log_file=root / "audit.jsonl",
             )
 
             self.assertEqual(report.overall_status, "OK")
-            self.assertEqual(report.items[-1].name, "audit_log")
-            self.assertEqual(report.items[-1].status, "WARN")
+            self.assertEqual(report.items[-1].name, "runtime_db")
+            self.assertEqual(report.items[-1].status, "OK")

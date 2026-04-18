@@ -220,7 +220,7 @@ class MainTests(unittest.TestCase):
                 prices = {"BTCUSDT": {"symbol": "BTCUSDT", "price": "61200"}, "ETHUSDT": {"symbol": "ETHUSDT", "price": "3010"}}
                 return prices[symbol]
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     opens = {
                         "BTCUSDT": [[0, "60000", "0", "0", "0"]],
@@ -319,7 +319,7 @@ class MainTests(unittest.TestCase):
                 broker=FakeBroker(),
                 submit_orders=True,
                 runtime_state_store=RuntimeStateStore(path=runtime_db_path),
-                audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
 
             signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
@@ -406,7 +406,7 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=True,
-                audit_recorder=AuditRecorder(path=None, runtime_db_path=runtime_db_path, source="poll"),
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
 
             signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
@@ -857,7 +857,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -905,7 +905,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -978,7 +978,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -1028,7 +1028,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -1182,7 +1182,7 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "runtime.db"
-            recorder = AuditRecorder(path=None, runtime_db_path=db_path, source="poll")
+            recorder = AuditRecorder(runtime_db_path=db_path, source="poll")
             recorder.record(
                 event_type="tick_result",
                 now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
@@ -1357,7 +1357,6 @@ class MainTests(unittest.TestCase):
             self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
 
     def test_run_user_stream_writes_audit_events(self) -> None:
-        from momentum_alpha.audit import read_audit_events
         from momentum_alpha.main import run_user_stream
         from momentum_alpha.runtime_store import (
             fetch_recent_audit_events,
@@ -1401,7 +1400,6 @@ class MainTests(unittest.TestCase):
                 return "abc"
 
         with TemporaryDirectory() as tmpdir:
-            audit_path = Path(tmpdir) / "audit.jsonl"
             runtime_db_path = Path(tmpdir) / "runtime.db"
             exit_code = run_user_stream(
                 client=FakeClient(),
@@ -1409,17 +1407,14 @@ class MainTests(unittest.TestCase):
                 logger=lambda message: None,
                 now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
-                audit_recorder_path=audit_path,
                 runtime_db_path=runtime_db_path,
             )
-            events = read_audit_events(path=audit_path)
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
             trade_fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
-            self.assertEqual(events[0]["event_type"], "user_stream_worker_start")
-            self.assertEqual(events[0]["payload"]["testnet"], True)
             self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
+            self.assertEqual(db_events[0]["payload"]["testnet"], True)
             snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertNotIn("market_context", snapshots[0]["payload"])
             self.assertNotIn("positions", snapshots[0]["payload"])
@@ -1468,7 +1463,6 @@ class MainTests(unittest.TestCase):
                 logger=lambda message: None,
                 now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
-                audit_recorder_path=Path(tmpdir) / "audit.jsonl",
                 runtime_db_path=runtime_db_path,
             )
             account_flows = fetch_recent_account_flows(path=runtime_db_path, limit=10)
@@ -1480,8 +1474,8 @@ class MainTests(unittest.TestCase):
         self.assertEqual(account_flows[0]["balance_change"], "500.00")
 
     def test_run_user_stream_logs_account_flow_insert_failures(self) -> None:
-        from momentum_alpha.audit import read_audit_events
         from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -1513,7 +1507,7 @@ class MainTests(unittest.TestCase):
 
         messages = []
         with TemporaryDirectory() as tmpdir:
-            audit_path = Path(tmpdir) / "audit.jsonl"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
             with patch("momentum_alpha.main.insert_account_flow", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
@@ -1521,10 +1515,9 @@ class MainTests(unittest.TestCase):
                     logger=lambda message: messages.append(message),
                     now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
                     stream_client_factory=lambda **kwargs: FakeStreamClient(),
-                    audit_recorder_path=audit_path,
-                    runtime_db_path=Path(tmpdir) / "runtime.db",
+                    runtime_db_path=runtime_db_path,
                 )
-            events = read_audit_events(path=audit_path)
+            events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(any("account-flow-insert-error" in message for message in messages))
@@ -2217,7 +2210,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -2417,7 +2410,7 @@ class MainTests(unittest.TestCase):
         self.assertTrue(any("rate-limit-backoff" in message for message in logs))
 
     def test_run_forever_writes_startup_audit_event_before_first_tick(self) -> None:
-        from momentum_alpha.audit import read_audit_events, AuditRecorder
+        from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_forever
         from momentum_alpha.runtime_store import fetch_recent_audit_events, fetch_recent_position_snapshots
 
@@ -2440,7 +2433,6 @@ class MainTests(unittest.TestCase):
                 }
 
         with TemporaryDirectory() as tmpdir:
-            audit_path = Path(tmpdir) / "audit.jsonl"
             runtime_db_path = Path(tmpdir) / "runtime.db"
             exit_code = run_forever(
                 symbols=["BTCUSDT"],
@@ -2453,16 +2445,14 @@ class MainTests(unittest.TestCase):
                 sleep_fn=lambda seconds: None,
                 logger=lambda message: None,
                 max_ticks=0,
-                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
-            events = read_audit_events(path=audit_path)
             db_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
-            self.assertEqual(events[0]["event_type"], "poll_worker_start")
-            self.assertEqual(events[0]["payload"]["symbol_count"], 1)
-            self.assertEqual(events[0]["payload"]["submit_orders"], True)
             self.assertEqual(db_events[0]["event_type"], "poll_worker_start")
+            self.assertEqual(db_events[0]["payload"]["symbol_count"], 1)
+            self.assertEqual(db_events[0]["payload"]["submit_orders"], True)
             self.assertEqual(snapshots[0]["leader_symbol"], None)
             self.assertEqual(snapshots[0]["symbol_count"], 1)
             self.assertNotIn("market_context", snapshots[0]["payload"])
@@ -2475,7 +2465,6 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.runtime_store import fetch_recent_position_snapshots
 
         with TemporaryDirectory() as tmpdir:
-            audit_path = Path(tmpdir) / "audit.jsonl"
             runtime_db_path = Path(tmpdir) / "runtime.db"
             market_payloads, leader_gap_pct = _build_market_context_payloads(
                 snapshots=[
@@ -2496,7 +2485,7 @@ class MainTests(unittest.TestCase):
                 ]
             )
             _record_position_snapshot(
-                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
                 now=datetime(2026, 4, 17, 0, 4, tzinfo=timezone.utc),
                 leader_symbol="BASEUSDT",
                 position_count=1,
@@ -2565,7 +2554,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -2667,7 +2656,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -2724,7 +2713,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -2760,6 +2749,7 @@ class MainTests(unittest.TestCase):
             broker=FakeBroker(),
             submit_orders=False,
             restore_positions=True,
+            last_add_on_hour=1,
         )
         self.assertIn("BTCUSDT", result.runtime_result.next_state.positions)
         self.assertEqual(result.runtime_result.next_state.positions["BTCUSDT"].stop_price, Decimal("60900"))
@@ -2874,7 +2864,7 @@ class MainTests(unittest.TestCase):
                 prices = {"BTCUSDT": {"symbol": "BTCUSDT", "price": "61200"}, "ETHUSDT": {"symbol": "ETHUSDT", "price": "3010"}}
                 return prices[symbol]
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     opens = {
                         "BTCUSDT": [[0, "60000", "0", "0", "0"]],
@@ -2918,6 +2908,7 @@ class MainTests(unittest.TestCase):
             broker=FakeBroker(),
             submit_orders=False,
             restore_positions=True,
+            last_add_on_hour=1,
         )
         self.assertEqual(result.execution_plan.entry_orders, [])
         self.assertIn("BTCUSDT", result.runtime_result.next_state.positions)
@@ -2947,7 +2938,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -2983,6 +2974,7 @@ class MainTests(unittest.TestCase):
             broker=FakeBroker(),
             submit_orders=False,
             restore_positions=True,
+            last_add_on_hour=1,
         )
         self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
 
@@ -3011,7 +3003,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -3043,14 +3035,15 @@ class MainTests(unittest.TestCase):
             submit_orders=False,
             restore_positions=True,
             execute_stop_replacements=True,
+            last_add_on_hour=1,
         )
         self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
         self.assertEqual(broker.replacements[0], [("BTCUSDT", "0.010", "61000")])
 
     def test_run_once_live_records_executed_stop_replacement_responses(self) -> None:
-        from momentum_alpha.audit import AuditRecorder, read_audit_events
+        from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
-        from momentum_alpha.runtime_store import fetch_recent_broker_orders
+        from momentum_alpha.runtime_store import fetch_recent_audit_events, fetch_recent_broker_orders
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -3074,7 +3067,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -3104,7 +3097,6 @@ class MainTests(unittest.TestCase):
                 return []
 
         with TemporaryDirectory() as tmpdir:
-            audit_path = Path(tmpdir) / "audit.jsonl"
             runtime_db_path = Path(tmpdir) / "runtime.db"
 
             run_once_live(
@@ -3116,10 +3108,11 @@ class MainTests(unittest.TestCase):
                 submit_orders=False,
                 restore_positions=True,
                 execute_stop_replacements=True,
-                audit_recorder=AuditRecorder(path=audit_path, runtime_db_path=runtime_db_path, source="poll"),
+                last_add_on_hour=1,
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
 
-            audit_events = read_audit_events(path=audit_path)
+            audit_events = fetch_recent_audit_events(path=runtime_db_path, limit=10)
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
 
             self.assertTrue(any(event["event_type"] == "broker_replace" for event in audit_events))
@@ -3151,7 +3144,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -3216,7 +3209,7 @@ class MainTests(unittest.TestCase):
             def fetch_ticker_price(self, *, symbol):
                 return {"symbol": symbol, "price": "61200"}
 
-            def fetch_klines(self, *, symbol, interval, limit):
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
@@ -3253,6 +3246,7 @@ class MainTests(unittest.TestCase):
             submit_orders=True,
             restore_positions=True,
             execute_stop_replacements=True,
+            last_add_on_hour=1,
         )
 
         self.assertEqual(result.stop_replacements, [("BTCUSDT", Decimal("61000"))])
