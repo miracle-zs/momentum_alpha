@@ -3116,34 +3116,37 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       const labelNode = document.querySelector('[data-account-window-label]');
       if (labelNode) labelNode.textContent = `${{range}} · ${{metric.replace('_', ' ').toUpperCase()}} · ${{formatAccountWindowTimestamp(first.timestamp)}} → ${{formatAccountWindowTimestamp(last.timestamp)}}`;
     }}
-    function initializeAccountMetrics() {{
-      let accountMetricsData = getAccountMetricsData();
-      if (!Array.isArray(accountMetricsData)) return;
-      let activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
-      let activeRange = localStorage.getItem('dashboard.account.range') || '1D';
+    let accountMetricsData = [];
+    let activeMetric = 'equity';
+    let activeRange = '1D';
+    function renderAccountChart() {{
       const chartNode = document.getElementById('account-metrics-chart');
-      const render = () => {{
-        if (chartNode) chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
-        updateAccountOverview(accountMetricsData, activeMetric, activeRange);
-      }};
-      const loadAccountRange = async (range) => {{
-        try {{
-          const response = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(range)}}`, {{ cache: 'no-store' }});
-          if (!response.ok) throw new Error(`account range fetch failed: ${{response.status}}`);
-          const payload = await response.json();
-          accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
-          render();
-        }} catch (error) {{
-          console.error(error);
-          render();
-        }}
-      }};
+      if (chartNode) chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
+      updateAccountOverview(accountMetricsData, activeMetric, activeRange);
+    }}
+    async function loadAccountRange(range) {{
+      try {{
+        const response = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(range)}}`, {{ cache: 'no-store' }});
+        if (!response.ok) throw new Error(`account range fetch failed: ${{response.status}}`);
+        const payload = await response.json();
+        accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
+        renderAccountChart();
+      }} catch (error) {{
+        console.error(error);
+        renderAccountChart();
+      }}
+    }}
+    function initializeAccountMetrics() {{
+      accountMetricsData = getAccountMetricsData();
+      if (!Array.isArray(accountMetricsData)) return;
+      activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
+      activeRange = localStorage.getItem('dashboard.account.range') || '1D';
       document.querySelectorAll('[data-account-metric]').forEach((button) => {{
         button.addEventListener('click', () => {{
           activeMetric = button.dataset.accountMetric;
           localStorage.setItem('dashboard.account.metric', activeMetric);
           document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node === button));
-          render();
+          renderAccountChart();
         }});
       }});
       document.querySelectorAll('[data-account-range]').forEach((button) => {{
@@ -3157,7 +3160,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === activeMetric));
       document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === activeRange));
       if (activeRange === '1D') {{
-        render();
+        renderAccountChart();
       }} else {{
         loadAccountRange(activeRange);
       }}
@@ -3214,27 +3217,19 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         const nextTitle = nextDocument.querySelector('title');
         if (nextTitle) document.title = nextTitle.textContent || document.title;
         // Preserve user-selected range on refresh
-        const savedRange = localStorage.getItem('dashboard.account.range') || '1D';
-        if (savedRange !== '1D') {{
-          // User selected a non-default range, reload data via API
-          const savedMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
-          try {{
-            const tsRes = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(savedRange)}}`, {{ cache: 'no-store' }});
-            if (tsRes.ok) {{
-              const payload = await tsRes.json();
-              const accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
-              const chartNode = document.getElementById('account-metrics-chart');
-              if (chartNode && accountMetricsData.length) {{
-                chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, savedMetric);
-              }}
-              // Update button states
-              document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === savedMetric));
-              document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === savedRange));
-            }}
-          }} catch (e) {{
-            console.error('Failed to reload account metrics:', e);
-          }}
+        activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
+        activeRange = localStorage.getItem('dashboard.account.range') || '1D';
+        if (activeRange === '1D') {{
+          // Reload from DOM for default range
+          accountMetricsData = getAccountMetricsData();
+          renderAccountChart();
+        }} else {{
+          // Reload via API for custom range
+          await loadAccountRange(activeRange);
         }}
+        // Update button states
+        document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === activeMetric));
+        document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === activeRange));
         bindDashboardControls();
         setRefreshIndicatorState('ok', 'Auto refresh: 5s');
       }} catch (e) {{
