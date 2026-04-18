@@ -561,12 +561,56 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("HOME COMMAND", html)
         self.assertIn("POSITION SUMMARY", html)
+        self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("NEXT ACTIONS", html)
         self.assertIn("Execution", html)
         self.assertIn("Performance", html)
         self.assertIn("System", html)
         self.assertNotIn("ACCOUNT SNAPSHOT", html)
-        self.assertNotIn("ACTIVE POSITIONS", html)
+
+    def test_render_dashboard_html_overview_surfaces_live_position_cockpit(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot())
+
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("BTCUSDT", html)
+        self.assertIn("81000", html)
+        self.assertIn("MTM", html)
+        self.assertIn("15.00", html)
+        self.assertIn("PnL %", html)
+        self.assertIn("Distance", html)
+        self.assertIn("R Multiple", html)
+
+    def test_render_dashboard_html_home_command_uses_computed_mtm_pnl(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot())
+
+        self.assertIn("MTM</div><div class='home-command-value'>+15.00", html)
+
+    def test_render_dashboard_html_surfaces_execution_mode_in_global_header(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        live_html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+        )
+        dry_run_html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False},
+        )
+
+        self.assertIn("PROD LIVE", live_html)
+        self.assertIn("TESTNET DRY RUN", dry_run_html)
+
+    def test_refresh_preserves_server_data_freshness_timestamp(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot())
+
+        self.assertIn("Last update <strong id='last-updated-text'>2026-04-17 09:00:00</strong>", html)
+        self.assertNotIn("updateLastRefreshTimestamp();", html)
 
     def test_render_dashboard_html_marks_live_price_dependent_metrics_unavailable(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -1919,9 +1963,12 @@ console.log(JSON.stringify(cases));
         self.assertIn("83000", html)
         self.assertIn("12.50", html)
         self.assertIn("1.00", html)
-        self.assertNotIn("1245.00", html)
-        self.assertNotIn("2.00", html)
-        self.assertNotIn("0.25", html)
+        self.assertIn("Notional", html)
+        self.assertIn("1245.00", html)
+        self.assertIn("Distance", html)
+        self.assertIn("2.00", html)
+        self.assertIn("R Multiple", html)
+        self.assertIn("0.25", html)
         self.assertIn("base", html)
         self.assertIn("add_on", html)
 
@@ -2870,8 +2917,9 @@ console.log(JSON.stringify(cases));
         self.assertIn("SYSTEM HEALTH", html)
         self.assertIn("MANUAL REFRESH", html)
         self.assertIn("Last update", html)
-        self.assertNotIn("Dist to Stop", html)
-        self.assertNotIn("Notional", html)
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("Distance", html)
+        self.assertIn("Notional", html)
 
     def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

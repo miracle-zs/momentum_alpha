@@ -812,6 +812,9 @@ def render_position_cards(positions: list[dict]) -> str:
         latest_price = _display_live_price_metric(pos.get("latest_price"))
         mtm_pnl = _display_live_price_metric(pos.get("mtm_pnl"))
         pnl_pct = _display_live_price_metric(pos.get("pnl_pct"), suffix="%")
+        distance_to_stop = _display_live_price_metric(pos.get("distance_to_stop_pct"), suffix="%")
+        notional = _display_live_price_metric(pos.get("notional_exposure"))
+        r_multiple = _display_live_price_metric(pos.get("r_multiple"), suffix="R")
         legs = pos.get("legs") or []
 
         legs_str = " | ".join(
@@ -836,6 +839,9 @@ def render_position_cards(positions: list[dict]) -> str:
             f"<div class='position-metric position-live'><span class='metric-label'>Last</span><span class='metric-value'>{latest_price}</span></div>"
             f"<div class='position-metric position-live'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
             f"<div class='position-metric position-live'><span class='metric-label'>PnL %</span><span class='metric-value'>{pnl_pct}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>Distance</span><span class='metric-value'>{distance_to_stop}</span><span class='metric-note'>to stop</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>Notional</span><span class='metric-value'>{notional}</span></div>"
+            f"<div class='position-metric position-live'><span class='metric-label'>R Multiple</span><span class='metric-value'>{r_multiple}</span></div>"
             f"</div>"
             f"<div class='position-legs'>{escape(legs_str)}</div>"
             f"</div>"
@@ -1404,7 +1410,7 @@ def _build_overview_home_command(
         return f"{numeric:,.2f}%"
 
     primary_position = position_details[0] if position_details else {}
-    mtm_total = sum((_parse_numeric(position.get("mark_to_market_pnl")) or 0.0) for position in position_details)
+    mtm_total = sum((_parse_numeric(position.get("mtm_pnl")) or 0.0) for position in position_details)
     position_summary_items = [
         ("Live Positions", str(len(position_details))),
         ("Lead Symbol", str(primary_position.get("symbol") or "flat")),
@@ -1523,6 +1529,13 @@ def normalize_dashboard_tab(value: str | None) -> str:
     return tab if tab in DASHBOARD_TABS else "overview"
 
 
+def _build_execution_mode(config: dict) -> tuple[str, str]:
+    venue = "TESTNET" if config.get("testnet") else "PROD"
+    order_mode = "LIVE" if config.get("submit_orders") else "DRY RUN"
+    state = "danger" if venue == "PROD" and order_mode == "LIVE" else "warning"
+    return f"{venue} {order_mode}", state
+
+
 def render_dashboard_tab_bar(active_tab: str) -> str:
     labels = {
         "overview": "Overview",
@@ -1544,11 +1557,15 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     )
 
 
-def render_dashboard_overview_tab(*, top_metrics_html: str, hero_html: str, home_command_html: str) -> str:
+def render_dashboard_overview_tab(*, top_metrics_html: str, hero_html: str, positions_html: str, home_command_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
         f"<div class='metrics-grid'>{top_metrics_html}</div>"
         f"{hero_html}"
+        "<section class='dashboard-section active-positions-panel'>"
+        "<div class='section-header'>ACTIVE POSITIONS</div>"
+        f"{positions_html}"
+        "</section>"
         f"{home_command_html}"
         "</div>"
     )
@@ -1652,7 +1669,16 @@ def render_dashboard_system_tab(
     )
 
 
-def render_dashboard_shell(*, health_status: str, latest_update_display: str | None, active_tab: str, tab_bar_html: str, tab_content_html: str) -> str:
+def render_dashboard_shell(
+    *,
+    health_status: str,
+    latest_update_display: str | None,
+    execution_mode_label: str,
+    execution_mode_state: str,
+    active_tab: str,
+    tab_bar_html: str,
+    tab_content_html: str,
+) -> str:
     return (
         "<body>"
         "<div class='app'>"
@@ -1665,7 +1691,10 @@ def render_dashboard_shell(*, health_status: str, latest_update_display: str | N
         "<p>Leader Rotation Strategy · Real-time Trading Monitor</p>"
         "</div>"
         "</div>"
-        f"<div class='status-badge {'ok' if health_status == 'OK' else 'fail'}' data-dashboard-section='status'>{escape(health_status)}</div>"
+        "<div class='header-status' data-dashboard-section='status'>"
+        f"<div class='mode-badge {escape(execution_mode_state)}'>{escape(execution_mode_label)}</div>"
+        f"<div class='status-badge {'ok' if health_status == 'OK' else 'fail'}'>{escape(health_status)}</div>"
+        "</div>"
         "</header>"
         "<div class='toolbar' data-dashboard-section='toolbar'>"
         f"<div class='status-line'>Last update <strong id='last-updated-text'>{escape(format_timestamp_for_display(latest_update_display))}</strong></div>"
@@ -1692,6 +1721,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     decision_status = latest_signal.get("decision_type") or "none"
     latest_signal_symbol = latest_signal.get("symbol") or "none"
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
+    config = strategy_config or snapshot.get("strategy_config") or {}
+    execution_mode_label, execution_mode_state = _build_execution_mode(config)
     account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
     account_range_stats = _compute_account_range_stats(timeseries["account"])
     event_counts = snapshot.get("event_counts", {})
@@ -1733,7 +1764,6 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         recent_stop_exit_summaries=recent_stop_exit_summaries,
     )
     # Build strategy config
-    config = strategy_config or snapshot.get("strategy_config") or {}
     config_html = (
         f"<div class='config-panel'>"
         f"<div class='config-row'><span class='config-label'>Stop Budget</span><span>{escape(str(config.get('stop_budget_usdt') or 'n/a'))}</span></div>"
@@ -1962,6 +1992,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         "overview": render_dashboard_overview_tab(
             top_metrics_html=top_metrics_html,
             hero_html=hero_html,
+            positions_html=render_position_cards(position_details),
             home_command_html=home_command_html,
         ),
         "execution": render_dashboard_execution_tab(
@@ -2061,6 +2092,13 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       align-items: center;
       gap: 16px;
     }}
+    .header-status {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }}
     .logo {{
       width: 48px;
       height: 48px;
@@ -2106,6 +2144,26 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       color: var(--danger);
       border-color: rgba(255,68,102,0.3);
       animation: pulse-danger 2s infinite;
+    }}
+    .mode-badge {{
+      padding: 10px 16px;
+      border-radius: 100px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      border: 1px solid;
+    }}
+    .mode-badge.danger {{
+      background: rgba(255,68,102,0.14);
+      color: var(--danger);
+      border-color: rgba(255,68,102,0.45);
+      box-shadow: 0 0 0 1px rgba(255,68,102,0.12);
+    }}
+    .mode-badge.warning {{
+      background: rgba(255,184,0,0.11);
+      color: var(--warning);
+      border-color: rgba(255,184,0,0.36);
     }}
     @keyframes pulse-danger {{
       0%, 100% {{ box-shadow: 0 0 0 0 rgba(255,68,102,0.4); }}
@@ -2217,6 +2275,11 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       margin-bottom: 16px;
     }}
     .home-command-panel {{ padding: 20px; }}
+    .active-positions-panel {{
+      padding: 18px;
+      border-color: rgba(0,212,255,0.22);
+      background: linear-gradient(145deg, rgba(11,18,31,0.96), rgba(6,10,17,0.98));
+    }}
     .home-command-grid {{
       display: grid;
       grid-template-columns: 1.1fr 0.9fr;
@@ -2839,6 +2902,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       .app-shell {{ padding: 18px; border-radius: 18px; }}
       .metrics-grid {{ grid-template-columns: 1fr; }}
       .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
+      .header-status {{ justify-content: flex-start; }}
       .dashboard-tabs {{ padding: 8px; gap: 8px; }}
       .dashboard-tab {{ flex: 1 1 calc(50% - 8px); min-width: 0; }}
       .decision-grid {{ grid-template-columns: 1fr; }}
@@ -2863,6 +2927,8 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
 {render_dashboard_shell(
     health_status=health_status,
     latest_update_display=latest_update_display,
+    execution_mode_label=execution_mode_label,
+    execution_mode_state=execution_mode_state,
     active_tab=active_tab,
     tab_bar_html=tab_bar_html,
     tab_content_html=tab_content_html,
@@ -3112,19 +3178,6 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       indicator.classList.toggle('error', state === 'error');
       indicatorText.textContent = label;
     }}
-    function updateLastRefreshTimestamp() {{
-      const node = document.getElementById('last-updated-text');
-      if (!node) return;
-      node.textContent = new Intl.DateTimeFormat('zh-CN', {{
-        hour12: false,
-        timeZone: 'Asia/Shanghai',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      }}).format(new Date());
-    }}
     async function refreshDashboard() {{
       const refreshButton = document.getElementById('manual-refresh-button');
       try {{
@@ -3140,7 +3193,6 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         DASHBOARD_SECTION_SELECTORS.forEach((selector) => replaceSectionFromDocument(nextDocument, selector));
         const nextTitle = nextDocument.querySelector('title');
         if (nextTitle) document.title = nextTitle.textContent || document.title;
-        updateLastRefreshTimestamp();
         initializeAccountMetrics();
         bindDashboardControls();
         setRefreshIndicatorState('ok', 'Auto refresh: 5s');
