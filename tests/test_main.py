@@ -1132,20 +1132,25 @@ class MainTests(unittest.TestCase):
 
     def test_cli_main_supports_healthcheck_command(self) -> None:
         from momentum_alpha.main import cli_main
-        from momentum_alpha.runtime_store import insert_audit_event
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            state_file = root / "state.json"
             poll_log = root / "momentum-alpha.log"
             user_stream_log = root / "momentum-alpha-user-stream.log"
             runtime_db = root / "runtime.db"
-            for path in (state_file, poll_log, user_stream_log):
+            for path in (poll_log, user_stream_log):
                 path.write_text("x", encoding="utf-8")
             now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
             timestamp = now.timestamp()
-            for path in (state_file, poll_log, user_stream_log):
+            for path in (poll_log, user_stream_log):
                 os.utime(path, (timestamp, timestamp))
+
+            # Save strategy state to database
+            RuntimeStateStore(path=runtime_db).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
             insert_audit_event(
                 path=runtime_db,
                 timestamp=now,
@@ -1159,8 +1164,6 @@ class MainTests(unittest.TestCase):
                 exit_code = cli_main(
                     argv=[
                         "healthcheck",
-                        "--state-file",
-                        str(state_file),
                         "--poll-log-file",
                         str(poll_log),
                         "--user-stream-log-file",
@@ -1212,8 +1215,6 @@ class MainTests(unittest.TestCase):
                 "127.0.0.1",
                 "--port",
                 "8080",
-                "--state-file",
-                "/tmp/state.json",
                 "--poll-log-file",
                 "/tmp/poll.log",
                 "--user-stream-log-file",
@@ -1226,7 +1227,6 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0]["host"], "127.0.0.1")
         self.assertEqual(calls[0]["port"], 8080)
-        self.assertEqual(str(calls[0]["state_file"]), "/tmp/state.json")
         self.assertEqual(str(calls[0]["runtime_db_file"]), "/tmp/runtime.db")
 
     def test_backfill_account_flows_writes_transfer_income_rows(self) -> None:

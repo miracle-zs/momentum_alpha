@@ -1342,7 +1342,6 @@ def cli_main(
     user_stream_parser.add_argument("--runtime-db-file")
     user_stream_parser.add_argument("--audit-log-file")
     healthcheck_parser = subparsers.add_parser("healthcheck")
-    healthcheck_parser.add_argument("--state-file", required=True)
     healthcheck_parser.add_argument("--poll-log-file", required=True)
     healthcheck_parser.add_argument("--user-stream-log-file", required=True)
     healthcheck_parser.add_argument("--runtime-db-file", required=True)
@@ -1365,11 +1364,10 @@ def cli_main(
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8080)
-    dashboard_parser.add_argument("--state-file", required=True)
     dashboard_parser.add_argument("--poll-log-file", required=True)
     dashboard_parser.add_argument("--user-stream-log-file", required=True)
     dashboard_parser.add_argument("--audit-log-file")
-    dashboard_parser.add_argument("--runtime-db-file")
+    dashboard_parser.add_argument("--runtime-db-file", required=True)
 
     args = parser.parse_args(argv)
     def _default_client_factory(*, testnet: bool = False):
@@ -1475,7 +1473,6 @@ def cli_main(
     if args.command == "healthcheck":
         report = build_runtime_health_report(
             now=now_provider(),
-            state_file=Path(os.path.abspath(args.state_file)),
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
             runtime_db_file=Path(os.path.abspath(args.runtime_db_file)),
@@ -1540,7 +1537,6 @@ def cli_main(
         return run_dashboard_fn(
             host=args.host,
             port=args.port,
-            state_file=Path(os.path.abspath(args.state_file)),
             poll_log_file=Path(os.path.abspath(args.poll_log_file)),
             user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
             audit_log_file=audit_path,

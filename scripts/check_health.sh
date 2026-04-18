@@ -10,7 +10,6 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
   exit 1
 fi
 
-STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 POLL_LOG_FILE="${POLL_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha.log}"
@@ -18,7 +17,6 @@ USER_STREAM_LOG_FILE="${USER_STREAM_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-a
 
 ARGS=(
   healthcheck
-  --state-file "${STATE_FILE}"
   --poll-log-file "${POLL_LOG_FILE}"
   --user-stream-log-file "${USER_STREAM_LOG_FILE}"
   --runtime-db-file "${RUNTIME_DB_FILE}"

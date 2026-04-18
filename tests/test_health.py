@@ -15,13 +15,12 @@ if str(SRC) not in sys.path:
 class HealthTests(unittest.TestCase):
     def test_build_health_report_marks_recent_files_ok(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
-        from momentum_alpha.runtime_store import insert_audit_event
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
             paths = {
-                "state_file": root / "state.json",
                 "poll_log_file": root / "momentum-alpha.log",
                 "user_stream_log_file": root / "momentum-alpha-user-stream.log",
                 "runtime_db_file": root / "runtime.db",
@@ -30,6 +29,12 @@ class HealthTests(unittest.TestCase):
                 if name != "runtime_db_file":
                     path.write_text("x", encoding="utf-8")
                     os.utime(path, (now.timestamp(), now.timestamp()))
+
+            # Save strategy state to database
+            RuntimeStateStore(path=paths["runtime_db_file"]).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
             insert_audit_event(
                 path=paths["runtime_db_file"],
                 timestamp=now,
@@ -40,7 +45,6 @@ class HealthTests(unittest.TestCase):
 
             report = build_runtime_health_report(
                 now=now,
-                state_file=paths["state_file"],
                 poll_log_file=paths["poll_log_file"],
                 user_stream_log_file=paths["user_stream_log_file"],
                 runtime_db_file=paths["runtime_db_file"],
@@ -51,22 +55,26 @@ class HealthTests(unittest.TestCase):
 
     def test_build_health_report_marks_stale_poll_log_fail(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
-        from momentum_alpha.runtime_store import insert_audit_event
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
-            state_file = root / "state.json"
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
             runtime_db_file = root / "runtime.db"
-            for path in (state_file, poll_log_file, user_stream_log_file):
+            for path in (poll_log_file, user_stream_log_file):
                 path.write_text("x", encoding="utf-8")
             fresh_ts = now.timestamp()
             stale_ts = (now - timedelta(minutes=10)).timestamp()
-            os.utime(state_file, (fresh_ts, fresh_ts))
             os.utime(user_stream_log_file, (fresh_ts, fresh_ts))
             os.utime(poll_log_file, (stale_ts, stale_ts))
+
+            # Save strategy state to database
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
             insert_audit_event(
                 path=runtime_db_file,
                 timestamp=now,
@@ -77,7 +85,6 @@ class HealthTests(unittest.TestCase):
 
             report = build_runtime_health_report(
                 now=now,
-                state_file=state_file,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
                 runtime_db_file=runtime_db_file,
@@ -89,18 +96,23 @@ class HealthTests(unittest.TestCase):
 
     def test_build_health_report_allows_missing_audit_log_when_runtime_db_is_fresh(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
-        from momentum_alpha.runtime_store import insert_audit_event
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
-            state_file = root / "state.json"
             poll_log_file = root / "momentum-alpha.log"
             user_stream_log_file = root / "momentum-alpha-user-stream.log"
             runtime_db_file = root / "runtime.db"
-            for path in (state_file, poll_log_file, user_stream_log_file):
+            for path in (poll_log_file, user_stream_log_file):
                 path.write_text("x", encoding="utf-8")
                 os.utime(path, (now.timestamp(), now.timestamp()))
+
+            # Save strategy state to database
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
             insert_audit_event(
                 path=runtime_db_file,
                 timestamp=now,
@@ -111,7 +123,6 @@ class HealthTests(unittest.TestCase):
 
             report = build_runtime_health_report(
                 now=now,
-                state_file=state_file,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
                 runtime_db_file=runtime_db_file,

@@ -10,7 +10,6 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
   exit 1
 fi
 
-STATE_FILE="${STATE_FILE:-${PROJECT_ROOT}/var/state.json}"
 AUDIT_LOG_FILE="${AUDIT_LOG_FILE:-}"
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 POLL_LOG_FILE="${POLL_LOG_FILE:-${PROJECT_ROOT}/var/log/momentum-alpha.log}"
@@ -25,7 +24,6 @@ ARGS=(
   dashboard
   --host "${DASHBOARD_HOST}"
   --port "${DASHBOARD_PORT}"
-  --state-file "${STATE_FILE}"
   --poll-log-file "${POLL_LOG_FILE}"
   --user-stream-log-file "${USER_STREAM_LOG_FILE}"
   --runtime-db-file "${RUNTIME_DB_FILE}"

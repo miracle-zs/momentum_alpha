@@ -937,11 +937,10 @@ def build_dashboard_tables_payload(snapshot: dict) -> dict:
 def load_dashboard_snapshot(
     *,
     now: datetime,
-    state_file: Path,
     poll_log_file: Path,
     user_stream_log_file: Path,
-    audit_log_file: Path,
-    runtime_db_file: Path | None = None,
+    audit_log_file: Path | None = None,
+    runtime_db_file: Path,
     recent_limit: int = 20,
     stop_budget_usdt: str | None = None,
     entry_start_hour_utc: int = 1,
@@ -951,13 +950,27 @@ def load_dashboard_snapshot(
 ) -> dict:
     health_report = build_runtime_health_report(
         now=now,
-        state_file=state_file,
         poll_log_file=poll_log_file,
         user_stream_log_file=user_stream_log_file,
         runtime_db_file=runtime_db_file,
         audit_log_file=audit_log_file,
     )
-    state_payload, warnings = _load_state_file(path=state_file)
+    warnings: list[str] = []
+    state_payload: dict = {}
+
+    # Load state from runtime database
+    if runtime_db_file.exists():
+        runtime_state = RuntimeStateStore(path=runtime_db_file).load()
+        if runtime_state is not None:
+            state_payload = {
+                "current_day": runtime_state.current_day,
+                "previous_leader_symbol": runtime_state.previous_leader_symbol,
+                "positions": runtime_state.positions or {},
+                "processed_event_ids": runtime_state.processed_event_ids or [],
+                "order_statuses": runtime_state.order_statuses or {},
+                "recent_stop_loss_exits": runtime_state.recent_stop_loss_exits or {},
+            }
+
     recent_signal_decisions: list[dict] = []
     recent_broker_orders: list[dict] = []
     recent_trade_fills: list[dict] = []
@@ -968,7 +981,8 @@ def load_dashboard_snapshot(
     recent_stop_exit_summaries: list[dict] = []
     recent_position_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
-    if runtime_db_file is not None and runtime_db_file.exists():
+
+    if runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
         recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
@@ -980,20 +994,12 @@ def load_dashboard_snapshot(
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=1440)
-        if not state_payload:
-            runtime_state = RuntimeStateStore(path=runtime_db_file).load()
-            if runtime_state is not None:
-                state_payload = {
-                    "current_day": runtime_state.current_day,
-                    "previous_leader_symbol": runtime_state.previous_leader_symbol,
-                    "positions": runtime_state.positions or {},
-                    "processed_event_ids": runtime_state.processed_event_ids or [],
-                    "order_statuses": runtime_state.order_statuses or {},
-                }
-    else:
+    elif audit_log_file is not None and audit_log_file.exists():
         events_for_metrics, audit_warnings = _load_recent_events(path=audit_log_file, recent_limit=max(recent_limit, 300))
         warnings.extend(audit_warnings)
         events_for_metrics = _normalize_events(events_for_metrics)
+    else:
+        events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
     event_counts = dict(sorted(Counter(event.get("event_type") for event in events_for_metrics if event.get("event_type")).items()))
     source_counts = _build_source_counts(events_for_metrics)
@@ -3158,11 +3164,10 @@ def run_dashboard_server(
     *,
     host: str,
     port: int,
-    state_file: Path,
     poll_log_file: Path,
     user_stream_log_file: Path,
-    audit_log_file: Path,
-    runtime_db_file: Path | None = None,
+    audit_log_file: Path | None,
+    runtime_db_file: Path,
     now_provider=None,
     server_factory=ThreadingHTTPServer,
     stop_budget_usdt: str | None = None,
@@ -3180,7 +3185,6 @@ def run_dashboard_server(
             active_tab = normalize_dashboard_tab(query_params.get("tab", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
-                state_file=state_file,
                 poll_log_file=poll_log_file,
                 user_stream_log_file=user_stream_log_file,
                 audit_log_file=audit_log_file,

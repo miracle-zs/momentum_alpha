@@ -60,7 +60,7 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "run_dashboard.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn("dashboard", content)
-        self.assertIn("--state-file", content)
+        self.assertIn("--runtime-db-file", content)
         self.assertIn("RUNTIME_DB_FILE", content)
 
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
