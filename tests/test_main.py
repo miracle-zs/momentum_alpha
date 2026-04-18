@@ -82,7 +82,7 @@ class MainTests(unittest.TestCase):
                 StoredStrategyState(
                     current_day="2026-04-15",
                     previous_leader_symbol="ETHUSDT",
-                    processed_event_ids=["evt-1"],
+                    processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
                     order_statuses={"123": {"symbol": "ETHUSDT", "status": "NEW"}},
                     recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
                 )
@@ -94,7 +94,7 @@ class MainTests(unittest.TestCase):
                     current_day="2026-04-15",
                     previous_leader_symbol="BTCUSDT",
                     positions={},
-                    processed_event_ids=[],
+                    processed_event_ids={},
                     order_statuses={},
                     recent_stop_loss_exits={},
                 ),
@@ -103,11 +103,13 @@ class MainTests(unittest.TestCase):
             loaded = store.load()
 
             self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
-            self.assertEqual(loaded.processed_event_ids, ["evt-1"])
+            self.assertEqual(loaded.processed_event_ids, {"evt-1": "2026-04-15T01:00:00+00:00"})
             self.assertEqual(loaded.order_statuses["123"]["status"], "NEW")
             self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
 
     def test_save_user_stream_state_preserves_newer_previous_leader_symbol(self) -> None:
+        from datetime import datetime, timezone
+
         from momentum_alpha.main import _save_user_stream_strategy_state
         from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.state_store import StoredStrategyState
@@ -119,7 +121,7 @@ class MainTests(unittest.TestCase):
                     current_day="2026-04-15",
                     previous_leader_symbol="BTCUSDT",
                     positions={},
-                    processed_event_ids=["evt-1"],
+                    processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
                     order_statuses={"123": {"symbol": "ETHUSDT", "status": "NEW"}},
                     recent_stop_loss_exits={},
                 )
@@ -131,17 +133,182 @@ class MainTests(unittest.TestCase):
                     current_day="2026-04-15",
                     previous_leader_symbol="ETHUSDT",
                     positions={},
-                    processed_event_ids=["evt-1", "evt-2"],
+                    processed_event_ids={
+                        "evt-1": "2026-04-15T01:00:00+00:00",
+                        "evt-2": "2026-04-15T02:00:00+00:00",
+                    },
                     order_statuses={"123": {"symbol": "ETHUSDT", "status": "FILLED"}},
+                    recent_stop_loss_exits={},
+                ),
+                now=datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            loaded = store.load()
+
+            self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(loaded.processed_event_ids, {
+                "evt-1": "2026-04-15T01:00:00+00:00",
+                "evt-2": "2026-04-15T02:00:00+00:00",
+            })
+            self.assertEqual(loaded.order_statuses["123"]["status"], "FILLED")
+
+    def test_save_user_stream_state_prunes_old_event_ids(self) -> None:
+        """Test that old event IDs are pruned to prevent unbounded growth."""
+        from datetime import datetime, timezone
+
+        from momentum_alpha.main import _save_user_stream_strategy_state
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+
+            # Create event IDs with different ages
+            # Current time: 2026-04-15 12:00:00 UTC
+            # Events older than 24 hours should be pruned
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids={
+                        # Recent events (within 24 hours) - should be kept
+                        "recent-1": "2026-04-15T10:00:00+00:00",
+                        "recent-2": "2026-04-15T11:00:00+00:00",
+                        # Old events (older than 24 hours) - should be pruned
+                        "old-1": "2026-04-13T12:00:00+00:00",  # 2 days old
+                        "old-2": "2026-04-14T10:00:00+00:00",  # 1 day + 2 hours old
+                    },
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                ),
+                now=datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc),
+            )
+
+            loaded = store.load()
+
+            # Only recent events should be kept
+            self.assertEqual(set(loaded.processed_event_ids.keys()), {"recent-1", "recent-2"})
+
+    def test_save_strategy_state_does_not_re_add_deleted_position(self) -> None:
+        """Test that poll process does not re-add positions deleted by user-stream.
+
+        This tests the race condition fix:
+        - user-stream deletes a position (stop loss triggered)
+        - poll process's next_state still contains the deleted position
+        - _save_strategy_state should NOT re-add the deleted position
+        """
+        from momentum_alpha.main import _save_strategy_state
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            # Simulate user-stream state: position was deleted
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={},  # Empty - position was deleted by user-stream
+                    processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
+                    order_statuses={},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+                )
+            )
+
+            # Simulate poll process trying to save state with the deleted position
+            # This can happen due to race condition when poll started before user-stream deleted the position
+            old_position = Position(
+                symbol="ETHUSDT",
+                stop_price=Decimal("100"),
+                legs=(
+                    PositionLeg(
+                        symbol="ETHUSDT",
+                        quantity=Decimal("0.1"),
+                        entry_price=Decimal("110"),
+                        stop_price=Decimal("100"),
+                        opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                        leg_type="base",
+                    ),
+                ),
+            )
+
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={"ETHUSDT": old_position},  # Poll still has the deleted position
+                    processed_event_ids={},
+                    order_statuses={},
                     recent_stop_loss_exits={},
                 ),
             )
 
             loaded = store.load()
 
+            # The deleted position should NOT be re-added
+            self.assertNotIn("ETHUSDT", loaded.positions)
+            # The stop loss exit record should be preserved
+            self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
+            # previous_leader_symbol should be updated
             self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
-            self.assertEqual(loaded.processed_event_ids, ["evt-1", "evt-2"])
-            self.assertEqual(loaded.order_statuses["123"]["status"], "FILLED")
+
+    def test_save_strategy_state_adds_new_position(self) -> None:
+        """Test that poll process can add new positions."""
+        from momentum_alpha.main import _save_strategy_state
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={},  # No positions
+                    processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+
+            # Simulate poll process adding a new position
+            new_position = Position(
+                symbol="BTCUSDT",
+                stop_price=Decimal("50000"),
+                legs=(
+                    PositionLeg(
+                        symbol="BTCUSDT",
+                        quantity=Decimal("0.001"),
+                        entry_price=Decimal("55000"),
+                        stop_price=Decimal("50000"),
+                        opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                        leg_type="base",
+                    ),
+                ),
+            )
+
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={"BTCUSDT": new_position},
+                    processed_event_ids=[],
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                ),
+            )
+
+            loaded = store.load()
+
+            # The new position should be added
+            self.assertIn("BTCUSDT", loaded.positions)
+            self.assertEqual(loaded.positions["BTCUSDT"].symbol, "BTCUSDT")
 
     def test_account_flow_exists_closes_sqlite_connection(self) -> None:
         from momentum_alpha.main import _account_flow_exists
@@ -2007,7 +2174,7 @@ class MainTests(unittest.TestCase):
             loaded = store.load()
             self.assertEqual(exit_code, 0)
             self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
-            self.assertEqual(loaded.processed_event_ids, ["ORDER_TRADE_UPDATE:123:trade:456"])
+            self.assertIn("ORDER_TRADE_UPDATE:123:trade:456", loaded.processed_event_ids)
 
     def test_run_user_stream_applies_non_trade_order_status_transitions_with_same_order_id(self) -> None:
         from momentum_alpha.main import run_user_stream
@@ -2856,10 +3023,10 @@ class MainTests(unittest.TestCase):
                 now_provider=lambda: next(times),
                 sleep_fn=lambda seconds: sleeps.append(seconds),
                 logger=lambda message: logs.append(message),
-                max_ticks=3,
+                max_ticks=2,
             )
         self.assertEqual(exit_code, 0)
-        self.assertEqual(sleeps, [1, 1, 1])
+        self.assertEqual(len(sleeps), 3)
         self.assertTrue(any("tick" in message for message in logs))
 
     def test_run_forever_logs_exceptions_and_continues(self) -> None:

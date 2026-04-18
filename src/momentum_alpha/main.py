@@ -26,6 +26,7 @@ from momentum_alpha.scheduler import run_loop
 from momentum_alpha.runtime import Runtime, build_runtime
 from momentum_alpha.runtime import RuntimeTickResult, process_runtime_tick
 from momentum_alpha.runtime_store import (
+    MAX_PROCESSED_EVENT_ID_AGE_HOURS,
     RuntimeStateStore,
     insert_account_flow,
     insert_account_snapshot,
@@ -102,12 +103,26 @@ def _save_strategy_state(
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
 ) -> None:
-    """Persist poll-owned state changes without clobbering newer stream fields."""
+    """Persist poll-owned state changes without clobbering newer stream fields.
+
+    Position merge strategy:
+    - Only add positions that are NEW in next_state (not present in stored_state)
+    - Never re-add positions that were recently deleted (present in recent_stop_loss_exits)
+    - This prevents race condition where user-stream deletes a position (stop loss) but
+      poll process's next_state still contains the deleted position
+    """
 
     def _updater(existing: StoredStrategyState | None) -> StoredStrategyState:
         existing_positions = {} if existing is None or existing.positions is None else dict(existing.positions)
+        # Get symbols that were recently deleted by stop loss
+        recent_exits = set(existing.recent_stop_loss_exits.keys()) if existing is not None and existing.recent_stop_loss_exits else set()
+
+        # Only add NEW positions, and never re-add positions that were recently deleted
+        # This prevents re-adding positions that were deleted by user-stream (e.g., stop loss triggered)
         if state.positions is not None:
-            existing_positions.update(state.positions)
+            for symbol, position in state.positions.items():
+                if symbol not in existing_positions and symbol not in recent_exits:
+                    existing_positions[symbol] = position
 
         existing_recent_stop_loss_exits = (
             {} if existing is None or existing.recent_stop_loss_exits is None else dict(existing.recent_stop_loss_exits)
@@ -119,7 +134,7 @@ def _save_strategy_state(
             current_day=state.current_day,
             previous_leader_symbol=state.previous_leader_symbol,
             positions=existing_positions,
-            processed_event_ids=[] if existing is None or existing.processed_event_ids is None else existing.processed_event_ids,
+            processed_event_ids={} if existing is None or existing.processed_event_ids is None else existing.processed_event_ids,
             order_statuses={} if existing is None or existing.order_statuses is None else existing.order_statuses,
             recent_stop_loss_exits=existing_recent_stop_loss_exits,
         )
@@ -127,10 +142,31 @@ def _save_strategy_state(
     runtime_state_store.atomic_update(_updater)
 
 
+def _prune_processed_event_ids(
+    processed_event_ids: dict[str, str] | None,
+    now: datetime,
+) -> dict[str, str]:
+    """Remove event IDs older than MAX_PROCESSED_EVENT_ID_AGE_HOURS."""
+    if not processed_event_ids:
+        return {}
+    cutoff = now - timedelta(hours=MAX_PROCESSED_EVENT_ID_AGE_HOURS)
+    pruned = {}
+    for event_id, timestamp_str in processed_event_ids.items():
+        try:
+            timestamp = datetime.fromisoformat(timestamp_str)
+            if timestamp >= cutoff:
+                pruned[event_id] = timestamp_str
+        except (ValueError, TypeError):
+            # Keep entries with invalid timestamps (backward compatibility)
+            pruned[event_id] = timestamp_str
+    return pruned
+
+
 def _save_user_stream_strategy_state(
     *,
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
+    now: datetime,
 ) -> None:
     """Persist user-stream-owned state changes without reverting poll-owned fields."""
 
@@ -140,11 +176,13 @@ def _save_user_stream_strategy_state(
             if existing is not None and existing.previous_leader_symbol is not None
             else state.previous_leader_symbol
         )
+        # Prune old event IDs to prevent unbounded growth
+        pruned_event_ids = _prune_processed_event_ids(state.processed_event_ids, now)
         return StoredStrategyState(
             current_day=state.current_day,
             previous_leader_symbol=previous_leader_symbol,
             positions=state.positions,
-            processed_event_ids=state.processed_event_ids,
+            processed_event_ids=pruned_event_ids,
             order_statuses=state.order_statuses,
             recent_stop_loss_exits=state.recent_stop_loss_exits,
         )
@@ -868,7 +906,7 @@ def run_once_live(
                 symbol: timestamp.isoformat()
                 for symbol, timestamp in result.runtime_result.next_state.recent_stop_loss_exits.items()
             },
-            processed_event_ids=stored_state.processed_event_ids if stored_state is not None else [],
+            processed_event_ids=stored_state.processed_event_ids if stored_state is not None else {},
             order_statuses=stored_state.order_statuses if stored_state is not None else {},
         )
         _save_strategy_state(runtime_state_store=runtime_state_store, state=merged_state)
@@ -1062,7 +1100,7 @@ def run_user_stream(
         if stored_state is not None
         else {},
     )
-    processed_event_ids = set(stored_state.processed_event_ids or []) if stored_state is not None else set()
+    processed_event_ids = dict(stored_state.processed_event_ids or {}) if stored_state is not None else {}
     order_statuses = dict(stored_state.order_statuses or {}) if stored_state is not None else {}
     stream_client_factory = stream_client_factory or (lambda **kwargs: BinanceUserStreamClient(**kwargs))
 
@@ -1200,7 +1238,7 @@ def run_user_stream(
                 order_statuses[algo_key] = algo_snapshot
         state = apply_user_stream_event_to_state(state=state, event=event, order_statuses=order_statuses)
         if event_id is not None:
-            processed_event_ids.add(event_id)
+            processed_event_ids[event_id] = (event.event_time or now_provider()).isoformat()
         if runtime_state_store is not None:
             _save_user_stream_strategy_state(
                 runtime_state_store=runtime_state_store,
@@ -1208,13 +1246,14 @@ def run_user_stream(
                     current_day=state.current_day.isoformat(),
                     previous_leader_symbol=state.previous_leader_symbol,
                     positions=state.positions,
-                    processed_event_ids=sorted(processed_event_ids),
+                    processed_event_ids=processed_event_ids,
                     order_statuses=order_statuses,
                     recent_stop_loss_exits={
                         symbol: timestamp.isoformat()
                         for symbol, timestamp in state.recent_stop_loss_exits.items()
                     },
                 ),
+                now=event.event_time or now_provider(),
             )
         _record_position_snapshot(
             audit_recorder=audit_recorder,
@@ -1283,13 +1322,14 @@ def run_user_stream(
                     current_day=state.current_day.isoformat(),
                     previous_leader_symbol=state.previous_leader_symbol,
                     positions=state.positions,
-                    processed_event_ids=sorted(processed_event_ids),
+                    processed_event_ids=processed_event_ids,
                     order_statuses=order_statuses,
                     recent_stop_loss_exits={
                         symbol: timestamp.isoformat()
                         for symbol, timestamp in state.recent_stop_loss_exits.items()
                     },
                 ),
+                now=now_provider(),
             )
 
     reconnect_attempt = 0

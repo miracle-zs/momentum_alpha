@@ -1175,7 +1175,7 @@ class DashboardTests(unittest.TestCase):
                 StoredStrategyState(
                     current_day="2026-04-15",
                     previous_leader_symbol="BLESSUSDT",
-                    processed_event_ids=["evt-1"],
+                    processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
                     order_statuses={"101": {"symbol": "BLESSUSDT", "status": "NEW"}},
                 )
             )

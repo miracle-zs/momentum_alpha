@@ -980,7 +980,7 @@ def load_dashboard_snapshot(
                 "current_day": runtime_state.current_day,
                 "previous_leader_symbol": runtime_state.previous_leader_symbol,
                 "positions": runtime_state.positions or {},
-                "processed_event_ids": runtime_state.processed_event_ids or [],
+                "processed_event_ids": runtime_state.processed_event_ids or {},
                 "order_statuses": runtime_state.order_statuses or {},
                 "recent_stop_loss_exits": runtime_state.recent_stop_loss_exits or {},
             }

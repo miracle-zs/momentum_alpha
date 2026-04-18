@@ -116,12 +116,12 @@ class StateStoreTests(unittest.TestCase):
                 StoredStrategyState(
                     current_day="2026-04-15",
                     previous_leader_symbol="BTCUSDT",
-                    processed_event_ids=["event-1"],
+                    processed_event_ids={"event-1": "2026-04-15T01:00:00+00:00"},
                 )
             )
             store.merge_save(StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="SOLUSDT"))
             loaded = store.load()
-            self.assertEqual(loaded.processed_event_ids, ["event-1"])
+            self.assertEqual(loaded.processed_event_ids, {"event-1": "2026-04-15T01:00:00+00:00"})
 
     def test_save_and_load_order_statuses_round_trip(self) -> None:
         from momentum_alpha.state_store import FileStateStore, StoredStrategyState

@@ -4,7 +4,7 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -19,7 +19,7 @@ class StoredStrategyState:
     current_day: str
     previous_leader_symbol: str | None
     positions: dict[str, Position] | None = None
-    processed_event_ids: list[str] | None = None
+    processed_event_ids: dict[str, str] | None = None  # {event_id: iso_timestamp}
     order_statuses: dict[str, dict] | None = None
     recent_stop_loss_exits: dict[str, str] | None = None
 
@@ -69,13 +69,25 @@ def _serialize_state(state: StoredStrategyState) -> dict:
             symbol: _serialize_position(position)
             for symbol, position in (state.positions or {}).items()
         },
-        "processed_event_ids": list(state.processed_event_ids or []),
+        "processed_event_ids": dict(state.processed_event_ids or {}),
         "order_statuses": dict(state.order_statuses or {}),
         "recent_stop_loss_exits": dict(state.recent_stop_loss_exits or {}),
     }
 
 
 def _deserialize_state(payload: dict) -> StoredStrategyState:
+    # Handle backward compatibility: convert list format to dict format
+    raw_event_ids = payload.get("processed_event_ids", [])
+    if isinstance(raw_event_ids, list):
+        # Legacy format: list of event IDs without timestamps
+        # Convert to dict with current time as timestamp
+        processed_event_ids = {
+            event_id: datetime.now(timezone.utc).isoformat()
+            for event_id in raw_event_ids
+        }
+    else:
+        processed_event_ids = dict(raw_event_ids)
+
     return StoredStrategyState(
         current_day=payload["current_day"],
         previous_leader_symbol=payload.get("previous_leader_symbol"),
@@ -83,7 +95,7 @@ def _deserialize_state(payload: dict) -> StoredStrategyState:
             symbol: _deserialize_position(position_payload)
             for symbol, position_payload in payload.get("positions", {}).items()
         },
-        processed_event_ids=payload.get("processed_event_ids", []),
+        processed_event_ids=processed_event_ids,
         order_statuses=payload.get("order_statuses", {}),
         recent_stop_loss_exits=payload.get("recent_stop_loss_exits", {}),
     )

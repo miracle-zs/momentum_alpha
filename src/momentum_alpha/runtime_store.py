@@ -13,6 +13,9 @@ from momentum_alpha.orders import is_strategy_client_order_id
 from momentum_alpha.state_store import StoredStrategyState, _deserialize_state, _serialize_state
 
 
+MAX_PROCESSED_EVENT_ID_AGE_HOURS = 24
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
