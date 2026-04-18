@@ -79,10 +79,15 @@ def resolve_runtime_db_path(*, explicit_path: str | None, default_dir: Path | No
     return None
 
 
-def _build_audit_recorder(*, runtime_db_path: Path | None, source: str | None = None) -> AuditRecorder | None:
+def _build_audit_recorder(
+    *,
+    runtime_db_path: Path | None,
+    source: str | None = None,
+    error_logger=None,
+) -> AuditRecorder | None:
     if runtime_db_path is None:
         return None
-    return AuditRecorder(runtime_db_path=runtime_db_path, source=source)
+    return AuditRecorder(runtime_db_path=runtime_db_path, source=source, error_logger=error_logger)
 
 
 def _build_runtime_state_store(*, runtime_db_path: Path | None) -> RuntimeStateStore | None:
@@ -97,11 +102,54 @@ def _save_strategy_state(
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
 ) -> None:
-    """Save strategy state to the runtime database.
+    """Persist poll-owned state changes without clobbering newer stream fields."""
 
-    This is now the single source of truth for state persistence.
-    """
-    runtime_state_store.save(state)
+    def _updater(existing: StoredStrategyState | None) -> StoredStrategyState:
+        existing_positions = {} if existing is None or existing.positions is None else dict(existing.positions)
+        if state.positions is not None:
+            existing_positions.update(state.positions)
+
+        existing_recent_stop_loss_exits = (
+            {} if existing is None or existing.recent_stop_loss_exits is None else dict(existing.recent_stop_loss_exits)
+        )
+        if state.recent_stop_loss_exits is not None:
+            existing_recent_stop_loss_exits.update(state.recent_stop_loss_exits)
+
+        return StoredStrategyState(
+            current_day=state.current_day,
+            previous_leader_symbol=state.previous_leader_symbol,
+            positions=existing_positions,
+            processed_event_ids=[] if existing is None or existing.processed_event_ids is None else existing.processed_event_ids,
+            order_statuses={} if existing is None or existing.order_statuses is None else existing.order_statuses,
+            recent_stop_loss_exits=existing_recent_stop_loss_exits,
+        )
+
+    runtime_state_store.atomic_update(_updater)
+
+
+def _save_user_stream_strategy_state(
+    *,
+    runtime_state_store: RuntimeStateStore,
+    state: StoredStrategyState,
+) -> None:
+    """Persist user-stream-owned state changes without reverting poll-owned fields."""
+
+    def _updater(existing: StoredStrategyState | None) -> StoredStrategyState:
+        previous_leader_symbol = (
+            existing.previous_leader_symbol
+            if existing is not None and existing.previous_leader_symbol is not None
+            else state.previous_leader_symbol
+        )
+        return StoredStrategyState(
+            current_day=state.current_day,
+            previous_leader_symbol=previous_leader_symbol,
+            positions=state.positions,
+            processed_event_ids=state.processed_event_ids,
+            order_statuses=state.order_statuses,
+            recent_stop_loss_exits=state.recent_stop_loss_exits,
+        )
+
+    runtime_state_store.atomic_update(_updater)
 
 
 def _serialize_snapshot_position(position) -> dict:
@@ -345,7 +393,8 @@ def _account_flow_exists(
 ) -> bool:
     if not runtime_db_path.exists():
         return False
-    with sqlite3.connect(runtime_db_path) as connection:
+    connection = sqlite3.connect(runtime_db_path)
+    try:
         row = connection.execute(
             """
             SELECT 1
@@ -358,6 +407,8 @@ def _account_flow_exists(
             """,
             (timestamp.astimezone(timezone.utc).isoformat(), reason, asset, balance_change),
         ).fetchone()
+    finally:
+        connection.close()
     return row is not None
 
 
@@ -992,7 +1043,7 @@ def run_user_stream(
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
     audit_recorder = (
-        AuditRecorder(runtime_db_path=runtime_db_path, source="user-stream")
+        AuditRecorder(runtime_db_path=runtime_db_path, source="user-stream", error_logger=logger)
         if runtime_db_path is not None
         else None
     )
@@ -1074,9 +1125,12 @@ def run_user_stream(
                     commission_asset=trade_fill.get("commission_asset"),
                     payload=event.payload,
                 )
-                rebuild_trade_analytics(path=audit_recorder.runtime_db_path)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger(
+                    "trade-fill-insert-error "
+                    f"symbol={trade_fill.get('symbol')} order_id={trade_fill.get('order_id')} "
+                    f"trade_id={trade_fill.get('trade_id')} error={exc}"
+                )
         algo_order = extract_algo_order_event(event)
         if algo_order is not None and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
             try:
@@ -1093,8 +1147,11 @@ def run_user_stream(
                     trigger_price=algo_order.get("trigger_price"),
                     payload=event.payload,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger(
+                    "algo-order-insert-error "
+                    f"symbol={algo_order.get('symbol')} algo_id={algo_order.get('algo_id')} error={exc}"
+                )
         account_flows = extract_account_flows(event)
         if account_flows and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
             for flow in account_flows:
@@ -1145,7 +1202,7 @@ def run_user_stream(
         if event_id is not None:
             processed_event_ids.add(event_id)
         if runtime_state_store is not None:
-            _save_strategy_state(
+            _save_user_stream_strategy_state(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
@@ -1220,7 +1277,7 @@ def run_user_stream(
                 "event_time": None,
             }
         if runtime_state_store is not None:
-            _save_strategy_state(
+            _save_user_stream_strategy_state(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
                     current_day=state.current_day.isoformat(),
@@ -1352,6 +1409,7 @@ def cli_main(
         audit_recorder = _build_audit_recorder(
             runtime_db_path=runtime_db_path,
             source="run-once-live",
+            error_logger=print,
         )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         result = run_once_live(
@@ -1379,6 +1437,7 @@ def cli_main(
         audit_recorder = _build_audit_recorder(
             runtime_db_path=runtime_db_path,
             source="poll",
+            error_logger=print,
         )
         mode = "LIVE" if args.submit_orders else "DRY_RUN"
         print(

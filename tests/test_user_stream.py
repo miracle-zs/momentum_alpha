@@ -441,6 +441,48 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "account_update_synced")
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
 
+    def test_apply_account_update_preserves_existing_multi_leg_history_when_quantity_is_unchanged(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        first_opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        second_opened_at = datetime(2026, 4, 15, 2, 0, tzinfo=timezone.utc)
+        first_leg = PositionLeg("ETHUSDT", Decimal("1"), Decimal("108"), Decimal("106"), first_opened_at, "base")
+        second_leg = PositionLeg("ETHUSDT", Decimal("2"), Decimal("110"), Decimal("106"), second_opened_at, "add_on")
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(first_leg, second_leg),
+                )
+            },
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776218880000,
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "ETHUSDT",
+                            "pa": "3",
+                            "ep": "109.33333333",
+                        }
+                    ],
+                },
+            }
+        )
+
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+
+        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("3"))
+        self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
+        self.assertEqual(updated.positions["ETHUSDT"].legs, (first_leg, second_leg))
+
     def test_apply_account_update_restores_stop_price_from_known_stop_order(self) -> None:
         from momentum_alpha.models import StrategyState
         from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event

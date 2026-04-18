@@ -81,13 +81,16 @@ class RuntimeStoreTests(unittest.TestCase):
 
             import sqlite3
 
-            with sqlite3.connect(db_path) as connection:
+            connection = sqlite3.connect(db_path)
+            try:
                 tables = {
                     row[0]
                     for row in connection.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
                     )
                 }
+            finally:
+                connection.close()
 
             self.assertTrue(
                 {

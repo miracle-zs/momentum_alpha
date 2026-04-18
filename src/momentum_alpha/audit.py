@@ -28,6 +28,7 @@ class AuditRecorder:
     runtime_db_path: Path
     source: str | None = None
     db_insert_fn: Callable = insert_audit_event
+    error_logger: Callable[[str], None] | None = None
 
     def record(self, *, event_type: str, now: datetime, payload: dict) -> None:
         try:
@@ -38,5 +39,9 @@ class AuditRecorder:
                 payload=_coerce_json_value(payload),
                 source=self.source,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            if self.error_logger is not None:
+                self.error_logger(
+                    "audit-record-error "
+                    f"event_type={event_type} source={self.source} path={self.runtime_db_path} error={exc}"
+                )

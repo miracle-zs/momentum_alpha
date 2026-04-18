@@ -82,10 +82,11 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(events[0]["payload"]["values"], [1, 2])
             self.assertEqual(events[0]["payload"]["nested"], {"seen": True})
 
-    def test_audit_recorder_swallows_runtime_db_write_failures(self) -> None:
+    def test_audit_recorder_logs_runtime_db_write_failures(self) -> None:
         from momentum_alpha.audit import AuditRecorder
 
         calls = []
+        messages = []
 
         def failing_writer(**kwargs):
             calls.append(kwargs)
@@ -95,6 +96,7 @@ class AuditTests(unittest.TestCase):
             recorder = AuditRecorder(
                 runtime_db_path=Path(tmpdir) / "runtime.db",
                 db_insert_fn=failing_writer,
+                error_logger=messages.append,
             )
             recorder.record(
                 event_type="tick_result",
@@ -104,3 +106,4 @@ class AuditTests(unittest.TestCase):
 
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0]["event_type"], "tick_result")
+            self.assertTrue(any("audit-record-error" in message for message in messages))

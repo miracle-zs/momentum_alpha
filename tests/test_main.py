@@ -71,6 +71,117 @@ class MainTests(unittest.TestCase):
             else:
                 os.environ["BINANCE_USE_TESTNET"] = old_value
 
+    def test_save_strategy_state_preserves_newer_runtime_fields_during_poll_write(self) -> None:
+        from momentum_alpha.main import _save_strategy_state
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    processed_event_ids=["evt-1"],
+                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "NEW"}},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+                )
+            )
+
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids=[],
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                ),
+            )
+
+            loaded = store.load()
+
+            self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(loaded.processed_event_ids, ["evt-1"])
+            self.assertEqual(loaded.order_statuses["123"]["status"], "NEW")
+            self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
+
+    def test_save_user_stream_state_preserves_newer_previous_leader_symbol(self) -> None:
+        from momentum_alpha.main import _save_user_stream_strategy_state
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.state_store import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids=["evt-1"],
+                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "NEW"}},
+                    recent_stop_loss_exits={},
+                )
+            )
+
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={},
+                    processed_event_ids=["evt-1", "evt-2"],
+                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "FILLED"}},
+                    recent_stop_loss_exits={},
+                ),
+            )
+
+            loaded = store.load()
+
+            self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
+            self.assertEqual(loaded.processed_event_ids, ["evt-1", "evt-2"])
+            self.assertEqual(loaded.order_statuses["123"]["status"], "FILLED")
+
+    def test_account_flow_exists_closes_sqlite_connection(self) -> None:
+        from momentum_alpha.main import _account_flow_exists
+
+        class FakeCursor:
+            def fetchone(self):
+                return (1,)
+
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def execute(self, *_args, **_kwargs):
+                return FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def close(self) -> None:
+                self.closed = True
+
+        fake_connection = FakeConnection()
+        runtime_db_path = Path("/tmp/runtime.db")
+
+        with patch("momentum_alpha.main.sqlite3.connect", return_value=fake_connection):
+            with patch.object(Path, "exists", return_value=True):
+                exists = _account_flow_exists(
+                    runtime_db_path=runtime_db_path,
+                    timestamp=datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc),
+                    reason="TRANSFER",
+                    asset="USDT",
+                    balance_change="10",
+                )
+
+        self.assertTrue(exists)
+        self.assertTrue(fake_connection.closed)
+
     def test_run_once_builds_preview_without_submitting_orders(self) -> None:
         from momentum_alpha.main import run_once
 
@@ -1423,6 +1534,75 @@ class MainTests(unittest.TestCase):
             self.assertEqual(trade_fills[0]["symbol"], "ETHUSDT")
             self.assertEqual(trade_fills[0]["trade_id"], "456")
 
+    def test_run_user_stream_does_not_rebuild_trade_analytics_on_each_fill_by_default(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ORDER_TRADE_UPDATE",
+                            "T": 1776215100000,
+                            "o": {
+                                "s": "ETHUSDT",
+                                "S": "BUY",
+                                "X": "FILLED",
+                                "x": "TRADE",
+                                "ot": "MARKET",
+                                "ap": "108",
+                                "z": "2",
+                                "sp": "106",
+                            },
+                        }
+                    )
+                )
+                return "abc"
+
+        rebuild_calls = []
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            with patch(
+                "momentum_alpha.main.extract_trade_fill",
+                return_value={
+                    "symbol": "ETHUSDT",
+                    "order_id": "123",
+                    "trade_id": "456",
+                    "client_order_id": "ma_test",
+                    "order_status": "FILLED",
+                    "execution_type": "TRADE",
+                    "side": "BUY",
+                    "order_type": "MARKET",
+                    "quantity": "2",
+                    "cumulative_quantity": "2",
+                    "average_price": "108",
+                    "last_price": "108",
+                    "realized_pnl": "0",
+                    "commission": "0",
+                    "commission_asset": "USDT",
+                },
+            ):
+                with patch("momentum_alpha.main.insert_trade_fill", side_effect=lambda **kwargs: None):
+                    with patch("momentum_alpha.main.rebuild_trade_analytics", side_effect=lambda **kwargs: rebuild_calls.append(kwargs)):
+                        exit_code = run_user_stream(
+                            client=FakeClient(),
+                            testnet=True,
+                            logger=lambda message: None,
+                            runtime_state_store=store,
+                            runtime_db_path=store.path,
+                            now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                            stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(rebuild_calls, [])
+
     def test_run_user_stream_persists_account_flows_from_account_update(self) -> None:
         from momentum_alpha.main import run_user_stream
         from momentum_alpha.runtime_store import fetch_recent_account_flows
@@ -1522,6 +1702,98 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(any("account-flow-insert-error" in message for message in messages))
         self.assertTrue(any(event["event_type"] == "account_flow_insert_error" for event in events))
+
+    def test_run_user_stream_logs_trade_fill_insert_failures(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ORDER_TRADE_UPDATE",
+                            "T": 1776215100000,
+                            "o": {
+                                "s": "ETHUSDT",
+                                "S": "BUY",
+                                "X": "FILLED",
+                                "x": "TRADE",
+                                "ot": "MARKET",
+                                "ap": "108",
+                                "z": "2",
+                                "L": "108",
+                                "l": "2",
+                                "sp": "106",
+                                "i": 123,
+                                "t": 456,
+                                "c": "ma_test",
+                            },
+                        }
+                    )
+                )
+                return "abc"
+
+        messages = []
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            with patch("momentum_alpha.main.insert_trade_fill", side_effect=RuntimeError("db write failed")):
+                exit_code = run_user_stream(
+                    client=FakeClient(),
+                    testnet=False,
+                    logger=lambda message: messages.append(message),
+                    now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
+                    stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                    runtime_db_path=runtime_db_path,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any("trade-fill-insert-error" in message for message in messages))
+
+    def test_run_user_stream_logs_algo_order_insert_failures(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ALGO_UPDATE",
+                            "E": 1776215100000,
+                            "s": "ETHUSDT",
+                            "S": "SELL",
+                            "algoId": 999,
+                            "clientAlgoId": "ma_algo",
+                            "algoStatus": "NEW",
+                            "orderType": "STOP_MARKET",
+                            "triggerPrice": "106",
+                        }
+                    )
+                )
+                return "abc"
+
+        messages = []
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            with patch("momentum_alpha.main.insert_algo_order", side_effect=RuntimeError("db write failed")):
+                exit_code = run_user_stream(
+                    client=FakeClient(),
+                    testnet=False,
+                    logger=lambda message: messages.append(message),
+                    now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
+                    stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                    runtime_db_path=runtime_db_path,
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any("algo-order-insert-error" in message for message in messages))
 
     def test_run_user_stream_prewarms_state_from_rest_before_receiving_events(self) -> None:
         from momentum_alpha.main import run_user_stream
