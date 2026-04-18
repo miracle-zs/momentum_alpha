@@ -2193,8 +2193,8 @@ console.log(JSON.stringify(cases));
                 StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="PLAYUSDT")
             )
 
-            start = datetime(2026, 4, 15, 0, 0, tzinfo=timezone.utc)
-            for idx in range(64):
+            start = now - timedelta(minutes=1500)
+            for idx in range(1501):
                 insert_account_snapshot(
                     path=runtime_db_file,
                     timestamp=start + timedelta(minutes=idx),
@@ -2217,9 +2217,9 @@ console.log(JSON.stringify(cases));
                 recent_limit=10,
             )
 
-            self.assertEqual(len(snapshot["recent_account_snapshots"]), 64)
-            self.assertEqual(snapshot["recent_account_snapshots"][0]["wallet_balance"], "163")
-            self.assertEqual(snapshot["recent_account_snapshots"][-1]["wallet_balance"], "100")
+            self.assertEqual(len(snapshot["recent_account_snapshots"]), 289)
+            self.assertEqual(snapshot["recent_account_snapshots"][0]["wallet_balance"], "1600")
+            self.assertGreater(int(snapshot["recent_account_snapshots"][-1]["wallet_balance"]), 100)
 
     def test_render_dashboard_html_redesigns_account_metrics_as_single_interactive_panel(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2301,6 +2301,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("'1M': 24 * 30", html)
         self.assertIn("'1Y': 24 * 365", html)
         self.assertIn("localStorage.getItem('dashboard.account.range') || '1D'", html)
+        self.assertIn("/api/dashboard/timeseries", html)
+        self.assertIn("range=${encodeURIComponent(range)}", html)
 
     def test_filter_rows_for_range_supports_requested_windows(self) -> None:
         from momentum_alpha.dashboard import _filter_rows_for_range

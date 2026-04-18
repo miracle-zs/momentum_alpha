@@ -1098,6 +1098,42 @@ def fetch_recent_account_flows(*, path: Path, limit: int = 20) -> list[dict]:
     ]
 
 
+def fetch_account_flows_since(*, path: Path, since: datetime) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                reason,
+                asset,
+                wallet_balance,
+                cross_wallet_balance,
+                balance_change,
+                payload_json
+            FROM account_flows
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (since.astimezone(timezone.utc).isoformat(),),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "reason": row[2],
+            "asset": row[3],
+            "wallet_balance": row[4],
+            "cross_wallet_balance": row[5],
+            "balance_change": row[6],
+            "payload": _json_loads(row[7]),
+        }
+        for row in rows
+    ]
+
+
 def fetch_recent_trade_round_trips(*, path: Path, limit: int = 20) -> list[dict]:
     if not path.exists():
         return []
@@ -1510,6 +1546,84 @@ def fetch_recent_account_snapshots(*, path: Path, limit: int = 20) -> list[dict]
         for row in rows
     ]
 
+
+_ACCOUNT_RANGE_DENSITY: dict[str, tuple[timedelta | None, int]] = {
+    "1H": (timedelta(hours=1), 60),
+    "1D": (timedelta(days=1), 5 * 60),
+    "1W": (timedelta(days=7), 60 * 60),
+    "1M": (timedelta(days=30), 4 * 60 * 60),
+    "1Y": (timedelta(days=365), 24 * 60 * 60),
+    "ALL": (None, 24 * 60 * 60),
+}
+
+
+def fetch_account_snapshots_for_range(
+    *,
+    path: Path,
+    now: datetime,
+    range_key: str,
+) -> list[dict]:
+    if not path.exists():
+        return []
+    window, bucket_seconds = _ACCOUNT_RANGE_DENSITY.get(range_key, _ACCOUNT_RANGE_DENSITY["1D"])
+    cutoff = None if window is None else now.astimezone(timezone.utc) - window
+    where_clause = "" if cutoff is None else "WHERE timestamp >= ?"
+    params = () if cutoff is None else (cutoff.isoformat(),)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                id,
+                timestamp,
+                source,
+                wallet_balance,
+                available_balance,
+                equity,
+                unrealized_pnl,
+                position_count,
+                open_order_count,
+                leader_symbol,
+                payload_json
+            FROM (
+                SELECT
+                    id,
+                    timestamp,
+                    source,
+                    wallet_balance,
+                    available_balance,
+                    equity,
+                    unrealized_pnl,
+                    position_count,
+                    open_order_count,
+                    leader_symbol,
+                    payload_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                        ORDER BY timestamp DESC, id DESC
+                    ) AS rn
+                FROM account_snapshots
+                {where_clause}
+            )
+            WHERE rn = 1
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (bucket_seconds, *params),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[1],
+            "source": row[2],
+            "wallet_balance": row[3],
+            "available_balance": row[4],
+            "equity": row[5],
+            "unrealized_pnl": row[6],
+            "position_count": row[7],
+            "open_order_count": row[8],
+            "leader_symbol": row[9],
+            "payload": _json_loads(row[10]),
+        }
+        for row in rows
+    ]
 
 def fetch_leader_history(*, path: Path, limit: int = 10) -> list[dict]:
     if not path.exists():

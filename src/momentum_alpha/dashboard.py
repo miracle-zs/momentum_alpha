@@ -13,11 +13,12 @@ from urllib.parse import parse_qs, urlparse
 from .health import build_runtime_health_report
 from .runtime_store import (
     RuntimeStateStore,
+    fetch_account_flows_since,
+    fetch_account_snapshots_for_range,
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_recent_account_flows,
     fetch_recent_audit_events,
-    fetch_recent_account_snapshots,
     fetch_recent_algo_orders,
     fetch_recent_broker_orders,
     fetch_recent_position_snapshots,
@@ -31,6 +32,25 @@ from .runtime_store import (
 DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
 DASHBOARD_TABS = ("overview", "execution", "performance", "system")
+ACCOUNT_RANGE_WINDOWS = {
+    "1H": timedelta(hours=1),
+    "1D": timedelta(days=1),
+    "1W": timedelta(days=7),
+    "1M": timedelta(days=30),
+    "1Y": timedelta(days=365),
+}
+
+
+def normalize_account_range(range_key: str | None) -> str:
+    normalized = str(range_key or "1D").upper()
+    return normalized if normalized in {*ACCOUNT_RANGE_WINDOWS, "ALL"} else "1D"
+
+
+def _account_flow_since(*, now: datetime, range_key: str) -> datetime:
+    window = ACCOUNT_RANGE_WINDOWS.get(range_key)
+    if window is None:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return now.astimezone(timezone.utc) - window
 
 def _load_state_file(*, path: Path) -> tuple[dict, list[str]]:
     if not path.exists():
@@ -936,7 +956,9 @@ def load_dashboard_snapshot(
     entry_end_hour_utc: int = 23,
     testnet: bool = False,
     submit_orders: bool = False,
+    account_range_key: str = "1D",
 ) -> dict:
+    account_range_key = normalize_account_range(account_range_key)
     health_report = build_runtime_health_report(
         now=now,
         poll_log_file=poll_log_file,
@@ -977,11 +999,14 @@ def load_dashboard_snapshot(
         recent_trade_fills = fetch_recent_trade_fills(path=runtime_db_file, limit=20)
         recent_algo_orders = fetch_recent_algo_orders(path=runtime_db_file, limit=20)
         recent_account_flows = fetch_recent_account_flows(path=runtime_db_file, limit=20)
-        account_metric_flows = fetch_recent_account_flows(path=runtime_db_file, limit=1440)
+        account_metric_flows = fetch_account_flows_since(
+            path=runtime_db_file,
+            since=_account_flow_since(now=now, range_key=account_range_key),
+        )
         recent_trade_round_trips = fetch_recent_trade_round_trips(path=runtime_db_file, limit=20)
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
-        recent_account_snapshots = fetch_recent_account_snapshots(path=runtime_db_file, limit=1440)
+        recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
@@ -3088,15 +3113,26 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       if (labelNode) labelNode.textContent = `${{range}} · ${{metric.replace('_', ' ').toUpperCase()}} · ${{formatAccountWindowTimestamp(first.timestamp)}} → ${{formatAccountWindowTimestamp(last.timestamp)}}`;
     }}
     function initializeAccountMetrics() {{
-      const accountMetricsData = getAccountMetricsData();
+      let accountMetricsData = getAccountMetricsData();
       if (!Array.isArray(accountMetricsData)) return;
       let activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
       let activeRange = localStorage.getItem('dashboard.account.range') || '1D';
       const chartNode = document.getElementById('account-metrics-chart');
       const render = () => {{
-        const visible = filterAccountPoints(accountMetricsData, activeRange);
-        if (chartNode) chartNode.innerHTML = buildAccountChartSvg(visible, activeMetric);
-        updateAccountOverview(visible, activeMetric, activeRange);
+        if (chartNode) chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
+        updateAccountOverview(accountMetricsData, activeMetric, activeRange);
+      }};
+      const loadAccountRange = async (range) => {{
+        try {{
+          const response = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(range)}}`, {{ cache: 'no-store' }});
+          if (!response.ok) throw new Error(`account range fetch failed: ${{response.status}}`);
+          const payload = await response.json();
+          accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
+          render();
+        }} catch (error) {{
+          console.error(error);
+          render();
+        }}
       }};
       document.querySelectorAll('[data-account-metric]').forEach((button) => {{
         button.addEventListener('click', () => {{
@@ -3107,16 +3143,20 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         }});
       }});
       document.querySelectorAll('[data-account-range]').forEach((button) => {{
-        button.addEventListener('click', () => {{
+        button.addEventListener('click', async () => {{
           activeRange = button.dataset.accountRange;
           localStorage.setItem('dashboard.account.range', activeRange);
           document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node === button));
-          render();
+          await loadAccountRange(activeRange);
         }});
       }});
       document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === activeMetric));
       document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === activeRange));
-      render();
+      if (activeRange === '1D') {{
+        render();
+      }} else {{
+        loadAccountRange(activeRange);
+      }}
     }}
     function bindDashboardControls() {{
       const refreshButton = document.getElementById('manual-refresh-button');
@@ -3208,6 +3248,7 @@ def run_dashboard_server(
             parsed_url = urlparse(self.path)
             query_params = parse_qs(parsed_url.query)
             active_tab = normalize_dashboard_tab(query_params.get("tab", [None])[0])
+            account_range_key = normalize_account_range(query_params.get("range", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
                 poll_log_file=poll_log_file,
@@ -3218,6 +3259,7 @@ def run_dashboard_server(
                 entry_end_hour_utc=entry_end_hour_utc,
                 testnet=testnet,
                 submit_orders=submit_orders,
+                account_range_key=account_range_key,
             )
             if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
                 if parsed_url.path == "/api/dashboard/summary":

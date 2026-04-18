@@ -1,7 +1,7 @@
 import json
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -304,6 +304,72 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(account_snapshots[0]["equity"], "1260.12")
             self.assertEqual(account_snapshots[0]["open_order_count"], 2)
             self.assertEqual(account_snapshots[0]["payload"]["account_alias"], "primary")
+
+    def test_fetch_account_snapshots_for_range_keeps_latest_point_per_bucket(self) -> None:
+        from momentum_alpha.runtime_store import fetch_account_snapshots_for_range, insert_account_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            now = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+            points = [
+                (now - timedelta(days=10) + timedelta(minutes=10), "old-same-day-older"),
+                (now - timedelta(days=10) + timedelta(minutes=20), "old-day-latest"),
+                (now - timedelta(minutes=2), "recent-older"),
+                (now - timedelta(minutes=1), "recent-latest"),
+            ]
+            for timestamp, wallet_balance in points:
+                insert_account_snapshot(
+                    path=db_path,
+                    timestamp=timestamp,
+                    source="poll",
+                    wallet_balance=wallet_balance,
+                    available_balance="0",
+                    equity="0",
+                    unrealized_pnl="0",
+                    position_count=0,
+                    open_order_count=0,
+                    leader_symbol=None,
+                    payload={},
+                )
+
+            snapshots = fetch_account_snapshots_for_range(path=db_path, now=now, range_key="ALL")
+
+            self.assertEqual(
+                [snapshot["wallet_balance"] for snapshot in snapshots],
+                ["recent-latest", "old-day-latest"],
+            )
+
+    def test_fetch_account_snapshots_for_range_uses_window_specific_density(self) -> None:
+        from momentum_alpha.runtime_store import fetch_account_snapshots_for_range, insert_account_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            now = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+            for idx in range(0, 48 * 12):
+                timestamp = now - timedelta(minutes=idx * 5)
+                insert_account_snapshot(
+                    path=db_path,
+                    timestamp=timestamp,
+                    source="poll",
+                    wallet_balance=str(idx),
+                    available_balance="0",
+                    equity="0",
+                    unrealized_pnl="0",
+                    position_count=0,
+                    open_order_count=0,
+                    leader_symbol=None,
+                    payload={},
+                )
+
+            one_day = fetch_account_snapshots_for_range(path=db_path, now=now, range_key="1D")
+            one_week = fetch_account_snapshots_for_range(path=db_path, now=now, range_key="1W")
+
+            self.assertLessEqual(len(one_day), 290)
+            self.assertLessEqual(len(one_week), 50)
+            self.assertLess(
+                datetime.fromisoformat(one_week[-1]["timestamp"]),
+                datetime.fromisoformat(one_day[-1]["timestamp"]),
+            )
 
     def test_dashboard_helpers_return_leader_history_and_pulse_points(self) -> None:
         from momentum_alpha.runtime_store import (
