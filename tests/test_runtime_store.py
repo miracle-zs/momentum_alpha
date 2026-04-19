@@ -850,6 +850,115 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(stop_exits[0]["slippage_abs"], "1.0")
             self.assertEqual(stop_exits[0]["slippage_pct"], "0.5128205128205128205128205128")
 
+    def test_rebuild_trade_analytics_groups_partial_entry_fills_into_one_leg(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_recent_trade_round_trips,
+            insert_algo_order,
+            insert_trade_fill,
+            rebuild_trade_analytics,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+
+            opened_at = datetime(2026, 4, 19, 3, 0, tzinfo=timezone.utc)
+            closed_at = datetime(2026, 4, 19, 3, 20, tzinfo=timezone.utc)
+            entry_client_order_id = "ma_260419030000_ETHUSDT_b00e"
+            stop_client_order_id = "ma_260419030000_ETHUSDT_b00s"
+
+            insert_algo_order(
+                path=db_path,
+                timestamp=opened_at,
+                source="poll",
+                symbol="ETHUSDT",
+                algo_id="400",
+                client_algo_id=stop_client_order_id,
+                algo_status="NEW",
+                side="SELL",
+                order_type="STOP_MARKET",
+                trigger_price="195",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="ETHUSDT",
+                order_id="20",
+                trade_id="220",
+                client_order_id=entry_client_order_id,
+                order_status="PARTIALLY_FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="1",
+                cumulative_quantity="1",
+                average_price="200",
+                last_price="200",
+                realized_pnl="0",
+                commission="0.1",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="ETHUSDT",
+                order_id="20",
+                trade_id="221",
+                client_order_id=entry_client_order_id,
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="2",
+                cumulative_quantity="3",
+                average_price="200",
+                last_price="200",
+                realized_pnl="0",
+                commission="0.2",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=closed_at,
+                source="user-stream",
+                symbol="ETHUSDT",
+                order_id="21",
+                trade_id="222",
+                client_order_id=stop_client_order_id,
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="SELL",
+                order_type="STOP_MARKET",
+                quantity="3",
+                cumulative_quantity="3",
+                average_price="194",
+                last_price="194",
+                realized_pnl="-18",
+                commission="0.3",
+                commission_asset="USDT",
+                payload={},
+            )
+
+            rebuild_trade_analytics(path=db_path)
+            round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+
+            self.assertEqual(len(round_trips), 1)
+            payload = round_trips[0]["payload"]
+            self.assertEqual(payload["leg_count"], 1)
+            self.assertEqual(payload["add_on_leg_count"], 0)
+            self.assertEqual(payload["legs"][0]["quantity"], "3")
+            self.assertEqual(payload["legs"][0]["entry_price"], "200")
+            self.assertEqual(payload["legs"][0]["stop_price_at_entry"], "195")
+            self.assertEqual(payload["legs"][0]["leg_risk"], "15")
+            self.assertEqual(payload["base_leg_risk"], "15")
+            self.assertEqual(payload["peak_cumulative_risk"], "15")
+
     def test_fetch_trade_round_trips_for_range_returns_newest_first_with_payload(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

@@ -374,11 +374,38 @@ def _build_trade_round_trip_leg_payload(
     commission_total: Decimal,
     stop_trigger_by_client_order_id: dict[str, Decimal],
 ) -> tuple[list[dict], Decimal | None, Decimal | None]:
+    grouped_entry_fills: list[dict] = []
+    grouped_index_by_key: dict[str, int] = {}
+    for item in entry_fills:
+        group_key = str(item.get("client_order_id") or item.get("order_id") or item.get("timestamp") or len(grouped_entry_fills))
+        group_index = grouped_index_by_key.get(group_key)
+        if group_index is None:
+            grouped_index_by_key[group_key] = len(grouped_entry_fills)
+            grouped_entry_fills.append(
+                {
+                    "timestamp": item["timestamp"],
+                    "time": item["time"],
+                    "client_order_id": item["client_order_id"],
+                    "quantity": item["quantity"],
+                    "price": item["price"],
+                }
+            )
+            continue
+        grouped = grouped_entry_fills[group_index]
+        grouped["quantity"] += item["quantity"]
+        if item["price"] is not None and item["quantity"] is not None:
+            grouped["price"] = (
+                (grouped["price"] * (grouped["quantity"] - item["quantity"])) + (item["price"] * item["quantity"])
+            ) / grouped["quantity"]
+        if item["time"] < grouped["time"]:
+            grouped["time"] = item["time"]
+            grouped["timestamp"] = item["timestamp"]
+
     legs: list[dict] = []
     cumulative_risk = Decimal("0")
     all_leg_risks_known = True
 
-    for leg_index, item in enumerate(entry_fills, start=1):
+    for leg_index, item in enumerate(grouped_entry_fills, start=1):
         client_order_id = item["client_order_id"]
         stop_client_order_id = _strategy_stop_client_order_id(client_order_id)
         stop_price_at_entry = (
