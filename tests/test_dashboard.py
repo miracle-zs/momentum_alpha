@@ -171,6 +171,16 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_render_dashboard_html_performance_shows_margin_usage_summary_cards(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+
+        self.assertIn("ACCOUNT SNAPSHOT", html)
+        self.assertIn("Margin Usage", html)
+        self.assertIn("Peak Margin Usage", html)
+        self.assertIn("Average Margin Usage", html)
+
     def test_render_dashboard_html_renders_execution_tab_without_overview_sections(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 

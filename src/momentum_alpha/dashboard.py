@@ -412,9 +412,10 @@ def build_trader_summary_metrics(
         if scoped_round_trip_pnls:
             today_net_pnl = sum(scoped_round_trip_pnls)
 
-    margin_usage_pct = None
-    if latest_equity not in (None, 0) and latest_available is not None:
-        margin_usage_pct = (1 - (latest_available / latest_equity)) * 100
+    margin_usage_pct = _compute_margin_usage_pct(
+        available_balance=latest_available,
+        equity=latest_equity,
+    )
 
     open_risk = sum((_parse_numeric(position.get("risk")) or 0.0) for position in position_details)
     open_risk_pct = None
@@ -1431,6 +1432,15 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
         "<div class='account-snapshot-card'><div class='account-snapshot-label'>Exposure</div>"
         f"<div class='account-snapshot-value'>{escape(str(stats.get('current_positions') or 0))} / {escape(str(stats.get('current_orders') or 0))}</div>"
         "<div class='account-snapshot-sub'>positions / orders</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Margin Usage</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_pct_value(stats.get('current_margin_usage_pct')))}</div>"
+        "<div class='account-snapshot-sub'>current account occupancy</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Peak Margin Usage</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_pct_value(stats.get('peak_margin_usage_pct')))}</div>"
+        "<div class='account-snapshot-sub'>highest visible occupancy</div></div>"
+        "<div class='account-snapshot-card'><div class='account-snapshot-label'>Average Margin Usage</div>"
+        f"<div class='account-snapshot-value'>{escape(_format_pct_value(stats.get('average_margin_usage_pct')))}</div>"
+        "<div class='account-snapshot-sub'>mean visible occupancy</div></div>"
         "</div>"
         "</section>"
     )
@@ -1597,7 +1607,13 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     )
 
 
-def render_dashboard_overview_tab(*, top_metrics_html: str, hero_html: str, positions_html: str, home_command_html: str) -> str:
+def render_dashboard_overview_tab(
+    *,
+    top_metrics_html: str,
+    hero_html: str,
+    positions_html: str,
+    home_command_html: str,
+) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
         f"<div class='metrics-grid'>{top_metrics_html}</div>"
@@ -1641,7 +1657,13 @@ def render_dashboard_execution_tab(*, execution_flow_html: str, execution_summar
     )
 
 
-def render_dashboard_performance_tab(*, closed_trades_html: str, performance_summary_html: str, account_metrics_panel_html: str) -> str:
+def render_dashboard_performance_tab(
+    *,
+    closed_trades_html: str,
+    performance_summary_html: str,
+    account_snapshot_html: str,
+    account_metrics_panel_html: str,
+) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-tab-content="performance">'
         "<section class='section-frame' data-collapsible-section='performance'>"
@@ -1659,6 +1681,7 @@ def render_dashboard_performance_tab(*, closed_trades_html: str, performance_sum
         "</div>"
         "</div>"
         "</section>"
+        f"{account_snapshot_html}"
         "<section class='section-frame' data-collapsible-section='account'>"
         "<div class='section-topbar'>"
         "<div class='section-header'>ACCOUNT METRICS</div>"
@@ -1784,6 +1807,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         account_range_stats=account_range_stats,
         health_status=health_status,
     )
+    account_snapshot_html = _build_account_snapshot_panel(account_range_stats)
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_broker_orders = snapshot.get("recent_broker_orders") or []
@@ -2039,6 +2063,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         "performance": render_dashboard_performance_tab(
             closed_trades_html=closed_trades_html,
             performance_summary_html=performance_summary_html,
+            account_snapshot_html=account_snapshot_html,
             account_metrics_panel_html=account_metrics_panel_html,
         ),
         "system": render_dashboard_system_tab(
