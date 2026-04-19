@@ -155,12 +155,12 @@ class DashboardTests(unittest.TestCase):
     def test_render_dashboard_html_defaults_to_overview_tab_and_renders_query_param_links(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
-        html = render_dashboard_html(self._build_tabbed_snapshot())
+        html = render_dashboard_html(self._build_tabbed_snapshot(), account_range_key="1W")
 
-        self.assertIn('?tab=overview', html)
-        self.assertIn('?tab=execution', html)
-        self.assertIn('?tab=performance', html)
-        self.assertIn('?tab=system', html)
+        self.assertIn('?tab=overview&range=1W', html)
+        self.assertIn('?tab=execution&range=1W', html)
+        self.assertIn('?tab=performance&range=1W', html)
+        self.assertIn('?tab=system&range=1W', html)
         self.assertIn('dashboard-tab is-active', html)
         self.assertIn('data-dashboard-tab-content="overview"', html)
         self.assertIn("LIVE OVERVIEW", html)
@@ -2350,10 +2350,10 @@ console.log(JSON.stringify(cases));
     def test_render_dashboard_tab_bar_uses_relative_tab_links(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_tab_bar
 
-        html = render_dashboard_tab_bar("overview")
+        html = render_dashboard_tab_bar("overview", account_range_key="1W")
 
-        self.assertIn('href="?tab=overview"', html)
-        self.assertIn('href="?tab=execution"', html)
+        self.assertIn('href="?tab=overview&range=1W"', html)
+        self.assertIn('href="?tab=execution&range=1W"', html)
         self.assertNotIn('href="/?tab=overview"', html)
 
     def test_render_dashboard_html_includes_positions_section(self) -> None:

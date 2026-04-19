@@ -8,7 +8,7 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from .health import build_runtime_health_report
 from .runtime_store import (
@@ -44,6 +44,10 @@ ACCOUNT_RANGE_WINDOWS = {
 def normalize_account_range(range_key: str | None) -> str:
     normalized = str(range_key or "1D").upper()
     return normalized if normalized in {*ACCOUNT_RANGE_WINDOWS, "ALL"} else "1D"
+
+
+def _build_dashboard_tab_href(*, tab: str, account_range_key: str) -> str:
+    return f"?{urlencode({'tab': normalize_dashboard_tab(tab), 'range': normalize_account_range(account_range_key)})}"
 
 
 def _account_flow_since(*, now: datetime, range_key: str) -> datetime:
@@ -1688,6 +1692,7 @@ def _build_overview_home_command(
     trader_metrics: dict[str, dict[str, object | None]],
     account_range_stats: dict[str, float | None],
     health_status: str,
+    account_range_key: str,
 ) -> str:
     def _format_pct_short(value: object | None) -> str:
         numeric = _parse_numeric(value)
@@ -1710,9 +1715,21 @@ def _build_overview_home_command(
         ("Health", str(health_status)),
     ]
     action_cards = [
-        ("Execution", "Trace fills, stop behavior, and broker actions.", "?tab=execution"),
-        ("Performance", "Review streak, expectancy, and account curve.", "?tab=performance"),
-        ("System", "Check freshness, warnings, and runtime health.", "?tab=system"),
+        (
+            "Execution",
+            "Trace fills, stop behavior, and broker actions.",
+            _build_dashboard_tab_href(tab="execution", account_range_key=account_range_key),
+        ),
+        (
+            "Performance",
+            "Review streak, expectancy, and account curve.",
+            _build_dashboard_tab_href(tab="performance", account_range_key=account_range_key),
+        ),
+        (
+            "System",
+            "Check freshness, warnings, and runtime health.",
+            _build_dashboard_tab_href(tab="system", account_range_key=account_range_key),
+        ),
     ]
     return (
         "<section class='dashboard-section home-command-panel'>"
@@ -1822,7 +1839,7 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
     return f"{venue} {order_mode}", state
 
 
-def render_dashboard_tab_bar(active_tab: str) -> str:
+def render_dashboard_tab_bar(active_tab: str, *, account_range_key: str = "1D") -> str:
     labels = {
         "overview": "Overview",
         "execution": "Execution",
@@ -1832,7 +1849,7 @@ def render_dashboard_tab_bar(active_tab: str) -> str:
     links = "".join(
         (
             f'<a class="dashboard-tab{" is-active" if tab == active_tab else ""}" '
-            f'data-dashboard-tab="{tab}" href="?tab={tab}">{escape(labels[tab])}</a>'
+            f'data-dashboard-tab="{tab}" href="{_build_dashboard_tab_href(tab=tab, account_range_key=account_range_key)}">{escape(labels[tab])}</a>'
         )
         for tab in DASHBOARD_TABS
     )
@@ -2019,8 +2036,14 @@ def render_dashboard_shell(
     )
 
 
-def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, active_tab: str | None = None) -> str:
+def render_dashboard_html(
+    snapshot: dict,
+    strategy_config: dict | None = None,
+    active_tab: str | None = None,
+    account_range_key: str = "1D",
+) -> str:
     active_tab = normalize_dashboard_tab(active_tab)
+    account_range_key = normalize_account_range(account_range_key)
     timeseries = build_dashboard_timeseries_payload(snapshot)
     runtime = snapshot["runtime"]
     latest_signal = runtime.get("latest_signal_decision") or {}
@@ -2053,6 +2076,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         trader_metrics=trader_metrics,
         account_range_stats=account_range_stats,
         health_status=health_status,
+        account_range_key=account_range_key,
     )
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
@@ -2295,7 +2319,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         "</div>"
         "</section>"
     )
-    tab_bar_html = render_dashboard_tab_bar(active_tab)
+    tab_bar_html = render_dashboard_tab_bar(active_tab, account_range_key=account_range_key)
     tab_content_html = {
         "overview": render_dashboard_overview_tab(
             top_metrics_html=top_metrics_html,
@@ -3700,7 +3724,11 @@ def run_dashboard_server(
                 self.wfile.write(body)
                 return
             if parsed_url.path == "/":
-                body = render_dashboard_html(snapshot, active_tab=active_tab).encode("utf-8")
+                body = render_dashboard_html(
+                    snapshot,
+                    active_tab=active_tab,
+                    account_range_key=account_range_key,
+                ).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
