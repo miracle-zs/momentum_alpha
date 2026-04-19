@@ -574,6 +574,16 @@ class RuntimeStoreTests(unittest.TestCase):
             )
             insert_trade_round_trip(
                 path=db_path,
+                round_trip_id="AAAUSDT:tie",
+                symbol="AAAUSDT",
+                opened_at=newer_inside_range,
+                closed_at=newer_inside_range,
+                entry_fill_count=3,
+                exit_fill_count=1,
+                payload={"legs": [{"side": "BUY", "price": "1.08"}], "note": "tie"},
+            )
+            insert_trade_round_trip(
+                path=db_path,
                 round_trip_id="AAAUSDT:outside",
                 symbol="AAAUSDT",
                 opened_at=outside_range,
@@ -585,9 +595,10 @@ class RuntimeStoreTests(unittest.TestCase):
 
             round_trips = fetch_trade_round_trips_for_range(path=db_path, now=now, range_key="1D")
 
-            self.assertEqual([row["round_trip_id"] for row in round_trips], ["AAAUSDT:new", "AAAUSDT:old"])
-            self.assertEqual(round_trips[0]["payload"], {"legs": [{"side": "BUY", "price": "1.05"}], "note": "newer"})
-            self.assertEqual(round_trips[1]["payload"], {"legs": [{"side": "BUY", "price": "1.01"}], "note": "older"})
+            self.assertEqual([row["round_trip_id"] for row in round_trips], ["AAAUSDT:tie", "AAAUSDT:new", "AAAUSDT:old"])
+            self.assertEqual(round_trips[0]["payload"], {"legs": [{"side": "BUY", "price": "1.08"}], "note": "tie"})
+            self.assertEqual(round_trips[1]["payload"], {"legs": [{"side": "BUY", "price": "1.05"}], "note": "newer"})
+            self.assertEqual(round_trips[2]["payload"], {"legs": [{"side": "BUY", "price": "1.01"}], "note": "older"})
 
     def test_runtime_state_store_round_trips_strategy_state(self) -> None:
         from datetime import datetime, timezone

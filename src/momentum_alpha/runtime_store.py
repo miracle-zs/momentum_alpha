@@ -311,6 +311,27 @@ def _json_loads(payload: str) -> dict:
     return json.loads(payload)
 
 
+def _trade_round_trip_row_to_dict(row: tuple) -> dict:
+    return {
+        "round_trip_id": row[0],
+        "symbol": row[1],
+        "opened_at": row[2],
+        "closed_at": row[3],
+        "entry_fill_count": row[4],
+        "exit_fill_count": row[5],
+        "total_entry_quantity": row[6],
+        "total_exit_quantity": row[7],
+        "weighted_avg_entry_price": row[8],
+        "weighted_avg_exit_price": row[9],
+        "realized_pnl": row[10],
+        "commission": row[11],
+        "net_pnl": row[12],
+        "exit_reason": row[13],
+        "duration_seconds": row[14],
+        "payload": _json_loads(row[15]),
+    }
+
+
 def _as_utc_iso(timestamp: datetime) -> str:
     return timestamp.astimezone(timezone.utc).isoformat()
 
@@ -1166,27 +1187,7 @@ def fetch_recent_trade_round_trips(*, path: Path, limit: int = 20) -> list[dict]
             """,
             (limit,),
         ).fetchall()
-    return [
-        {
-            "round_trip_id": row[0],
-            "symbol": row[1],
-            "opened_at": row[2],
-            "closed_at": row[3],
-            "entry_fill_count": row[4],
-            "exit_fill_count": row[5],
-            "total_entry_quantity": row[6],
-            "total_exit_quantity": row[7],
-            "weighted_avg_entry_price": row[8],
-            "weighted_avg_exit_price": row[9],
-            "realized_pnl": row[10],
-            "commission": row[11],
-            "net_pnl": row[12],
-            "exit_reason": row[13],
-            "duration_seconds": row[14],
-            "payload": _json_loads(row[15]),
-        }
-        for row in rows
-    ]
+    return [_trade_round_trip_row_to_dict(row) for row in rows]
 
 
 def fetch_trade_round_trips_for_range(*, path: Path, now: datetime, range_key: str) -> list[dict]:
@@ -1222,27 +1223,7 @@ def fetch_trade_round_trips_for_range(*, path: Path, now: datetime, range_key: s
             """,
             params,
         ).fetchall()
-    return [
-        {
-            "round_trip_id": row[0],
-            "symbol": row[1],
-            "opened_at": row[2],
-            "closed_at": row[3],
-            "entry_fill_count": row[4],
-            "exit_fill_count": row[5],
-            "total_entry_quantity": row[6],
-            "total_exit_quantity": row[7],
-            "weighted_avg_entry_price": row[8],
-            "weighted_avg_exit_price": row[9],
-            "realized_pnl": row[10],
-            "commission": row[11],
-            "net_pnl": row[12],
-            "exit_reason": row[13],
-            "duration_seconds": row[14],
-            "payload": _json_loads(row[15]),
-        }
-        for row in rows
-    ]
+    return [_trade_round_trip_row_to_dict(row) for row in rows]
 
 
 def fetch_recent_stop_exit_summaries(*, path: Path, limit: int = 20) -> list[dict]:
