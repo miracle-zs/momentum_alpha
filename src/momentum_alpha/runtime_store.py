@@ -373,6 +373,7 @@ def _build_trade_round_trip_leg_payload(
     weighted_exit_price: Decimal | None,
     commission_total: Decimal,
     stop_trigger_by_client_order_id: dict[str, Decimal],
+    signal_stop_price_candidates: list[dict],
 ) -> tuple[list[dict], Decimal | None, Decimal | None]:
     grouped_entry_fills: list[dict] = []
     grouped_index_by_key: dict[str, int] = {}
@@ -408,10 +409,25 @@ def _build_trade_round_trip_leg_payload(
     for leg_index, item in enumerate(grouped_entry_fills, start=1):
         client_order_id = item["client_order_id"]
         stop_client_order_id = _strategy_stop_client_order_id(client_order_id)
+        leg_type = _trade_leg_type_from_client_order_id(client_order_id, leg_index)
         stop_price_at_entry = (
             stop_trigger_by_client_order_id.get(stop_client_order_id) if stop_client_order_id is not None else None
         )
-        leg_type = _trade_leg_type_from_client_order_id(client_order_id, leg_index)
+        if stop_price_at_entry is None and signal_stop_price_candidates:
+            leg_time = item["time"]
+            same_type_candidates = [
+                candidate
+                for candidate in signal_stop_price_candidates
+                if candidate["timestamp"] <= leg_time and candidate["leg_type"] == leg_type
+            ]
+            fallback_candidates = [
+                candidate for candidate in signal_stop_price_candidates if candidate["timestamp"] <= leg_time
+            ]
+            chosen_candidate = (
+                same_type_candidates[-1] if same_type_candidates else (fallback_candidates[-1] if fallback_candidates else None)
+            )
+            if chosen_candidate is not None:
+                stop_price_at_entry = chosen_candidate["stop_price"]
         leg_risk = None
         if stop_price_at_entry is not None and item["price"] is not None:
             leg_risk = max((item["price"] - stop_price_at_entry) * item["quantity"], Decimal("0"))
@@ -490,6 +506,13 @@ def _extract_stop_trigger_price_from_broker_order(
     if not isinstance(payload, dict):
         return None
     return _text_to_optional_decimal(payload.get("stopPrice") or payload.get("price"))
+
+
+def _extract_stop_trigger_price_from_signal_decision(payload: dict) -> Decimal | None:
+    stop_price = payload.get("stop_price")
+    if stop_price in (None, ""):
+        return None
+    return _text_to_optional_decimal(stop_price)
 
 
 def _as_utc_iso(timestamp: datetime) -> str:
@@ -1497,6 +1520,14 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             ORDER BY timestamp ASC, id ASC
             """
         ).fetchall()
+        signal_rows = connection.execute(
+            """
+            SELECT timestamp, symbol, decision_type, payload_json
+            FROM signal_decisions
+            WHERE decision_type IN ('base_entry', 'add_on', 'stop_update')
+            ORDER BY timestamp ASC, id ASC
+            """
+        ).fetchall()
         broker_rows = connection.execute(
             """
             SELECT timestamp, symbol, order_type, client_order_id, price, payload_json
@@ -1524,6 +1555,22 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             )
             if client_algo_id and parsed_trigger_price is not None:
                 stop_trigger_by_client_order_id[client_algo_id] = parsed_trigger_price
+        signal_stop_price_by_symbol: dict[str, list[dict]] = {}
+        for timestamp, symbol, decision_type, payload_json in signal_rows:
+            if not symbol:
+                continue
+            payload = _json_loads(payload_json)
+            parsed_stop_price = _extract_stop_trigger_price_from_signal_decision(payload)
+            if parsed_stop_price is None:
+                continue
+            signal_stop_price_by_symbol.setdefault(symbol, []).append(
+                {
+                    "timestamp": datetime.fromisoformat(timestamp),
+                    "decision_type": decision_type,
+                    "leg_type": payload.get("leg_type"),
+                    "stop_price": parsed_stop_price,
+                }
+            )
         for timestamp, symbol, order_type, client_order_id, price, payload_json in broker_rows:
             if not symbol or not client_order_id:
                 continue
@@ -1643,6 +1690,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 weighted_exit_price=weighted_exit,
                 commission_total=commission_total,
                 stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
+                signal_stop_price_candidates=signal_stop_price_by_symbol.get(symbol, []),
             )
             round_trip_payload = {
                 "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],
