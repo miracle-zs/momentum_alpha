@@ -176,10 +176,11 @@ class DashboardTests(unittest.TestCase):
 
         html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
 
-        self.assertIn("ACCOUNT SNAPSHOT", html)
-        self.assertIn("Margin Usage", html)
-        self.assertIn("Peak Margin Usage", html)
-        self.assertIn("Average Margin Usage", html)
+        self.assertIn("ACCOUNT METRICS", html)
+        self.assertIn("Margin Usage %", html)
+        self.assertIn("CURRENT MARGIN USAGE", html)
+        self.assertIn("PEAK MARGIN USAGE", html)
+        self.assertIn("AVERAGE MARGIN USAGE", html)
 
     def test_render_dashboard_html_renders_execution_tab_without_overview_sections(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -1969,6 +1970,26 @@ console.log(JSON.stringify(cases));
                     "closed_at": "2026-04-17T19:00:52+08:00",
                     "exit_reason": "sell",
                     "net_pnl": "73.12954018",
+                    "duration_seconds": 7431,
+                    "payload": {
+                        "leg_count": 2,
+                        "peak_cumulative_risk": "18.50",
+                        "legs": [
+                            {
+                                "leg_index": 1,
+                                "leg_type": "base",
+                                "opened_at": "2026-04-17T11:41:01+08:00",
+                                "quantity": "1.0",
+                                "entry_price": "10.0",
+                                "stop_price_at_entry": "9.0",
+                                "leg_risk": "1.0",
+                                "cumulative_risk_after_leg": "1.0",
+                                "gross_pnl_contribution": "45.00",
+                                "fee_share": "0.10",
+                                "net_pnl_contribution": "44.90",
+                            }
+                        ],
+                    },
                 }
             ]
         )
@@ -1985,10 +2006,140 @@ console.log(JSON.stringify(cases));
         self.assertIn("SYMBOL", round_trip_html)
         self.assertIn("OPEN", round_trip_html)
         self.assertIn("CLOSE", round_trip_html)
+        self.assertIn("LEGS", round_trip_html)
+        self.assertIn("PEAK RISK", round_trip_html)
         self.assertIn("EXIT", round_trip_html)
         self.assertIn("PNL", round_trip_html)
+        self.assertIn("DURATION", round_trip_html)
         self.assertIn("73.13", round_trip_html)
         self.assertNotIn("73.12954018", round_trip_html)
+        self.assertIn("round-trip-details", round_trip_html)
+        self.assertIn("Leg #", round_trip_html)
+        self.assertIn("Stop At Entry", round_trip_html)
+        self.assertIn("Cum Risk", round_trip_html)
+        self.assertIn("Fee Share", round_trip_html)
+        self.assertIn("Net Contribution", round_trip_html)
+
+    def test_render_dashboard_html_surfaces_margin_usage_controls_and_leg_analytics(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = {
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "SOLUSDT",
+                "position_count": 1,
+                "order_status_count": 0,
+                "latest_position_snapshot": {"payload": {}},
+                "latest_account_snapshot": {
+                    "wallet_balance": "1020.00",
+                    "available_balance": "760.00",
+                    "equity": "1080.00",
+                    "unrealized_pnl": "30.00",
+                    "position_count": 1,
+                    "open_order_count": 0,
+                },
+                "latest_signal_decision": {
+                    "decision_type": "base_entry",
+                    "symbol": "SOLUSDT",
+                    "timestamp": "2026-04-16T00:55:00+00:00",
+                    "payload": {"blocked_reason": "risk_limit"},
+                },
+            },
+            "recent_account_snapshots": [
+                {
+                    "timestamp": "2026-04-16T00:00:00+00:00",
+                    "wallet_balance": "1000.00",
+                    "available_balance": "900.00",
+                    "equity": "1000.00",
+                    "unrealized_pnl": "0.00",
+                    "margin_usage_pct": 10.0,
+                    "position_count": 0,
+                    "open_order_count": 0,
+                },
+                {
+                    "timestamp": "2026-04-16T01:00:00+00:00",
+                    "wallet_balance": "1020.00",
+                    "available_balance": "760.00",
+                    "equity": "1080.00",
+                    "unrealized_pnl": "30.00",
+                    "margin_usage_pct": 29.6296296296,
+                    "position_count": 1,
+                    "open_order_count": 0,
+                },
+            ],
+            "recent_trade_round_trips": [
+                {
+                    "round_trip_id": "SOLUSDT:1",
+                    "symbol": "SOLUSDT",
+                    "opened_at": "2026-04-16T00:10:00+00:00",
+                    "closed_at": "2026-04-16T00:55:00+00:00",
+                    "exit_reason": "stop_loss",
+                    "net_pnl": "-10.00",
+                    "duration_seconds": 2700,
+                    "payload": {
+                        "leg_count": 2,
+                        "peak_cumulative_risk": "18.50",
+                        "legs": [
+                            {
+                                "leg_index": 1,
+                                "leg_type": "base",
+                                "opened_at": "2026-04-16T00:10:00+00:00",
+                                "quantity": "1",
+                                "entry_price": "10.00",
+                                "stop_price_at_entry": "9.00",
+                                "leg_risk": "1.00",
+                                "cumulative_risk_after_leg": "1.00",
+                                "gross_pnl_contribution": "-6.00",
+                                "fee_share": "0.10",
+                                "net_pnl_contribution": "-6.10",
+                            },
+                            {
+                                "leg_index": 2,
+                                "leg_type": "add_on",
+                                "opened_at": "2026-04-16T00:30:00+00:00",
+                                "quantity": "1",
+                                "entry_price": "10.50",
+                                "stop_price_at_entry": "9.50",
+                                "leg_risk": "1.00",
+                                "cumulative_risk_after_leg": "2.00",
+                                "gross_pnl_contribution": "-4.00",
+                                "fee_share": "0.10",
+                                "net_pnl_contribution": "-4.10",
+                            },
+                        ],
+                    },
+                }
+            ],
+            "recent_stop_exit_summaries": [],
+            "recent_trade_fills": [],
+            "recent_signal_decisions": [],
+            "leader_history": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "pulse_points": [],
+            "warnings": [],
+            "strategy_config": {"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+        }
+
+        html = render_dashboard_html(snapshot, active_tab="performance")
+
+        self.assertIn("Margin Usage %", html)
+        self.assertIn("CURRENT MARGIN USAGE", html)
+        self.assertIn("PEAK MARGIN USAGE", html)
+        self.assertIn("AVERAGE MARGIN USAGE", html)
+        self.assertIn("Closed Trade Detail", html)
+        self.assertIn("By Total Leg Count", html)
+        self.assertIn("By Leg Index", html)
+        self.assertIn("Leg #", html)
+        self.assertIn("Stop At Entry", html)
+        self.assertIn("Cum Risk", html)
+        self.assertIn("Fee Share", html)
+        self.assertIn("Net Contribution", html)
+        self.assertIn("round-trip-details", html)
+        self.assertIn("round-trip-leg-table", html)
+        self.assertIn("Leg 1", html)
+        self.assertIn("2 legs", html)
 
     def test_render_dashboard_html_trade_history_prefers_trade_fills(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3172,9 +3323,10 @@ console.log(JSON.stringify(cases));
         self.assertIn("analytics-card-list", html)
         self.assertIn("trade-card-list", html)
         self.assertIn("table-scroll", html)
-        self.assertIn(".analytics-table.desktop-only", html)
-        self.assertIn(".analytics-card-list.mobile-only", html)
-        self.assertIn(".trade-history.desktop-only", html)
+        self.assertIn(".round-trip-view.desktop-only", html)
+        self.assertIn(".trade-card-list.mobile-only", html)
+        self.assertIn(".round-trip-details", html)
+        self.assertIn(".round-trip-leg-table", html)
         self.assertIn(".trade-card-list.mobile-only", html)
 
     def test_build_account_metrics_panel_surfaces_large_jump_note(self) -> None:
@@ -3187,6 +3339,8 @@ console.log(JSON.stringify(cases));
                     "equity": "100.00",
                     "wallet_balance": "100.00",
                     "adjusted_equity": "100.00",
+                    "available_balance": "90.00",
+                    "margin_usage_pct": 10.0,
                     "unrealized_pnl": "0.00",
                     "position_count": 0,
                     "open_order_count": 0,
@@ -3196,6 +3350,8 @@ console.log(JSON.stringify(cases));
                     "equity": "1000.00",
                     "wallet_balance": "1000.00",
                     "adjusted_equity": "1000.00",
+                    "available_balance": "800.00",
+                    "margin_usage_pct": 20.0,
                     "unrealized_pnl": "0.00",
                     "position_count": 0,
                     "open_order_count": 0,
@@ -3204,3 +3360,7 @@ console.log(JSON.stringify(cases));
         )
 
         self.assertIn("Large equity jump detected", html)
+        self.assertIn("Margin Usage %", html)
+        self.assertIn("CURRENT MARGIN USAGE", html)
+        self.assertIn("PEAK MARGIN USAGE", html)
+        self.assertIn("AVERAGE MARGIN USAGE", html)

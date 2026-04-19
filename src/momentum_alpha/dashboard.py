@@ -686,40 +686,111 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
         return "<div class='trade-history-empty'>No closed trades</div>"
 
     header = (
-        "<div class='analytics-row analytics-row-header'>"
+        "<div class='analytics-row round-trip-row-header'>"
         "<span class='analytics-main'>SYMBOL</span>"
         "<span>OPEN</span>"
         "<span>CLOSE</span>"
+        "<span>LEGS</span>"
+        "<span>PEAK RISK</span>"
         "<span>EXIT</span>"
         "<span>PNL</span>"
+        "<span>DURATION</span>"
+        "</div>"
+    )
+    rows = "".join(_render_round_trip_item(trip) for trip in round_trips)
+    cards = "".join(_render_round_trip_item(trip, mobile=True) for trip in round_trips)
+    return (
+        f"<div class='round-trip-view desktop-only'>{header}{rows}</div>"
+        f"<div class='trade-card-list mobile-only'>{cards}</div>"
+    )
+
+
+def render_trade_leg_count_aggregate_table(aggregates: list[dict]) -> str:
+    if not aggregates:
+        return "<div class='trade-history-empty'>No leg-count aggregates</div>"
+    header = (
+        "<div class='analytics-row analytics-row-header'>"
+        "<span class='analytics-main'>LEGS</span>"
+        "<span>SAMPLES</span>"
+        "<span>WIN RATE</span>"
+        "<span>AVG NET PNL</span>"
+        "<span>AVG PEAK RISK</span>"
         "</div>"
     )
     rows = ""
     cards = ""
-    for trip in round_trips[:10]:
-        symbol = escape(str(trip.get("symbol") or "-"))
-        round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
-        opened_at = _format_time_only(trip.get("opened_at"))
-        closed_at = _format_time_only(trip.get("closed_at"))
-        net_pnl_value = _format_metric(_parse_numeric(trip.get("net_pnl")), signed=True)
-        net_pnl = escape(net_pnl_value)
-        exit_reason = escape(str(trip.get("exit_reason") or "-"))
-        pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
+    for item in aggregates:
+        label = escape(str(item.get("label") or "-"))
+        sample_count = escape(str(item.get("sample_count") or 0))
+        win_rate_value = _parse_numeric(item.get("win_rate"))
+        win_rate = escape(_format_pct_value(None if win_rate_value is None else win_rate_value * 100, signed=True))
+        avg_net_pnl_value = _format_metric(_parse_numeric(item.get("avg_net_pnl")), signed=True)
+        avg_peak_risk_value = _format_metric(_parse_numeric(item.get("avg_peak_risk")), signed=True)
+        pnl_class = "side-buy" if not avg_net_pnl_value.startswith("-") else "side-sell"
+        risk_class = "side-sell" if avg_peak_risk_value.startswith("-") else ""
         rows += (
             f"<div class='analytics-row'>"
-            f"<span class='analytics-main'><b>{symbol}</b> · {round_trip_id}</span>"
-            f"<span>{escape(opened_at)}</span>"
-            f"<span>{escape(closed_at)}</span>"
-            f"<span>{exit_reason}</span>"
-            f"<span class='{pnl_class}'>{net_pnl}</span>"
-            f"</div>"
+            f"<span class='analytics-main'><b>{label}</b></span>"
+            f"<span>{sample_count}</span>"
+            f"<span>{win_rate}</span>"
+            f"<span class='{pnl_class}'>{escape(avg_net_pnl_value)}</span>"
+            f"<span class='{risk_class}'>{escape(avg_peak_risk_value)}</span>"
+            "</div>"
         )
         cards += (
-            f"<div class='analytics-card'>"
-            f"<div class='analytics-card-main'><b>{symbol}</b><span>{round_trip_id}</span></div>"
-            f"<div class='analytics-card-meta'><span>Open {escape(opened_at)}</span><span>Close {escape(closed_at)}</span></div>"
-            f"<div class='analytics-card-meta'><span>{exit_reason}</span><span class='{pnl_class}'>{net_pnl}</span></div>"
-            f"</div>"
+            "<div class='analytics-card'>"
+            f"<div class='analytics-card-main'><b>{label}</b><span>{sample_count} samples</span></div>"
+            f"<div class='analytics-card-meta'><span>Win {win_rate}</span><span class='{pnl_class}'>{escape(avg_net_pnl_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Peak Risk</span><span class='{risk_class}'>{escape(avg_peak_risk_value)}</span></div>"
+            "</div>"
+        )
+    return (
+        f"<div class='analytics-table desktop-only'>{header}{rows}</div>"
+        f"<div class='analytics-card-list mobile-only'>{cards}</div>"
+    )
+
+
+def render_trade_leg_index_aggregate_table(aggregates: list[dict]) -> str:
+    if not aggregates:
+        return "<div class='trade-history-empty'>No leg-index aggregates</div>"
+    header = (
+        "<div class='analytics-row analytics-row-header'>"
+        "<span class='analytics-main'>LEG</span>"
+        "<span>SAMPLES</span>"
+        "<span>AVG LEG RISK</span>"
+        "<span>AVG NET CONTRIBUTION</span>"
+        "<span>PROFITABLE</span>"
+        "</div>"
+    )
+    rows = ""
+    cards = ""
+    for item in aggregates:
+        label = escape(str(item.get("label") or "-"))
+        sample_count = escape(str(item.get("sample_count") or 0))
+        avg_leg_risk_value = _format_metric(_parse_numeric(item.get("avg_leg_risk")), signed=True)
+        avg_net_contribution_value = _format_metric(_parse_numeric(item.get("avg_net_contribution")), signed=True)
+        profitable_ratio_value = _parse_numeric(item.get("profitable_ratio"))
+        profitable_ratio = escape(
+            _format_pct_value(None if profitable_ratio_value is None else profitable_ratio_value * 100, signed=True)
+        )
+        risk_class = "side-sell" if avg_leg_risk_value.startswith("-") else ""
+        net_class = "side-buy" if not avg_net_contribution_value.startswith("-") else "side-sell"
+        rows += (
+            f"<div class='analytics-row'>"
+            f"<span class='analytics-main'><b>{label}</b></span>"
+            f"<span>{sample_count}</span>"
+            f"<span class='{risk_class}'>{escape(avg_leg_risk_value)}</span>"
+            f"<span class='{net_class}'>{escape(avg_net_contribution_value)}</span>"
+            f"<span>{profitable_ratio}</span>"
+            "</div>"
+        )
+        cards += (
+            "<div class='analytics-card'>"
+            f"<div class='analytics-card-main'><b>{label}</b><span>{sample_count} samples</span></div>"
+            f"<div class='analytics-card-meta'><span>Leg Risk</span><span class='{risk_class}'>{escape(avg_leg_risk_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Net Contribution</span><span class='{net_class}'>{escape(avg_net_contribution_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Profitable</span><span>{profitable_ratio}</span></div>"
+            "</div>"
         )
     return (
         f"<div class='analytics-table desktop-only'>{header}{rows}</div>"
@@ -1466,6 +1537,15 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>CURRENT DRAWDOWN</div>"
         f"<div class='account-overview-value' data-account-value='drawdown'>{escape(_format_metric(stats['drawdown_abs'], signed=True))}</div>"
         f"<div class='account-overview-sub' data-account-drawdown-pct>{escape(_format_metric(stats['drawdown_pct'], signed=True))}%</div></div>"
+        "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>CURRENT MARGIN USAGE</div>"
+        f"<div class='account-overview-value' data-account-value='current_margin_usage_pct'>{escape(_format_pct_value(stats['current_margin_usage_pct']))}</div>"
+        "<div class='account-overview-sub'>Latest visible capital pressure</div></div>"
+        "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>PEAK MARGIN USAGE</div>"
+        f"<div class='account-overview-value' data-account-value='peak_margin_usage_pct'>{escape(_format_pct_value(stats['peak_margin_usage_pct']))}</div>"
+        "<div class='account-overview-sub'>Maximum visible capital pressure</div></div>"
+        "<div class='account-overview-card account-overview-card-highlight'><div class='account-overview-label'>AVERAGE MARGIN USAGE</div>"
+        f"<div class='account-overview-value' data-account-value='average_margin_usage_pct'>{escape(_format_pct_value(stats['average_margin_usage_pct']))}</div>"
+        "<div class='account-overview-sub'>Mean visible capital pressure</div></div>"
         "</div>"
         "<div class='account-main-panel'>"
         "<div class='account-main-toolbar'>"
@@ -1474,6 +1554,7 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<button type='button' class='account-chip' data-account-metric=\"adjusted_equity\">Adjusted Equity</button>"
         "<button type='button' class='account-chip' data-account-metric=\"wallet_balance\">Wallet</button>"
         "<button type='button' class='account-chip' data-account-metric=\"unrealized_pnl\">Unrealized PnL</button>"
+        "<button type='button' class='account-chip' data-account-metric=\"margin_usage_pct\">Margin Usage %</button>"
         "</div>"
         "<div class='account-main-meta'><span data-account-window-label>Visible Range</span><span data-account-point-count>"
         f"{len(points)} points</span></div>"
@@ -1498,7 +1579,7 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
         "<div class='account-snapshot-sub'>Wallet balance on record</div></div>"
         "<div class='account-snapshot-card'><div class='account-snapshot-label'>Drawdown</div>"
         f"<div class='account-snapshot-value'>{escape(_format_metric(stats.get('drawdown_abs'), signed=True))}</div>"
-        f"<div class='account-snapshot-sub'>{escape(_format_metric(stats.get('drawdown_pct'), signed=True))}% vs visible peak</div></div>"
+        f"<div class='account-snapshot-sub'>{escape(_format_pct_value(stats.get('drawdown_pct'), signed=True))} vs visible peak</div></div>"
         "<div class='account-snapshot-card'><div class='account-snapshot-label'>Exposure</div>"
         f"<div class='account-snapshot-value'>{escape(str(stats.get('current_positions') or 0))} / {escape(str(stats.get('current_orders') or 0))}</div>"
         "<div class='account-snapshot-sub'>positions / orders</div></div>"
@@ -1513,6 +1594,91 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
         "<div class='account-snapshot-sub'>mean visible occupancy</div></div>"
         "</div>"
         "</section>"
+    )
+
+
+def _render_round_trip_leg_rows(legs: list[dict]) -> str:
+    if not legs:
+        return "<div class='round-trip-leg-empty'>No leg detail available</div>"
+    header = (
+        "<div class='round-trip-leg-row round-trip-leg-row-header'>"
+        "<span>Leg #</span>"
+        "<span>Type</span>"
+        "<span>Opened At</span>"
+        "<span>Qty</span>"
+        "<span>Entry</span>"
+        "<span>Stop At Entry</span>"
+        "<span>Leg Risk</span>"
+        "<span>Cum Risk</span>"
+        "<span>Gross PnL</span>"
+        "<span>Fee Share</span>"
+        "<span>Net Contribution</span>"
+        "</div>"
+    )
+    rows = ""
+    for leg in legs:
+        rows += (
+            "<div class='round-trip-leg-row'>"
+            f"<span>{escape(str(leg.get('leg_index') or '-'))}</span>"
+            f"<span>{escape(str(leg.get('leg_type') or '-'))}</span>"
+            f"<span>{escape(_format_time_only(leg.get('opened_at')))}</span>"
+            f"<span>{escape(_format_quantity(leg.get('quantity')))}</span>"
+            f"<span>{escape(_format_price(leg.get('entry_price')))}</span>"
+            f"<span>{escape(_format_price(leg.get('stop_price_at_entry')))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('leg_risk')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('cumulative_risk_after_leg')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('gross_pnl_contribution')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('fee_share')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('net_pnl_contribution')), signed=True))}</span>"
+            "</div>"
+        )
+    return f"<div class='round-trip-leg-table'>{header}{rows}</div>"
+
+
+def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
+    symbol = escape(str(trip.get("symbol") or "-"))
+    round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
+    opened_at = _format_time_only(trip.get("opened_at"))
+    closed_at = _format_time_only(trip.get("closed_at"))
+    payload = trip.get("payload") or {}
+    leg_count = _parse_numeric(payload.get("leg_count"))
+    if leg_count is None:
+        leg_count = len(payload.get("legs") or [])
+    peak_risk = _format_metric(_parse_numeric(payload.get("peak_cumulative_risk")), signed=True)
+    net_pnl_value = _format_metric(_parse_numeric(trip.get("net_pnl")), signed=True)
+    exit_reason = escape(str(trip.get("exit_reason") or "-"))
+    duration = _format_duration_seconds(_parse_numeric(trip.get("duration_seconds")))
+    leg_count_display = escape(str(int(leg_count) if isinstance(leg_count, (int, float)) else leg_count))
+    pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
+    leg_rows = _render_round_trip_leg_rows(list(payload.get("legs") or []))
+
+    if mobile:
+        return (
+            "<details class='round-trip-card'>"
+            "<summary class='analytics-card round-trip-card-summary'>"
+            f"<div class='analytics-card-main'><b>{symbol}</b><span>{round_trip_id}</span></div>"
+            f"<div class='analytics-card-meta'><span>Open {escape(opened_at)}</span><span>Close {escape(closed_at)}</span><span>Legs {leg_count_display}</span></div>"
+            f"<div class='analytics-card-meta'><span>Peak Risk {escape(peak_risk)}</span><span>{exit_reason}</span><span class='{pnl_class}'>{escape(net_pnl_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Duration {escape(duration)}</span></div>"
+            "</summary>"
+            f"<div class='round-trip-detail-body'>{leg_rows}</div>"
+            "</details>"
+        )
+
+    return (
+        "<details class='round-trip-details'>"
+        "<summary class='analytics-row round-trip-summary'>"
+        f"<span class='analytics-main'><b>{symbol}</b> · {round_trip_id}</span>"
+        f"<span>{escape(opened_at)}</span>"
+        f"<span>{escape(closed_at)}</span>"
+        f"<span>{leg_count_display}</span>"
+        f"<span>{escape(peak_risk)}</span>"
+        f"<span>{exit_reason}</span>"
+        f"<span class='{pnl_class}'>{escape(net_pnl_value)}</span>"
+        f"<span>{escape(duration)}</span>"
+        "</summary>"
+        f"<div class='round-trip-detail-body'>{leg_rows}</div>"
+        "</details>"
     )
 
 
@@ -1729,9 +1895,10 @@ def render_dashboard_execution_tab(*, execution_flow_html: str, execution_summar
 
 def render_dashboard_performance_tab(
     *,
-    closed_trades_html: str,
     performance_summary_html: str,
-    account_snapshot_html: str,
+    round_trip_detail_html: str,
+    leg_count_aggregate_html: str,
+    leg_index_aggregate_html: str,
     account_metrics_panel_html: str,
 ) -> str:
     return (
@@ -1744,14 +1911,24 @@ def render_dashboard_performance_tab(
         "<div class='dashboard-section section-body'>"
         "<div class='analytics-grid'>"
         "<div class='chart-card'>"
-        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Round Trips</div>"
-        f"<div class='table-scroll'>{closed_trades_html}</div>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Complete Trade Summary</div>"
+        f"{performance_summary_html}"
         "</div>"
-        f"<div class='chart-card'>{performance_summary_html}</div>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Closed Trade Detail</div>"
+        f"<div class='table-scroll'>{round_trip_detail_html}</div>"
+        "</div>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>By Total Leg Count</div>"
+        f"<div class='table-scroll'>{leg_count_aggregate_html}</div>"
+        "</div>"
+        "<div class='chart-card'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>By Leg Index</div>"
+        f"<div class='table-scroll'>{leg_index_aggregate_html}</div>"
+        "</div>"
         "</div>"
         "</div>"
         "</section>"
-        f"{account_snapshot_html}"
         "<section class='section-frame' data-collapsible-section='account'>"
         "<div class='section-topbar'>"
         "<div class='section-header'>ACCOUNT METRICS</div>"
@@ -1877,14 +2054,16 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         account_range_stats=account_range_stats,
         health_status=health_status,
     )
-    account_snapshot_html = _build_account_snapshot_panel(account_range_stats)
     # Build trade history
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_broker_orders = snapshot.get("recent_broker_orders") or []
     recent_algo_orders = snapshot.get("recent_algo_orders") or []
     recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
     trade_history_html = render_trade_history_table(trade_fills)
-    closed_trades_html = render_closed_trades_table(snapshot.get("recent_trade_round_trips") or [])
+    recent_trade_round_trips = snapshot.get("recent_trade_round_trips") or []
+    closed_trades_html = render_closed_trades_table(recent_trade_round_trips)
+    leg_count_aggregate_html = render_trade_leg_count_aggregate_table(build_trade_leg_count_aggregates(recent_trade_round_trips))
+    leg_index_aggregate_html = render_trade_leg_index_aggregate_table(build_trade_leg_index_aggregates(recent_trade_round_trips))
     stop_slippage_html = render_stop_slippage_table(recent_stop_exit_summaries)
     execution_flow_html = _build_execution_flow_panel(
         recent_broker_orders=recent_broker_orders,
@@ -2131,9 +2310,10 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
             stop_slippage_html=stop_slippage_html,
         ),
         "performance": render_dashboard_performance_tab(
-            closed_trades_html=closed_trades_html,
             performance_summary_html=performance_summary_html,
-            account_snapshot_html=account_snapshot_html,
+            round_trip_detail_html=closed_trades_html,
+            leg_count_aggregate_html=leg_count_aggregate_html,
+            leg_index_aggregate_html=leg_index_aggregate_html,
             account_metrics_panel_html=account_metrics_panel_html,
         ),
         "system": render_dashboard_system_tab(
@@ -2883,6 +3063,62 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       text-transform: uppercase;
       font-weight: 700;
     }}
+    .round-trip-view.desktop-only {{ display: block; }}
+    .round-trip-details,
+    .round-trip-card {{
+      border-bottom: 1px solid var(--border);
+    }}
+    .round-trip-details:last-child,
+    .round-trip-card:last-child {{
+      border-bottom: none;
+    }}
+    .round-trip-details > summary,
+    .round-trip-card > summary {{
+      display: grid;
+      list-style: none;
+      cursor: pointer;
+    }}
+    .round-trip-details > summary::-webkit-details-marker,
+    .round-trip-card > summary::-webkit-details-marker {{
+      display: none;
+    }}
+    .round-trip-summary,
+    .round-trip-row-header {{
+      grid-template-columns: 1.4fr 0.85fr 0.85fr 0.45fr 0.7fr 0.65fr 0.7fr 0.65fr;
+    }}
+    .round-trip-summary {{
+      padding: 10px 0;
+    }}
+    .round-trip-detail-body {{
+      padding: 0 0 12px 12px;
+    }}
+    .round-trip-leg-table {{
+      overflow-x: auto;
+      padding-top: 8px;
+    }}
+    .round-trip-leg-row {{
+      display: grid;
+      grid-template-columns: 0.45fr 0.7fr 0.9fr 0.6fr 0.8fr 0.85fr 0.7fr 0.7fr 0.8fr 0.7fr 0.9fr;
+      gap: 8px;
+      min-width: 1080px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.7rem;
+      align-items: center;
+    }}
+    .round-trip-leg-row:last-child {{ border-bottom: none; }}
+    .round-trip-leg-row-header {{
+      color: var(--fg-muted);
+      font-size: 0.64rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }}
+    .round-trip-leg-empty {{
+      color: var(--fg-muted);
+      font-size: 0.74rem;
+      padding: 8px 0 0 0;
+    }}
     .analytics-row:last-child {{ border-bottom: none; }}
     .analytics-main {{ color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
     .trade-time {{ color: var(--fg-muted); }}
@@ -3156,6 +3392,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       const spread = Math.max(maxValue - minValue, 1e-9);
       const chartWidth = width - padX * 2;
       const chartHeight = height - padY * 2;
+      const axisSuffix = metric.endsWith('_pct') ? '%' : '';
       const coords = numericValues.map((value, index) => {{
         const x = padX + (chartWidth * index / Math.max(values.length - 1, 1));
         const y = padY + chartHeight - (((value - minValue) / spread) * chartHeight);
@@ -3163,7 +3400,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
       }});
       const polyline = coords.map(([x, y]) => `${{x.toFixed(2)}},${{y.toFixed(2)}}`).join(' ');
       const area = `${{coords[0][0].toFixed(2)}},${{(height - padY).toFixed(2)}} ` + polyline + ` ${{coords[coords.length - 1][0].toFixed(2)}},${{(height - padY).toFixed(2)}}`;
-      const palette = {{ equity: '#4cc9f0', adjusted_equity: '#ffbc42', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7' }};
+      const palette = {{ equity: '#4cc9f0', adjusted_equity: '#ffbc42', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7', margin_usage_pct: '#ff8c42' }};
       const stroke = palette[metric] || '#4cc9f0';
       let grid = '';
       let labels = '';
@@ -3171,7 +3408,7 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         const y = padY + (chartHeight * i / 4);
         const val = maxValue - (spread * i / 4);
         grid += `<line x1="${{padX}}" y1="${{y.toFixed(2)}}" x2="${{width - padX}}" y2="${{y.toFixed(2)}}" class="account-grid-line" />`;
-        labels += `<text x="${{padX - 8}}" y="${{(y + 4).toFixed(2)}}" class="account-axis-label" text-anchor="end">${{formatAccountValue(val)}}</text>`;
+        labels += `<text x="${{padX - 8}}" y="${{(y + 4).toFixed(2)}}" class="account-axis-label" text-anchor="end">${{formatAccountValue(val, false, axisSuffix)}}</text>`;
       }}
       const last = coords[coords.length - 1];
       return `
@@ -3199,16 +3436,25 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
           wallet_balance: point.wallet_balance,
           adjusted_equity: point.adjusted_equity,
           unrealized_pnl: point.unrealized_pnl,
+          margin_usage_pct: point.margin_usage_pct,
         }}));
       const equityPoints = numericValues
         .map((point) => point.equity)
         .filter((value) => value !== null && value !== undefined && !Number.isNaN(value));
       const peakEquity = equityPoints.length ? Math.max(...equityPoints) : null;
+      const marginUsagePoints = points
+        .map((point) => point.margin_usage_pct)
+        .filter((value) => value !== null && value !== undefined && !Number.isNaN(value));
       const currentEquity = last.equity;
       const drawdownAbs = (currentEquity === null || currentEquity === undefined || peakEquity === null)
         ? null
         : currentEquity - peakEquity;
       const drawdownPct = (drawdownAbs === null || !peakEquity) ? null : (drawdownAbs / peakEquity) * 100;
+      const currentMarginUsage = last.margin_usage_pct;
+      const peakMarginUsage = marginUsagePoints.length ? Math.max(...marginUsagePoints) : null;
+      const averageMarginUsage = marginUsagePoints.length
+        ? marginUsagePoints.reduce((sum, value) => sum + value, 0) / marginUsagePoints.length
+        : null;
       const computeDelta = (start, end) => {{
         if (start === null || start === undefined || end === null || end === undefined) return null;
         return end - start;
@@ -3218,12 +3464,16 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         equity: computeDelta(first.equity, last.equity),
         adjusted_equity: computeDelta(first.adjusted_equity, last.adjusted_equity),
         unrealized_pnl: computeDelta(first.unrealized_pnl, last.unrealized_pnl),
+        margin_usage_pct: computeDelta(first.margin_usage_pct, last.margin_usage_pct),
       }};
       const values = {{
         wallet_balance: formatAccountValue(last.wallet_balance),
         equity: formatAccountValue(last.equity),
         adjusted_equity: formatAccountValue(last.adjusted_equity),
         unrealized_pnl: formatAccountValue(last.unrealized_pnl, true),
+        current_margin_usage_pct: formatAccountValue(currentMarginUsage, false, '%'),
+        peak_margin_usage_pct: formatAccountValue(peakMarginUsage, false, '%'),
+        average_margin_usage_pct: formatAccountValue(averageMarginUsage, false, '%'),
         exposure: `${{last.position_count ?? 0}} / ${{last.open_order_count ?? 0}}`,
         peak_equity: formatAccountValue(peakEquity),
         drawdown: formatAccountValue(drawdownAbs, true),
@@ -3232,16 +3482,23 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
         const node = document.querySelector(`[data-account-value="${{key}}"]`);
         if (node) node.textContent = value;
       }});
-      ['wallet_balance', 'equity', 'adjusted_equity', 'unrealized_pnl'].forEach((key) => {{
+      ['wallet_balance', 'equity', 'adjusted_equity', 'unrealized_pnl', 'margin_usage_pct'].forEach((key) => {{
         const node = document.querySelector(`[data-account-delta="${{key}}"]`);
-        if (node) node.textContent = `Range Δ ${{formatAccountValue(deltas[key], true)}}`;
+        if (node) node.textContent = `Range Δ ${{formatAccountValue(deltas[key], true, key.endsWith('_pct') ? '%' : '')}}`;
       }});
       const ddNode = document.querySelector('[data-account-drawdown-pct]');
       if (ddNode) ddNode.textContent = formatAccountValue(drawdownPct, true, '%');
       const pointCountNode = document.querySelector('[data-account-point-count]');
       if (pointCountNode) pointCountNode.textContent = `${{points.length}} points`;
       const labelNode = document.querySelector('[data-account-window-label]');
-      if (labelNode) labelNode.textContent = `${{range}} · ${{metric.replace('_', ' ').toUpperCase()}} · ${{formatAccountWindowTimestamp(first.timestamp)}} → ${{formatAccountWindowTimestamp(last.timestamp)}}`;
+      const metricLabels = {{
+        equity: 'EQUITY',
+        adjusted_equity: 'ADJUSTED EQUITY',
+        wallet_balance: 'WALLET',
+        unrealized_pnl: 'UNREALIZED PNL',
+        margin_usage_pct: 'MARGIN USAGE %',
+      }};
+      if (labelNode) labelNode.textContent = `${{range}} · ${{metricLabels[metric] || metric.replace('_', ' ').toUpperCase()}} · ${{formatAccountWindowTimestamp(first.timestamp)}} → ${{formatAccountWindowTimestamp(last.timestamp)}}`;
     }}
     let accountMetricsData = [];
     let activeMetric = 'equity';
