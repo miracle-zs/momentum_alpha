@@ -2025,6 +2025,9 @@ console.log(JSON.stringify(cases));
         self.assertIn("EXIT", round_trip_html)
         self.assertIn("PNL", round_trip_html)
         self.assertIn("DURATION", round_trip_html)
+        self.assertIn("2026-04-17 11:41", round_trip_html)
+        self.assertIn("#1", round_trip_html)
+        self.assertIn("SELL", round_trip_html)
         self.assertIn("73.13", round_trip_html)
         self.assertNotIn("73.12954018", round_trip_html)
         self.assertIn("round-trip-details", round_trip_html)
@@ -2154,6 +2157,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("round-trip-leg-table", html)
         self.assertIn("Leg 1", html)
         self.assertIn("2 legs", html)
+        self.assertIn("2026-04-16 08:10", html)
+        self.assertIn("STOP LOSS", html)
 
     def test_render_dashboard_html_trade_history_prefers_trade_fills(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2359,7 +2364,9 @@ console.log(JSON.stringify(cases));
         self.assertIn("STRATEGY PERFORMANCE", performance_html)
         self.assertIn("Complete trade summary uses all closed trades", performance_html)
         self.assertIn("Complete Trade Summary (all closed trades)", performance_html)
-        self.assertIn("PLAYUSDT:1", performance_html)
+        self.assertIn("PLAYUSDT", performance_html)
+        self.assertIn("#1", performance_html)
+        self.assertIn("STOP LOSS", performance_html)
         self.assertIn("STOP SLIPPAGE ANALYSIS", execution_html)
         self.assertIn("0.17687", execution_html)
 
@@ -3393,7 +3400,8 @@ console.log(JSON.stringify(cases));
                 "leader_history": [],
                 "pulse_points": [],
                 "warnings": [],
-            }
+            },
+            active_tab="performance",
         )
 
         self.assertIn("analytics-card-list", html)
@@ -3403,7 +3411,9 @@ console.log(JSON.stringify(cases));
         self.assertIn(".trade-card-list.mobile-only", html)
         self.assertIn(".round-trip-details", html)
         self.assertIn(".round-trip-leg-table", html)
-        self.assertIn(".trade-card-list.mobile-only", html)
+        self.assertIn("SIGNAL FLIP", html)
+        self.assertIn("SOLUSDT", html)
+        self.assertIn("#1", html)
 
     def test_build_account_metrics_panel_surfaces_large_jump_note(self) -> None:
         from momentum_alpha.dashboard import _build_account_metrics_panel

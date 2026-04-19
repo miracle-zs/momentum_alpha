@@ -104,6 +104,39 @@ def _format_time_short(timestamp: str | None) -> str:
         return str(timestamp)[:5] if len(str(timestamp)) >= 5 else str(timestamp)
 
 
+def _format_datetime_compact(timestamp: str | None) -> str:
+    if not timestamp:
+        return "n/a"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+        return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(timestamp)
+
+
+def _format_round_trip_exit_reason(exit_reason: str | None) -> str:
+    if not exit_reason:
+        return "n/a"
+    normalized = str(exit_reason).strip().lower()
+    labels = {
+        "sell": "SELL",
+        "stop_loss": "STOP LOSS",
+        "signal_flip": "SIGNAL FLIP",
+    }
+    return labels.get(normalized, normalized.replace("_", " ").upper())
+
+
+def _format_round_trip_id_label(round_trip_id: str | None) -> str:
+    if not round_trip_id:
+        return "#-"
+    text = str(round_trip_id)
+    if ":" in text:
+        suffix = text.rsplit(":", 1)[-1]
+        if suffix:
+            return f"#{suffix}"
+    return text
+
+
 def _normalize_events(events: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     for event in events:
@@ -1639,16 +1672,16 @@ def _render_round_trip_leg_rows(legs: list[dict]) -> str:
 
 def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
     symbol = escape(str(trip.get("symbol") or "-"))
-    round_trip_id = escape(str(trip.get("round_trip_id") or "-"))
-    opened_at = _format_time_only(trip.get("opened_at"))
-    closed_at = _format_time_only(trip.get("closed_at"))
+    round_trip_id = escape(_format_round_trip_id_label(trip.get("round_trip_id")))
+    opened_at = _format_datetime_compact(trip.get("opened_at"))
+    closed_at = _format_datetime_compact(trip.get("closed_at"))
     payload = trip.get("payload") or {}
     leg_count = _parse_numeric(payload.get("leg_count"))
     if leg_count is None:
         leg_count = len(payload.get("legs") or [])
     peak_risk = _format_metric(_parse_numeric(payload.get("peak_cumulative_risk")), signed=True)
     net_pnl_value = _format_metric(_parse_numeric(trip.get("net_pnl")), signed=True)
-    exit_reason = escape(str(trip.get("exit_reason") or "-"))
+    exit_reason = escape(_format_round_trip_exit_reason(trip.get("exit_reason")))
     duration = _format_duration_seconds(_parse_numeric(trip.get("duration_seconds")))
     leg_count_display = escape(str(int(leg_count) if isinstance(leg_count, (int, float)) else leg_count))
     pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
