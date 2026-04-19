@@ -3121,7 +3121,23 @@ def render_dashboard_html(snapshot: dict, strategy_config: dict | None = None, a
     let activeRange = '1D';
     function renderAccountChart() {{
       const chartNode = document.getElementById('account-metrics-chart');
-      if (chartNode) chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
+      const chartWrapper = document.querySelector('.account-main-chart') || chartNode?.parentElement;
+      if (chartNode) {{
+        chartNode.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
+      }} else if (chartWrapper) {{
+        // If the chart node doesn't exist (e.g., was replaced by empty state), recreate it
+        const wrapper = document.createElement('div');
+        wrapper.id = 'account-metrics-chart';
+        wrapper.className = 'account-main-chart';
+        wrapper.innerHTML = buildAccountChartSvg(accountMetricsData, activeMetric);
+        const emptyNode = chartWrapper.querySelector('.chart-empty');
+        if (emptyNode) {{
+          emptyNode.replaceWith(wrapper);
+        }} else {{
+          chartWrapper.innerHTML = '';
+          chartWrapper.appendChild(wrapper);
+        }}
+      }}
       updateAccountOverview(accountMetricsData, activeMetric, activeRange);
     }}
     async function loadAccountRange(range) {{
