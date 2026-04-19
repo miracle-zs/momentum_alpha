@@ -13,6 +13,9 @@ Use this checklist during the first production session and any later restart or 
 - Confirm runtime directories exist:
   - `/root/momentum_alpha/var`
   - `/root/momentum_alpha/var/log`
+- During installation, run the one-time trade analytics rebuild first:
+  - `systemctl start momentum-alpha-rebuild-trade-analytics.service`
+  - Re-run it manually any time you need to backfill closed-trade analytics after a data repair
 - Confirm log rotation is installed at `/etc/logrotate.d/momentum-alpha`
 - Confirm `AUDIT_LOG_FILE` points to a persistent writable path
 - If you want push alerts, confirm `SERVERCHAN_SENDKEY` is set

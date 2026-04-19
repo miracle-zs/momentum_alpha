@@ -1,0 +1,15 @@
+[Unit]
+Description=Momentum Alpha Trade Analytics Rebuild
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
+ExecStart=%h/momentum_alpha/scripts/run_rebuild_trade_analytics.sh
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-rebuild-trade-analytics.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-rebuild-trade-analytics.log
+
+[Install]
+WantedBy=multi-user.target

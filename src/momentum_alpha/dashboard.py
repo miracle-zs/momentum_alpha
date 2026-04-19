@@ -1162,7 +1162,7 @@ def load_dashboard_snapshot(
         recent_trade_round_trips = fetch_trade_round_trips_for_range(
             path=runtime_db_file,
             now=now,
-            range_key=account_range_key,
+            range_key="ALL",
         )
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
@@ -1492,7 +1492,7 @@ def _detect_account_discontinuity(points: list[dict]) -> str | None:
     return None
 
 
-def _build_account_metrics_panel(points: list[dict]) -> str:
+def _build_account_metrics_panel(points: list[dict], *, account_range_key: str = "1D") -> str:
     stats = _compute_account_range_stats(points)
     discontinuity_note = _detect_account_discontinuity(points)
     note_html = f"<div class='account-panel-note'>{escape(discontinuity_note)}</div>" if discontinuity_note else ""
@@ -1510,12 +1510,12 @@ def _build_account_metrics_panel(points: list[dict]) -> str:
         "<div class='account-panel-subtitle'>Wallet, equity, drawdown, and time-ranged performance from account snapshots.</div></div>"
         f"{note_html}"
         "<div class='account-range-switches'>"
-        "<button type='button' class='account-chip' data-account-range=\"1H\">1H</button>"
-        "<button type='button' class='account-chip active' data-account-range=\"1D\">1D</button>"
-        "<button type='button' class='account-chip' data-account-range=\"1W\">1W</button>"
-        "<button type='button' class='account-chip' data-account-range=\"1M\">1M</button>"
-        "<button type='button' class='account-chip' data-account-range=\"1Y\">1Y</button>"
-        "<button type='button' class='account-chip' data-account-range=\"ALL\">ALL</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == '1H' else ''}' data-account-range=\"1H\">1H</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == '1D' else ''}' data-account-range=\"1D\">1D</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == '1W' else ''}' data-account-range=\"1W\">1W</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == '1M' else ''}' data-account-range=\"1M\">1M</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == '1Y' else ''}' data-account-range=\"1Y\">1Y</button>"
+        f"<button type='button' class='account-chip{' active' if account_range_key == 'ALL' else ''}' data-account-range=\"ALL\">ALL</button>"
         "</div></div>"
         "<div class='account-overview-grid'>"
         "<div class='account-overview-card'><div class='account-overview-label'>WALLET BALANCE</div>"
@@ -2055,7 +2055,7 @@ def render_dashboard_html(
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
     config = strategy_config or snapshot.get("strategy_config") or {}
     execution_mode_label, execution_mode_state = _build_execution_mode(config)
-    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"])
+    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"], account_range_key=account_range_key)
     account_range_stats = _compute_account_range_stats(timeseries["account"])
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
@@ -2068,7 +2068,7 @@ def render_dashboard_html(
     trader_metrics = build_trader_summary_metrics(
         snapshot,
         position_details=position_details,
-        range_key="1D",
+        range_key=account_range_key,
     )
     home_command_html = _build_overview_home_command(
         position_details=position_details,
@@ -3547,9 +3547,20 @@ def render_dashboard_html(
       }}
       updateAccountOverview(accountMetricsData, activeMetric, activeRange);
     }}
+    function buildDashboardApiUrl(endpoint, range) {{
+      const basePath = window.location.pathname.replace(/\\/$/, "");
+      return `${{basePath}}${{endpoint}}?range=${{encodeURIComponent(range)}}`;
+    }}
+    function getSelectedAccountRange() {{
+      const urlRange = new URL(window.location.href).searchParams.get('range');
+      if (urlRange) return urlRange;
+      const activeButton = document.querySelector('[data-account-range].active');
+      if (activeButton?.dataset.accountRange) return activeButton.dataset.accountRange;
+      return localStorage.getItem('dashboard.account.range') || '1D';
+    }}
     async function loadAccountRange(range) {{
       try {{
-        const response = await fetch(`/api/dashboard/timeseries?range=${{encodeURIComponent(range)}}`, {{ cache: 'no-store' }});
+        const response = await fetch(buildDashboardApiUrl('/api/dashboard/timeseries', range), {{ cache: 'no-store' }});
         if (!response.ok) throw new Error(`account range fetch failed: ${{response.status}}`);
         const payload = await response.json();
         accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
@@ -3563,7 +3574,7 @@ def render_dashboard_html(
       accountMetricsData = getAccountMetricsData();
       if (!Array.isArray(accountMetricsData)) return;
       activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
-      activeRange = localStorage.getItem('dashboard.account.range') || '1D';
+      activeRange = getSelectedAccountRange();
       document.querySelectorAll('[data-account-metric]').forEach((button) => {{
         button.addEventListener('click', () => {{
           activeMetric = button.dataset.accountMetric;
@@ -3641,7 +3652,7 @@ def render_dashboard_html(
         if (nextTitle) document.title = nextTitle.textContent || document.title;
         // Preserve user-selected range on refresh
         activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
-        activeRange = localStorage.getItem('dashboard.account.range') || '1D';
+        activeRange = getSelectedAccountRange();
         if (activeRange === '1D') {{
           // Reload from DOM for default range
           accountMetricsData = getAccountMetricsData();

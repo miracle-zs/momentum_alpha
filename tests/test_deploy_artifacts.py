@@ -27,7 +27,11 @@ class DeployArtifactTests(unittest.TestCase):
     def test_install_systemd_script_installs_dashboard_service(self) -> None:
         content = (ROOT / "scripts" / "install_systemd.sh").read_text()
         self.assertIn('deploy/systemd/momentum-alpha-dashboard.service', content)
+        self.assertIn('deploy/systemd/momentum-alpha-rebuild-trade-analytics.service', content)
+        self.assertIn('systemctl start momentum-alpha-rebuild-trade-analytics.service', content)
         self.assertIn('enable --now momentum-alpha-dashboard.service', content)
+        self.assertIn('enable --now momentum-alpha-user-stream.service', content)
+        self.assertIn('enable --now momentum-alpha.service', content)
 
     def test_logrotate_policy_rotates_project_logs(self) -> None:
         content = (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text()
@@ -42,6 +46,19 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('ExecStart=%h/momentum_alpha/scripts/run_dashboard.sh', content)
         self.assertIn('StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log', content)
         self.assertIn('StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-dashboard.log', content)
+
+    def test_rebuild_trade_analytics_unit_executes_rebuild_script(self) -> None:
+        content = (ROOT / "deploy" / "systemd" / "momentum-alpha-rebuild-trade-analytics.service").read_text()
+        self.assertIn('Type=oneshot', content)
+        self.assertIn('ExecStart=%h/momentum_alpha/scripts/run_rebuild_trade_analytics.sh', content)
+        self.assertIn(
+            'StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-rebuild-trade-analytics.log',
+            content,
+        )
+        self.assertIn(
+            'StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-rebuild-trade-analytics.log',
+            content,
+        )
 
     def test_check_health_script_invokes_healthcheck_command(self) -> None:
         content = (ROOT / "scripts" / "check_health.sh").read_text()
@@ -62,6 +79,15 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "run_dashboard.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn("dashboard", content)
+        self.assertIn("--runtime-db-file", content)
+        self.assertIn("RUNTIME_DB_FILE", content)
+        self.assertNotIn("momentum-alpha.log", content)
+        self.assertNotIn("momentum-alpha-user-stream.log", content)
+
+    def test_run_rebuild_trade_analytics_script_prefers_project_venv_python(self) -> None:
+        content = (ROOT / "scripts" / "run_rebuild_trade_analytics.sh").read_text()
+        self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
+        self.assertIn("rebuild-trade-analytics", content)
         self.assertIn("--runtime-db-file", content)
         self.assertIn("RUNTIME_DB_FILE", content)
         self.assertNotIn("momentum-alpha.log", content)

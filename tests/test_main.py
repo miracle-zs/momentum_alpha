@@ -1599,6 +1599,21 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[1]["end_time"].isoformat(), "2026-04-16T00:00:00+00:00")
         self.assertEqual(calls[1]["client"].__class__.__name__, "FakeClient")
 
+    def test_cli_main_supports_rebuild_trade_analytics_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        def fake_rebuild_trade_analytics(**kwargs):
+            calls.append(kwargs)
+
+        exit_code = cli_main(
+            argv=["rebuild-trade-analytics", "--runtime-db-file", "/tmp/runtime.db"],
+            rebuild_trade_analytics_fn=fake_rebuild_trade_analytics,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["path"], Path("/tmp/runtime.db"))
+
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "momentum_alpha.main", "--help"],
@@ -2149,6 +2164,48 @@ class MainTests(unittest.TestCase):
             self.assertEqual(loaded.order_statuses["123"]["symbol"], "ETHUSDT")
             self.assertEqual(loaded.order_statuses["123"]["status"], "NEW")
             self.assertEqual(loaded.order_statuses["123"]["original_order_type"], "STOP_MARKET")
+
+    def test_run_user_stream_persists_algo_order_updates_without_algo_id(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        class FakeClient:
+            pass
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                on_event(
+                    parse_user_stream_event(
+                        {
+                            "e": "ALGO_UPDATE",
+                            "E": 1776215100000,
+                            "s": "ETHUSDT",
+                            "clientAlgoId": "ma_260415221700_ETHUSDT_b00s",
+                            "algoStatus": "NEW",
+                            "S": "SELL",
+                            "orderType": "STOP_MARKET",
+                            "triggerPrice": "106",
+                        }
+                    )
+                )
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                runtime_state_store=store,
+                now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            )
+            loaded = store.load()
+            self.assertEqual(exit_code, 0)
+            self.assertIn("algo:ma_260415221700_ETHUSDT_b00s", loaded.order_statuses)
+            self.assertEqual(loaded.order_statuses["algo:ma_260415221700_ETHUSDT_b00s"]["status"], "NEW")
+            self.assertEqual(loaded.order_statuses["algo:ma_260415221700_ETHUSDT_b00s"]["stop_price"], "106")
 
     def test_run_user_stream_skips_duplicate_trade_event(self) -> None:
         from momentum_alpha.main import run_user_stream

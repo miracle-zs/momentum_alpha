@@ -131,11 +131,13 @@ def extract_account_flows(event: UserStreamEvent) -> list[dict]:
 
 
 def extract_algo_order_event(event: UserStreamEvent) -> dict | None:
-    if event.event_type != "ALGO_UPDATE" or event.algo_id is None:
+    if event.event_type != "ALGO_UPDATE":
+        return None
+    if event.algo_id is None and event.client_algo_id is None:
         return None
     return {
         "symbol": event.symbol,
-        "algo_id": str(event.algo_id),
+        "algo_id": str(event.algo_id) if event.algo_id is not None else None,
         "client_algo_id": event.client_algo_id,
         "algo_status": event.algo_status,
         "side": event.side,
@@ -183,10 +185,14 @@ def extract_order_status_update(event: UserStreamEvent) -> tuple[str, dict | Non
 
 def extract_algo_order_status_update(event: UserStreamEvent) -> tuple[str, dict | None] | None:
     """Extract algo order status from ALGO_UPDATE events for stop-loss tracking."""
-    if event.event_type != "ALGO_UPDATE" or event.algo_id is None:
+    if event.event_type != "ALGO_UPDATE":
         return None
-    # Use "algo:" prefix to distinguish from regular orders
-    key = f"algo:{event.algo_id}"
+    key_id = event.client_algo_id or event.algo_id
+    if key_id is None:
+        return None
+    # Use "algo:" prefix to distinguish from regular orders.
+    # Prefer clientAlgoId so updates remain stable even if algoId is absent.
+    key = f"algo:{key_id}"
     # Terminal states - remove from tracking
     terminal_statuses = {"TRIGGERED", "CANCELLED", "EXPIRED", "FAILED"}
     if event.algo_status in terminal_statuses:

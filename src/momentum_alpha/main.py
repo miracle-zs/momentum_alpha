@@ -1311,13 +1311,15 @@ def run_user_stream(
         # Add algo orders to order_statuses with "algo:" prefix
         for algo_order in open_algo_orders:
             algo_id = algo_order.get("algoId")
-            if algo_id is None:
+            client_algo_id = algo_order.get("clientAlgoId")
+            key_id = client_algo_id or algo_id
+            if key_id is None:
                 continue
-            order_statuses[f"algo:{algo_id}"] = {
+            order_statuses[f"algo:{key_id}"] = {
                 "symbol": algo_order.get("symbol"),
                 "status": algo_order.get("algoStatus"),
                 "side": algo_order.get("side"),
-                "client_order_id": algo_order.get("clientAlgoId"),
+                "client_order_id": client_algo_id,
                 "original_order_type": algo_order.get("orderType"),
                 "stop_price": algo_order.get("triggerPrice"),
                 "event_time": None,
@@ -1383,6 +1385,7 @@ def cli_main(
     run_user_stream_fn=None,
     run_dashboard_fn=None,
     backfill_account_flows_fn=None,
+    rebuild_trade_analytics_fn=None,
 ) -> int:
     parser = argparse.ArgumentParser(prog="momentum_alpha")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1421,6 +1424,8 @@ def cli_main(
     backfill_account_flows_parser.add_argument("--start-time", required=True)
     backfill_account_flows_parser.add_argument("--end-time", required=True)
     backfill_account_flows_parser.add_argument("--testnet", action="store_true")
+    rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
+    rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8080)
@@ -1445,6 +1450,7 @@ def cli_main(
     run_user_stream_fn = run_user_stream_fn or run_user_stream
     run_dashboard_fn = run_dashboard_fn or run_dashboard_server
     backfill_account_flows_fn = backfill_account_flows_fn or backfill_account_flows
+    rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
 
     if args.command == "run-once-live":
         runtime_settings = load_runtime_settings_from_env()
@@ -1576,6 +1582,12 @@ def cli_main(
             logger=print,
         )
         print(f"backfilled_account_flows={inserted}")
+        return 0
+
+    if args.command == "rebuild-trade-analytics":
+        runtime_db_path = Path(os.path.abspath(args.runtime_db_file))
+        rebuild_trade_analytics_fn(path=runtime_db_path)
+        print("trade-analytics-rebuilt")
         return 0
 
     if args.command == "dashboard":

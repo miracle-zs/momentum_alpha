@@ -643,6 +643,39 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(event.side, "SELL")
         self.assertEqual(event.trigger_price, Decimal("61000.0"))
 
+    def test_extract_algo_update_event_without_algo_id_is_still_persistable(self) -> None:
+        from momentum_alpha.user_stream import extract_algo_order_event, extract_algo_order_status_update, parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "E": 1776215100000,
+                "s": "BTCUSDT",
+                "clientAlgoId": "ma_260415221700_BTCUSDT_b00s",
+                "algoStatus": "NEW",
+                "S": "SELL",
+                "orderType": "STOP_MARKET",
+                "triggerPrice": "61000.0",
+            }
+        )
+
+        order = extract_algo_order_event(event)
+        self.assertIsNotNone(order)
+        self.assertIsNone(order["algo_id"])
+        self.assertEqual(order["client_algo_id"], "ma_260415221700_BTCUSDT_b00s")
+        self.assertEqual(order["trigger_price"], Decimal("61000.0"))
+
+        result = extract_algo_order_status_update(event)
+        self.assertIsNotNone(result)
+        key, snapshot = result
+        self.assertEqual(key, "algo:ma_260415221700_BTCUSDT_b00s")
+        self.assertEqual(snapshot["symbol"], "BTCUSDT")
+        self.assertEqual(snapshot["status"], "NEW")
+        self.assertEqual(snapshot["side"], "SELL")
+        self.assertEqual(snapshot["original_order_type"], "STOP_MARKET")
+        self.assertEqual(snapshot["stop_price"], "61000.0")
+        self.assertEqual(snapshot["client_order_id"], "ma_260415221700_BTCUSDT_b00s")
+
     def test_extract_algo_order_status_update_returns_snapshot_for_new_order(self) -> None:
         from momentum_alpha.user_stream import extract_algo_order_status_update, parse_user_stream_event
 
@@ -662,7 +695,7 @@ class UserStreamTests(unittest.TestCase):
         result = extract_algo_order_status_update(event)
         self.assertIsNotNone(result)
         key, snapshot = result
-        self.assertEqual(key, "algo:2000000786682809")
+        self.assertEqual(key, "algo:ma_260415221700_BTCUSDT_b00s")
         self.assertEqual(snapshot["symbol"], "BTCUSDT")
         self.assertEqual(snapshot["status"], "NEW")
         self.assertEqual(snapshot["side"], "SELL")

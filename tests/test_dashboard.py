@@ -2595,7 +2595,7 @@ console.log(JSON.stringify(cases));
             )
             self.assertEqual(
                 {trip["round_trip_id"] for trip in day_snapshot["recent_trade_round_trips"]},
-                {"PLAYUSDT:recent"},
+                {"PLAYUSDT:old", "PLAYUSDT:recent"},
             )
 
     def test_render_dashboard_html_redesigns_account_metrics_as_single_interactive_panel(self) -> None:
@@ -2666,6 +2666,66 @@ console.log(JSON.stringify(cases));
         self.assertIn("data-account-metric=\"unrealized_pnl\"", html)
         self.assertIn("ADJUSTED EQUITY", html)
         self.assertIn("accountMetricsData", html)
+
+    def test_render_dashboard_html_respects_requested_range_state_and_subpath_api(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "PLAYUSDT",
+                    "position_count": 1,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {"payload": {}},
+                    "latest_account_snapshot": {
+                        "wallet_balance": "62.52",
+                        "available_balance": "58.00",
+                        "equity": "59.58",
+                        "unrealized_pnl": "-2.94",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {},
+                },
+                "recent_broker_orders": [],
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-15T18:00:00+00:00",
+                        "wallet_balance": "100.00",
+                        "available_balance": "95.00",
+                        "equity": "100.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 0,
+                        "open_order_count": 0,
+                        "leader_symbol": "PLAYUSDT",
+                    },
+                    {
+                        "timestamp": "2026-04-16T02:00:00+00:00",
+                        "wallet_balance": "62.52",
+                        "available_balance": "58.00",
+                        "equity": "59.58",
+                        "unrealized_pnl": "-2.94",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                        "leader_symbol": "PLAYUSDT",
+                    },
+                ],
+                "recent_events": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [],
+                "pulse_points": [],
+                "warnings": [],
+            },
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+            active_tab="performance",
+            account_range_key="ALL",
+        )
+
+        self.assertIn('class=\'account-chip active\' data-account-range="ALL"', html)
+        self.assertNotIn("fetch(`/api/dashboard/timeseries", html)
+        self.assertIn('window.location.pathname.replace(/\\/$/, "")', html)
 
     def test_account_overview_js_supports_requested_range_windows(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
