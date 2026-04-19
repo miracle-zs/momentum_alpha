@@ -1189,6 +1189,62 @@ def fetch_recent_trade_round_trips(*, path: Path, limit: int = 20) -> list[dict]
     ]
 
 
+def fetch_trade_round_trips_for_range(*, path: Path, now: datetime, range_key: str) -> list[dict]:
+    if not path.exists():
+        return []
+    window, _bucket_seconds = _ACCOUNT_RANGE_DENSITY.get(range_key, _ACCOUNT_RANGE_DENSITY["1D"])
+    cutoff = None if window is None else now.astimezone(timezone.utc) - window
+    where_clause = "" if cutoff is None else "WHERE closed_at >= ?"
+    params = () if cutoff is None else (cutoff.astimezone(timezone.utc).isoformat(),)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                round_trip_id,
+                symbol,
+                opened_at,
+                closed_at,
+                entry_fill_count,
+                exit_fill_count,
+                total_entry_quantity,
+                total_exit_quantity,
+                weighted_avg_entry_price,
+                weighted_avg_exit_price,
+                realized_pnl,
+                commission,
+                net_pnl,
+                exit_reason,
+                duration_seconds,
+                payload_json
+            FROM trade_round_trips
+            {where_clause}
+            ORDER BY closed_at DESC, id DESC
+            """,
+            params,
+        ).fetchall()
+    return [
+        {
+            "round_trip_id": row[0],
+            "symbol": row[1],
+            "opened_at": row[2],
+            "closed_at": row[3],
+            "entry_fill_count": row[4],
+            "exit_fill_count": row[5],
+            "total_entry_quantity": row[6],
+            "total_exit_quantity": row[7],
+            "weighted_avg_entry_price": row[8],
+            "weighted_avg_exit_price": row[9],
+            "realized_pnl": row[10],
+            "commission": row[11],
+            "net_pnl": row[12],
+            "exit_reason": row[13],
+            "duration_seconds": row[14],
+            "payload": _json_loads(row[15]),
+        }
+        for row in rows
+    ]
+
+
 def fetch_recent_stop_exit_summaries(*, path: Path, limit: int = 20) -> list[dict]:
     if not path.exists():
         return []
