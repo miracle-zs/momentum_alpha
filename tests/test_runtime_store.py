@@ -760,6 +760,96 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertIsNone(payload["legs"][0]["leg_risk"])
             self.assertIsNone(payload["legs"][0]["cumulative_risk_after_leg"])
 
+    def test_rebuild_trade_analytics_uses_broker_order_stop_price_fallback(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_recent_stop_exit_summaries,
+            fetch_recent_trade_round_trips,
+            insert_broker_order,
+            insert_trade_fill,
+            rebuild_trade_analytics,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+
+            opened_at = datetime(2026, 4, 19, 2, 0, tzinfo=timezone.utc)
+            closed_at = datetime(2026, 4, 19, 2, 25, tzinfo=timezone.utc)
+
+            insert_broker_order(
+                path=db_path,
+                timestamp=opened_at,
+                source="poll",
+                symbol="ETHUSDT",
+                action_type="submit",
+                order_type="STOP_MARKET",
+                order_id="300",
+                client_order_id="ma_260419020000_ETHUSDT_b00s",
+                order_status="NEW",
+                side="SELL",
+                quantity=1.0,
+                price=195.0,
+                payload={"stopPrice": "195"},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="ETHUSDT",
+                order_id="10",
+                trade_id="210",
+                client_order_id="ma_260419020000_ETHUSDT_b00e",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="1",
+                cumulative_quantity="1",
+                average_price="200",
+                last_price="200",
+                realized_pnl="0",
+                commission="0.2",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=closed_at,
+                source="user-stream",
+                symbol="ETHUSDT",
+                order_id="11",
+                trade_id="211",
+                client_order_id="ma_260419020000_ETHUSDT_b00s",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="SELL",
+                order_type="STOP_MARKET",
+                quantity="1",
+                cumulative_quantity="1",
+                average_price="194",
+                last_price="194",
+                realized_pnl="-6",
+                commission="0.3",
+                commission_asset="USDT",
+                payload={},
+            )
+
+            rebuild_trade_analytics(path=db_path)
+            round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+            stop_exits = fetch_recent_stop_exit_summaries(path=db_path, limit=10)
+
+            self.assertEqual(len(round_trips), 1)
+            payload = round_trips[0]["payload"]
+            self.assertEqual(payload["legs"][0]["stop_price_at_entry"], "195.0")
+            self.assertEqual(payload["legs"][0]["leg_risk"], "5.0")
+            self.assertEqual(payload["legs"][0]["cumulative_risk_after_leg"], "5.0")
+            self.assertEqual(payload["base_leg_risk"], "5.0")
+            self.assertEqual(payload["peak_cumulative_risk"], "5.0")
+            self.assertEqual(stop_exits[0]["trigger_price"], "195.0")
+            self.assertEqual(stop_exits[0]["slippage_abs"], "1.0")
+            self.assertEqual(stop_exits[0]["slippage_pct"], "0.5128205128205128205128205128")
+
     def test_fetch_trade_round_trips_for_range_returns_newest_first_with_payload(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

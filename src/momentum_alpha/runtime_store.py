@@ -447,6 +447,22 @@ def _resolve_stop_trigger_price_for_exit(
     return None
 
 
+def _extract_stop_trigger_price_from_broker_order(
+    *,
+    order_type: str | None,
+    price: object | None,
+    payload: object | None,
+) -> Decimal | None:
+    if order_type != "STOP_MARKET":
+        return None
+    parsed_price = _text_to_optional_decimal(price)
+    if parsed_price is not None:
+        return parsed_price
+    if not isinstance(payload, dict):
+        return None
+    return _text_to_optional_decimal(payload.get("stopPrice") or payload.get("price"))
+
+
 def _as_utc_iso(timestamp: datetime) -> str:
     return timestamp.astimezone(timezone.utc).isoformat()
 
@@ -1452,6 +1468,13 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             ORDER BY timestamp ASC, id ASC
             """
         ).fetchall()
+        broker_rows = connection.execute(
+            """
+            SELECT timestamp, symbol, order_type, client_order_id, price, payload_json
+            FROM broker_orders
+            ORDER BY timestamp ASC, id ASC
+            """
+        ).fetchall()
         connection.execute("DELETE FROM trade_round_trips")
         connection.execute("DELETE FROM stop_exit_summaries")
 
@@ -1472,6 +1495,21 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             )
             if client_algo_id and parsed_trigger_price is not None:
                 stop_trigger_by_client_order_id[client_algo_id] = parsed_trigger_price
+        for timestamp, symbol, order_type, client_order_id, price, payload_json in broker_rows:
+            if not symbol or not client_order_id:
+                continue
+            trigger_price = _extract_stop_trigger_price_from_broker_order(
+                order_type=order_type,
+                price=price,
+                payload=_json_loads(payload_json),
+            )
+            if trigger_price is None:
+                continue
+            stop_trigger_by_client_order_id.setdefault(client_order_id, trigger_price)
+            if is_strategy_client_order_id(client_order_id):
+                stop_client_order_id = _strategy_stop_client_order_id(client_order_id)
+                if stop_client_order_id is not None:
+                    stop_trigger_by_client_order_id.setdefault(stop_client_order_id, trigger_price)
 
         active_round_trips: dict[str, dict] = {}
         symbol_counters: dict[str, int] = {}
