@@ -335,7 +335,11 @@ def _trade_round_trip_row_to_dict(row: tuple) -> dict:
 def _strategy_stop_client_order_id(client_order_id: str | None) -> str | None:
     if not is_strategy_client_order_id(client_order_id):
         return None
-    if client_order_id is None or not client_order_id.endswith("e"):
+    if client_order_id is None:
+        return None
+    if client_order_id.endswith("s"):
+        return client_order_id
+    if not client_order_id.endswith("e"):
         return None
     return f"{client_order_id[:-1]}s"
 
@@ -411,6 +415,28 @@ def _build_trade_round_trip_leg_payload(
     return legs, base_leg_risk, peak_cumulative_risk
 
 
+def _resolve_stop_trigger_price_for_exit(
+    *,
+    exit_fills: list[dict],
+    symbol: str,
+    stop_trigger_by_client_order_id: dict[str, Decimal],
+    algo_by_symbol: dict[str, list[dict]],
+) -> Decimal | None:
+    for exit_fill in reversed(exit_fills):
+        stop_client_order_id = _strategy_stop_client_order_id(exit_fill["client_order_id"])
+        if stop_client_order_id is None:
+            continue
+        trigger_price = stop_trigger_by_client_order_id.get(stop_client_order_id)
+        if trigger_price is not None:
+            return trigger_price
+    for algo_row in reversed(algo_by_symbol.get(symbol, [])):
+        if algo_row["timestamp"] <= exit_fills[-1]["timestamp"] and algo_row["order_type"] == "STOP_MARKET":
+            trigger_price = algo_row["trigger_price"]
+            if trigger_price is not None:
+                return trigger_price
+    return None
+
+
 def _as_utc_iso(timestamp: datetime) -> str:
     return timestamp.astimezone(timezone.utc).isoformat()
 
@@ -434,6 +460,15 @@ def _text_to_decimal(value: object | None) -> Decimal:
         return Decimal(str(value))
     except (InvalidOperation, TypeError):
         return Decimal("0")
+
+
+def _text_to_optional_decimal(value: object | None) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        return None
 
 
 @contextmanager
@@ -1388,7 +1423,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
         for timestamp, symbol, trigger_price, algo_status, order_type, client_algo_id in algo_rows:
             if not symbol:
                 continue
-            parsed_trigger_price = _text_to_decimal(trigger_price)
+            parsed_trigger_price = _text_to_optional_decimal(trigger_price)
             algo_by_symbol.setdefault(symbol, []).append(
                 {
                     "timestamp": timestamp,
@@ -1557,11 +1592,12 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 ),
             )
             if exit_reason == "stop_loss":
-                trigger_price = None
-                for algo_row in reversed(algo_by_symbol.get(symbol, [])):
-                    if algo_row["timestamp"] <= exit_fills[-1]["timestamp"] and algo_row["order_type"] == "STOP_MARKET":
-                        trigger_price = algo_row["trigger_price"]
-                        break
+                trigger_price = _resolve_stop_trigger_price_for_exit(
+                    exit_fills=exit_fills,
+                    symbol=symbol,
+                    stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
+                    algo_by_symbol=algo_by_symbol,
+                )
                 slippage_abs = None
                 slippage_pct = None
                 if trigger_price is not None and trigger_price > Decimal("0"):

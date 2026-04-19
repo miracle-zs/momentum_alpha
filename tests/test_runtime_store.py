@@ -540,6 +540,7 @@ class RuntimeStoreTests(unittest.TestCase):
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,
             fetch_recent_trade_round_trips,
+            fetch_recent_stop_exit_summaries,
             insert_algo_order,
             insert_trade_fill,
             rebuild_trade_analytics,
@@ -608,6 +609,19 @@ class RuntimeStoreTests(unittest.TestCase):
                 commission_asset="USDT",
                 payload={},
             )
+            insert_algo_order(
+                path=db_path,
+                timestamp=add_on_time,
+                source="user-stream",
+                symbol="LUMAUSDT",
+                algo_id="8002",
+                client_algo_id="ma_260415080001_LUMA_a01s",
+                algo_status="NEW",
+                side="SELL",
+                order_type="STOP_MARKET",
+                trigger_price="",
+                payload={},
+            )
             insert_trade_fill(
                 path=db_path,
                 timestamp=closed_at,
@@ -633,6 +647,7 @@ class RuntimeStoreTests(unittest.TestCase):
             rebuild_trade_analytics(path=db_path)
 
             round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+            stop_exits = fetch_recent_stop_exit_summaries(path=db_path, limit=10)
             payload = round_trips[0]["payload"]
 
             self.assertEqual(payload["leg_count"], 2)
@@ -656,6 +671,7 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(payload["legs"][1]["gross_pnl_contribution"], "-6.0")
             self.assertEqual(payload["legs"][1]["fee_share"], "0.300")
             self.assertEqual(payload["legs"][1]["net_pnl_contribution"], "-6.300")
+            self.assertEqual(stop_exits[0]["trigger_price"], "9.5")
 
     def test_fetch_trade_round_trips_for_range_returns_newest_first_with_payload(self) -> None:
         from momentum_alpha.runtime_store import (
