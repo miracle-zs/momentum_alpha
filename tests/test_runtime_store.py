@@ -536,6 +536,127 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(stop_exits[0]["symbol"], "PIPPINUSDT")
             self.assertEqual(stop_exits[0]["trigger_price"], "0.0341")
 
+    def test_rebuild_trade_analytics_persists_leg_analytics_with_missing_stop_data(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_recent_trade_round_trips,
+            insert_algo_order,
+            insert_trade_fill,
+            rebuild_trade_analytics,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+
+            opened_at = datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc)
+            add_on_time = datetime(2026, 4, 15, 8, 1, tzinfo=timezone.utc)
+            closed_at = datetime(2026, 4, 15, 8, 5, tzinfo=timezone.utc)
+
+            insert_trade_fill(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="LUMAUSDT",
+                order_id="9001",
+                trade_id="9101",
+                client_order_id="ma_260415080000_LUMA_b00e",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="2",
+                cumulative_quantity="2",
+                average_price="10",
+                last_price="10",
+                realized_pnl="0",
+                commission="0.10",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_algo_order(
+                path=db_path,
+                timestamp=opened_at,
+                source="user-stream",
+                symbol="LUMAUSDT",
+                algo_id="8001",
+                client_algo_id="ma_260415080000_LUMA_b00s",
+                algo_status="NEW",
+                side="SELL",
+                order_type="STOP_MARKET",
+                trigger_price="9.5",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=add_on_time,
+                source="user-stream",
+                symbol="LUMAUSDT",
+                order_id="9002",
+                trade_id="9102",
+                client_order_id="ma_260415080000_LUMA_a01e",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="BUY",
+                order_type="MARKET",
+                quantity="3",
+                cumulative_quantity="3",
+                average_price="11",
+                last_price="11",
+                realized_pnl="0",
+                commission="0.15",
+                commission_asset="USDT",
+                payload={},
+            )
+            insert_trade_fill(
+                path=db_path,
+                timestamp=closed_at,
+                source="user-stream",
+                symbol="LUMAUSDT",
+                order_id="9003",
+                trade_id="9103",
+                client_order_id="ma_260415080000_LUMA_b00s",
+                order_status="FILLED",
+                execution_type="TRADE",
+                side="SELL",
+                order_type="STOP_MARKET",
+                quantity="5",
+                cumulative_quantity="5",
+                average_price="8",
+                last_price="8",
+                realized_pnl="-10",
+                commission="0.25",
+                commission_asset="USDT",
+                payload={},
+            )
+
+            rebuild_trade_analytics(path=db_path)
+
+            round_trips = fetch_recent_trade_round_trips(path=db_path, limit=10)
+            payload = round_trips[0]["payload"]
+
+            self.assertEqual(payload["leg_count"], 2)
+            self.assertEqual(payload["add_on_leg_count"], 1)
+            self.assertEqual(payload["base_leg_risk"], "1.0")
+            self.assertIsNone(payload["peak_cumulative_risk"])
+            self.assertEqual(len(payload["legs"]), 2)
+            self.assertEqual(payload["legs"][0]["leg_index"], 1)
+            self.assertEqual(payload["legs"][0]["leg_type"], "base")
+            self.assertEqual(payload["legs"][0]["stop_price_at_entry"], "9.5")
+            self.assertEqual(payload["legs"][0]["leg_risk"], "1.0")
+            self.assertEqual(payload["legs"][0]["cumulative_risk_after_leg"], "1.0")
+            self.assertEqual(payload["legs"][0]["gross_pnl_contribution"], "-4.0")
+            self.assertEqual(payload["legs"][0]["fee_share"], "0.200")
+            self.assertEqual(payload["legs"][0]["net_pnl_contribution"], "-4.200")
+            self.assertEqual(payload["legs"][1]["leg_index"], 2)
+            self.assertEqual(payload["legs"][1]["leg_type"], "add_on")
+            self.assertIsNone(payload["legs"][1]["stop_price_at_entry"])
+            self.assertIsNone(payload["legs"][1]["leg_risk"])
+            self.assertIsNone(payload["legs"][1]["cumulative_risk_after_leg"])
+            self.assertEqual(payload["legs"][1]["gross_pnl_contribution"], "-6.0")
+            self.assertEqual(payload["legs"][1]["fee_share"], "0.300")
+            self.assertEqual(payload["legs"][1]["net_pnl_contribution"], "-6.300")
+
     def test_fetch_trade_round_trips_for_range_returns_newest_first_with_payload(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

@@ -332,6 +332,85 @@ def _trade_round_trip_row_to_dict(row: tuple) -> dict:
     }
 
 
+def _strategy_stop_client_order_id(client_order_id: str | None) -> str | None:
+    if not is_strategy_client_order_id(client_order_id):
+        return None
+    if client_order_id is None or not client_order_id.endswith("e"):
+        return None
+    return f"{client_order_id[:-1]}s"
+
+
+def _trade_leg_type_from_client_order_id(client_order_id: str | None, leg_index: int) -> str:
+    if is_strategy_client_order_id(client_order_id) and client_order_id is not None:
+        token_index = len(client_order_id) - 4
+        if token_index >= 0:
+            token = client_order_id[token_index]
+            if token == "b":
+                return "base"
+            if token == "a":
+                return "add_on"
+    return "base" if leg_index == 1 else "add_on"
+
+
+def _build_trade_round_trip_leg_payload(
+    *,
+    entry_fills: list[dict],
+    total_entry_qty: Decimal,
+    realized_total: Decimal,
+    commission_total: Decimal,
+    stop_trigger_by_client_order_id: dict[str, Decimal],
+) -> tuple[list[dict], Decimal | None, Decimal | None]:
+    legs: list[dict] = []
+    cumulative_risk = Decimal("0")
+    all_leg_risks_known = True
+
+    for leg_index, item in enumerate(entry_fills, start=1):
+        client_order_id = item["client_order_id"]
+        stop_client_order_id = _strategy_stop_client_order_id(client_order_id)
+        stop_price_at_entry = (
+            stop_trigger_by_client_order_id.get(stop_client_order_id) if stop_client_order_id is not None else None
+        )
+        leg_type = _trade_leg_type_from_client_order_id(client_order_id, leg_index)
+        leg_risk = None
+        if stop_price_at_entry is not None and item["price"] is not None:
+            leg_risk = max((item["price"] - stop_price_at_entry) * item["quantity"], Decimal("0"))
+        if leg_risk is None:
+            all_leg_risks_known = False
+            cumulative_risk_after_leg = None
+        else:
+            cumulative_risk += leg_risk
+            cumulative_risk_after_leg = cumulative_risk if all_leg_risks_known else None
+
+        quantity_share = item["quantity"] / total_entry_qty if total_entry_qty > Decimal("0") else None
+        gross_pnl_contribution = realized_total * quantity_share if quantity_share is not None else None
+        fee_share = commission_total * quantity_share if quantity_share is not None else None
+        net_pnl_contribution = (
+            gross_pnl_contribution - fee_share
+            if gross_pnl_contribution is not None and fee_share is not None
+            else None
+        )
+
+        legs.append(
+            {
+                "leg_index": leg_index,
+                "leg_type": leg_type,
+                "opened_at": item["timestamp"],
+                "quantity": _decimal_to_text(item["quantity"]),
+                "entry_price": _decimal_to_text(item["price"]),
+                "stop_price_at_entry": _decimal_to_text(stop_price_at_entry),
+                "leg_risk": _decimal_to_text(leg_risk),
+                "cumulative_risk_after_leg": _decimal_to_text(cumulative_risk_after_leg),
+                "gross_pnl_contribution": _decimal_to_text(gross_pnl_contribution),
+                "fee_share": _decimal_to_text(fee_share),
+                "net_pnl_contribution": _decimal_to_text(net_pnl_contribution),
+            }
+        )
+
+    base_leg_risk = _text_to_decimal(legs[0]["leg_risk"]) if legs and legs[0]["leg_risk"] is not None else None
+    peak_cumulative_risk = cumulative_risk if all_leg_risks_known and legs else None
+    return legs, base_leg_risk, peak_cumulative_risk
+
+
 def _as_utc_iso(timestamp: datetime) -> str:
     return timestamp.astimezone(timezone.utc).isoformat()
 
@@ -1305,18 +1384,22 @@ def rebuild_trade_analytics(*, path: Path) -> None:
         connection.execute("DELETE FROM stop_exit_summaries")
 
         algo_by_symbol: dict[str, list[dict]] = {}
+        stop_trigger_by_client_order_id: dict[str, Decimal] = {}
         for timestamp, symbol, trigger_price, algo_status, order_type, client_algo_id in algo_rows:
             if not symbol:
                 continue
+            parsed_trigger_price = _text_to_decimal(trigger_price)
             algo_by_symbol.setdefault(symbol, []).append(
                 {
                     "timestamp": timestamp,
-                    "trigger_price": _text_to_decimal(trigger_price),
+                    "trigger_price": parsed_trigger_price,
                     "algo_status": algo_status,
                     "order_type": order_type,
                     "client_algo_id": client_algo_id,
                 }
             )
+            if client_algo_id and parsed_trigger_price is not None:
+                stop_trigger_by_client_order_id[client_algo_id] = parsed_trigger_price
 
         active_round_trips: dict[str, dict] = {}
         symbol_counters: dict[str, int] = {}
@@ -1415,11 +1498,23 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 else "sell"
             )
             duration_seconds = int((closed_at - round_trip["opened_at"]).total_seconds())
+            legs, base_leg_risk, peak_cumulative_risk = _build_trade_round_trip_leg_payload(
+                entry_fills=entry_fills,
+                total_entry_qty=total_entry_qty,
+                realized_total=realized_total,
+                commission_total=commission_total,
+                stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
+            )
             round_trip_payload = {
                 "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],
                 "exit_order_ids": [item["order_id"] for item in exit_fills if item["order_id"] is not None],
                 "entry_trade_ids": [item["trade_id"] for item in entry_fills if item["trade_id"] is not None],
                 "exit_trade_ids": [item["trade_id"] for item in exit_fills if item["trade_id"] is not None],
+                "leg_count": len(legs),
+                "add_on_leg_count": max(len(legs) - 1, 0),
+                "base_leg_risk": _decimal_to_text(base_leg_risk),
+                "peak_cumulative_risk": _decimal_to_text(peak_cumulative_risk),
+                "legs": legs,
             }
             connection.execute(
                 """
