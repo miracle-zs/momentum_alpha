@@ -2343,6 +2343,8 @@ console.log(JSON.stringify(cases));
         )
 
         self.assertIn("STRATEGY PERFORMANCE", performance_html)
+        self.assertIn("Complete trade summary uses all closed trades", performance_html)
+        self.assertIn("Complete Trade Summary (all closed trades)", performance_html)
         self.assertIn("PLAYUSDT:1", performance_html)
         self.assertIn("STOP SLIPPAGE ANALYSIS", execution_html)
         self.assertIn("0.17687", execution_html)
@@ -2497,7 +2499,7 @@ console.log(JSON.stringify(cases));
             self.assertEqual(snapshot["recent_account_snapshots"][0]["wallet_balance"], "1600")
             self.assertGreater(int(snapshot["recent_account_snapshots"][-1]["wallet_balance"]), 100)
 
-    def test_load_dashboard_snapshot_uses_account_range_for_trade_round_trips(self) -> None:
+    def test_load_dashboard_snapshot_keeps_all_trade_round_trips_for_performance(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import (
             RuntimeStateStore,
