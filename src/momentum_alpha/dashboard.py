@@ -200,6 +200,14 @@ def _parse_numeric(value: object | None) -> float | None:
         return None
 
 
+def _compute_margin_usage_pct(*, available_balance: object | None, equity: object | None) -> float | None:
+    available = _parse_numeric(available_balance)
+    equity_value = _parse_numeric(equity)
+    if available is None or equity_value in (None, 0):
+        return None
+    return (1 - (available / equity_value)) * 100
+
+
 def _parse_decimal(value: object | None) -> Decimal | None:
     if value is None or value == "":
         return None
@@ -896,6 +904,10 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
                 "wallet_balance": _parse_numeric(row.get("wallet_balance")),
                 "available_balance": _parse_numeric(row.get("available_balance")),
                 "equity": equity,
+                "margin_usage_pct": _compute_margin_usage_pct(
+                    available_balance=row.get("available_balance"),
+                    equity=row.get("equity"),
+                ),
                 "adjusted_equity": None if equity is None else equity - cumulative_external_flow,
                 "unrealized_pnl": _parse_numeric(row.get("unrealized_pnl")),
                 "position_count": row.get("position_count"),
@@ -1267,25 +1279,42 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
             "current_equity": None,
             "current_adjusted_equity": None,
             "current_unrealized_pnl": None,
+            "current_margin_usage_pct": None,
             "current_positions": None,
             "current_orders": None,
             "metric_change": None,
             "peak_equity": None,
+            "peak_margin_usage_pct": None,
+            "average_margin_usage_pct": None,
             "drawdown_abs": None,
             "drawdown_pct": None,
         }
     first = points[0]
     last = points[-1]
     peak_equity = max((_parse_numeric(point.get("equity")) or 0.0) for point in points)
+    margin_usage_points = [
+        _compute_margin_usage_pct(
+            available_balance=point.get("available_balance"),
+            equity=point.get("equity"),
+        )
+        for point in points
+    ]
+    margin_usage_points = [value for value in margin_usage_points if value is not None]
     current_equity = _parse_numeric(last.get("equity"))
     current_adjusted_equity = _parse_numeric(last.get("adjusted_equity"))
     current_wallet = _parse_numeric(last.get("wallet_balance"))
     current_pnl = _parse_numeric(last.get("unrealized_pnl"))
+    current_margin_usage_pct = _compute_margin_usage_pct(
+        available_balance=last.get("available_balance"),
+        equity=last.get("equity"),
+    )
     metric_first = _parse_numeric(first.get(metric))
     metric_last = _parse_numeric(last.get(metric))
     metric_change = None
     if metric_first is not None and metric_last is not None:
         metric_change = metric_last - metric_first
+    peak_margin_usage_pct = max(margin_usage_points) if margin_usage_points else None
+    average_margin_usage_pct = sum(margin_usage_points) / len(margin_usage_points) if margin_usage_points else None
     drawdown_abs = None
     drawdown_pct = None
     if current_equity is not None:
@@ -1297,10 +1326,13 @@ def _compute_account_range_stats(points: list[dict], metric: str = "equity") -> 
         "current_equity": current_equity,
         "current_adjusted_equity": current_adjusted_equity,
         "current_unrealized_pnl": current_pnl,
+        "current_margin_usage_pct": current_margin_usage_pct,
         "current_positions": last.get("position_count"),
         "current_orders": last.get("open_order_count"),
         "metric_change": metric_change,
         "peak_equity": peak_equity,
+        "peak_margin_usage_pct": peak_margin_usage_pct,
+        "average_margin_usage_pct": average_margin_usage_pct,
         "drawdown_abs": drawdown_abs,
         "drawdown_pct": drawdown_pct,
     }

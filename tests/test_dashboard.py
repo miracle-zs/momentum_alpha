@@ -1429,11 +1429,28 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(timeseries["account"][1]["equity"], 1260.12)
         self.assertEqual(timeseries["account"][0]["adjusted_equity"], 1250.00)
         self.assertEqual(timeseries["account"][1]["adjusted_equity"], 1160.12)
+        self.assertAlmostEqual(timeseries["account"][0]["margin_usage_pct"], 4.8, places=9)
+        self.assertAlmostEqual(timeseries["account"][1]["margin_usage_pct"], 4.770974192933997, places=9)
         self.assertEqual(tables["recent_signal_decisions"][0]["decision_type"], "base_entry")
         self.assertEqual(tables["recent_trade_fills"][0]["trade_id"], "2002")
         self.assertEqual(tables["recent_trade_round_trips"][0]["round_trip_id"], "PLAYUSDT:1")
         self.assertEqual(tables["recent_stop_exit_summaries"][0]["symbol"], "PLAYUSDT")
         self.assertEqual(tables["recent_account_snapshots"][1]["leader_symbol"], "BLESSUSDT")
+
+    def test_compute_account_range_stats_exposes_margin_usage_summary(self) -> None:
+        from momentum_alpha.dashboard import _compute_account_range_stats
+
+        points = [
+            {"timestamp": "2026-04-15T08:48:00+00:00", "equity": 100.0, "available_balance": 80.0},
+            {"timestamp": "2026-04-15T08:49:00+00:00", "equity": 120.0, "available_balance": 60.0},
+            {"timestamp": "2026-04-15T08:50:00+00:00", "equity": 0.0, "available_balance": 0.0},
+        ]
+
+        stats = _compute_account_range_stats(points)
+
+        self.assertEqual(stats["current_margin_usage_pct"], None)
+        self.assertEqual(stats["peak_margin_usage_pct"], 50.0)
+        self.assertEqual(stats["average_margin_usage_pct"], 35.0)
 
     def test_load_dashboard_snapshot_uses_runtime_db_when_audit_file_missing(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
