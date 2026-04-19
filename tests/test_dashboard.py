@@ -1447,6 +1447,56 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(tables["recent_stop_exit_summaries"][0]["symbol"], "PLAYUSDT")
         self.assertEqual(tables["recent_account_snapshots"][1]["leader_symbol"], "BLESSUSDT")
 
+    def test_build_trade_leg_count_aggregates_groups_by_leg_count(self) -> None:
+        from momentum_alpha.dashboard import build_trade_leg_count_aggregates
+
+        rows = [
+            {"net_pnl": "10", "payload": {"leg_count": 1, "peak_cumulative_risk": "10"}},
+            {"net_pnl": "-5", "payload": {"leg_count": 2, "peak_cumulative_risk": "20"}},
+            {"net_pnl": "8", "payload": {"leg_count": 2, "peak_cumulative_risk": "18"}},
+        ]
+
+        aggregates = build_trade_leg_count_aggregates(rows)
+
+        self.assertEqual(aggregates[0]["label"], "1 legs")
+        self.assertEqual(aggregates[0]["sample_count"], 1)
+        self.assertEqual(aggregates[1]["label"], "2 legs")
+        self.assertEqual(aggregates[1]["sample_count"], 2)
+        self.assertAlmostEqual(aggregates[1]["avg_net_pnl"], 1.5)
+        self.assertAlmostEqual(aggregates[1]["avg_peak_risk"], 19.0)
+
+    def test_build_trade_leg_index_aggregates_groups_by_leg_position(self) -> None:
+        from momentum_alpha.dashboard import build_trade_leg_index_aggregates
+
+        rows = [
+            {
+                "payload": {
+                    "legs": [
+                        {"leg_index": 1, "leg_risk": "10", "net_pnl_contribution": "4"},
+                        {"leg_index": 2, "leg_risk": "8", "net_pnl_contribution": "-1"},
+                    ]
+                }
+            },
+            {
+                "payload": {
+                    "legs": [
+                        {"leg_index": 1, "leg_risk": "12", "net_pnl_contribution": "6"},
+                        {"leg_index": 2, "leg_risk": "9", "net_pnl_contribution": "2"},
+                    ]
+                }
+            },
+        ]
+
+        aggregates = build_trade_leg_index_aggregates(rows)
+
+        self.assertEqual(aggregates[0]["label"], "Leg 1")
+        self.assertEqual(aggregates[0]["sample_count"], 2)
+        self.assertAlmostEqual(aggregates[0]["avg_leg_risk"], 11.0)
+        self.assertAlmostEqual(aggregates[0]["avg_net_contribution"], 5.0)
+        self.assertAlmostEqual(aggregates[0]["profitable_ratio"], 1.0)
+        self.assertEqual(aggregates[1]["label"], "Leg 2")
+        self.assertAlmostEqual(aggregates[1]["profitable_ratio"], 0.5)
+
     def test_compute_account_range_stats_exposes_margin_usage_summary(self) -> None:
         from momentum_alpha.dashboard import _compute_account_range_stats
 
@@ -2295,6 +2345,91 @@ console.log(JSON.stringify(cases));
             self.assertEqual(len(snapshot["recent_account_snapshots"]), 289)
             self.assertEqual(snapshot["recent_account_snapshots"][0]["wallet_balance"], "1600")
             self.assertGreater(int(snapshot["recent_account_snapshots"][-1]["wallet_balance"]), 100)
+
+    def test_load_dashboard_snapshot_uses_account_range_for_trade_round_trips(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import (
+            RuntimeStateStore,
+            StoredStrategyState,
+            insert_account_snapshot,
+            insert_trade_round_trip,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            now = datetime(2026, 4, 16, 2, 0, tzinfo=timezone.utc)
+            poll_log_file = root / "momentum-alpha.log"
+            user_stream_log_file = root / "momentum-alpha-user-stream.log"
+            runtime_db_file = root / "runtime.db"
+
+            for path in (poll_log_file, user_stream_log_file):
+                path.write_text("", encoding="utf-8")
+                os.utime(path, (now.timestamp(), now.timestamp()))
+
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-16", previous_leader_symbol="PLAYUSDT")
+            )
+            insert_account_snapshot(
+                path=runtime_db_file,
+                timestamp=now,
+                source="poll",
+                wallet_balance="1000",
+                available_balance="900",
+                equity="1100",
+                unrealized_pnl="0",
+                position_count=0,
+                open_order_count=0,
+                leader_symbol="PLAYUSDT",
+                payload={},
+            )
+            insert_trade_round_trip(
+                path=runtime_db_file,
+                round_trip_id="PLAYUSDT:old",
+                symbol="PLAYUSDT",
+                opened_at=now - timedelta(days=2, minutes=5),
+                closed_at=now - timedelta(days=2),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                net_pnl="5.0",
+                payload={"leg_count": 1, "peak_cumulative_risk": "10"},
+            )
+            insert_trade_round_trip(
+                path=runtime_db_file,
+                round_trip_id="PLAYUSDT:recent",
+                symbol="PLAYUSDT",
+                opened_at=now - timedelta(hours=2),
+                closed_at=now - timedelta(hours=1),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                net_pnl="7.0",
+                payload={"leg_count": 2, "peak_cumulative_risk": "12"},
+            )
+
+            all_snapshot = load_dashboard_snapshot(
+                now=now,
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+                account_range_key="ALL",
+            )
+            day_snapshot = load_dashboard_snapshot(
+                now=now,
+                poll_log_file=poll_log_file,
+                user_stream_log_file=user_stream_log_file,
+                runtime_db_file=runtime_db_file,
+                recent_limit=10,
+                account_range_key="1D",
+            )
+
+            self.assertEqual(
+                {trip["round_trip_id"] for trip in all_snapshot["recent_trade_round_trips"]},
+                {"PLAYUSDT:old", "PLAYUSDT:recent"},
+            )
+            self.assertEqual(
+                {trip["round_trip_id"] for trip in day_snapshot["recent_trade_round_trips"]},
+                {"PLAYUSDT:recent"},
+            )
 
     def test_render_dashboard_html_redesigns_account_metrics_as_single_interactive_panel(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

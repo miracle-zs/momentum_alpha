@@ -25,7 +25,7 @@ from .runtime_store import (
     fetch_recent_signal_decisions,
     fetch_recent_stop_exit_summaries,
     fetch_recent_trade_fills,
-    fetch_recent_trade_round_trips,
+    fetch_trade_round_trips_for_range,
 )
 
 
@@ -923,6 +923,72 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
     }
 
 
+def build_trade_leg_count_aggregates(round_trips: list[dict]) -> list[dict]:
+    grouped: dict[int, list[dict]] = {}
+    for trip in round_trips:
+        payload = trip.get("payload") or {}
+        leg_count = _parse_numeric(payload.get("leg_count"))
+        if leg_count is None:
+            continue
+        leg_count_int = int(leg_count)
+        if leg_count_int <= 0:
+            continue
+        grouped.setdefault(leg_count_int, []).append(trip)
+
+    rows: list[dict] = []
+    for leg_count in sorted(grouped):
+        trips = grouped[leg_count]
+        net_values = [_parse_numeric(trip.get("net_pnl")) for trip in trips]
+        net_values = [value for value in net_values if value is not None]
+        peak_values = [_parse_numeric((trip.get("payload") or {}).get("peak_cumulative_risk")) for trip in trips]
+        peak_values = [value for value in peak_values if value is not None]
+        win_count = len([value for value in net_values if value > 0])
+        rows.append(
+            {
+                "label": f"{leg_count} legs",
+                "leg_count": leg_count,
+                "sample_count": len(trips),
+                "win_rate": (win_count / len(net_values)) if net_values else None,
+                "avg_net_pnl": (sum(net_values) / len(net_values)) if net_values else None,
+                "avg_peak_risk": (sum(peak_values) / len(peak_values)) if peak_values else None,
+            }
+        )
+    return rows
+
+
+def build_trade_leg_index_aggregates(round_trips: list[dict]) -> list[dict]:
+    grouped: dict[int, list[dict]] = {}
+    for trip in round_trips:
+        for leg in (trip.get("payload") or {}).get("legs") or []:
+            leg_index = _parse_numeric(leg.get("leg_index")) if isinstance(leg, Mapping) else None
+            if leg_index is None:
+                continue
+            leg_index_int = int(leg_index)
+            if leg_index_int <= 0:
+                continue
+            grouped.setdefault(leg_index_int, []).append(leg)
+
+    rows: list[dict] = []
+    for leg_index in sorted(grouped):
+        legs = grouped[leg_index]
+        risk_values = [_parse_numeric(leg.get("leg_risk")) for leg in legs]
+        risk_values = [value for value in risk_values if value is not None]
+        net_values = [_parse_numeric(leg.get("net_pnl_contribution")) for leg in legs]
+        net_values = [value for value in net_values if value is not None]
+        profitable_count = len([value for value in net_values if value > 0])
+        rows.append(
+            {
+                "label": f"Leg {leg_index}",
+                "leg_index": leg_index,
+                "sample_count": len(legs),
+                "avg_leg_risk": (sum(risk_values) / len(risk_values)) if risk_values else None,
+                "avg_net_contribution": (sum(net_values) / len(net_values)) if net_values else None,
+                "profitable_ratio": (profitable_count / len(net_values)) if net_values else None,
+            }
+        )
+    return rows
+
+
 _EXTERNAL_ACCOUNT_FLOW_REASONS = {
     "DEPOSIT",
     "WITHDRAW",
@@ -1020,7 +1086,11 @@ def load_dashboard_snapshot(
             path=runtime_db_file,
             since=_account_flow_since(now=now, range_key=account_range_key),
         )
-        recent_trade_round_trips = fetch_recent_trade_round_trips(path=runtime_db_file, limit=20)
+        recent_trade_round_trips = fetch_trade_round_trips_for_range(
+            path=runtime_db_file,
+            now=now,
+            range_key=account_range_key,
+        )
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
