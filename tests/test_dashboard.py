@@ -310,6 +310,13 @@ class DashboardTests(unittest.TestCase):
                 payload={"symbol_count": 538, "rate_limited_until": None},
                 source="poll",
             )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
 
             for path in (poll_log_file, user_stream_log_file):
                 os.utime(path, (now.timestamp(), now.timestamp()))
@@ -1149,7 +1156,7 @@ class DashboardTests(unittest.TestCase):
     def test_load_dashboard_snapshot_uses_sqlite_runtime_summary_when_state_file_missing(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import RuntimeStateStore, insert_position_snapshot, insert_signal_decision
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1545,6 +1552,13 @@ class DashboardTests(unittest.TestCase):
                 event_type="tick_result",
                 payload={"next_previous_leader_symbol": "ONUSDT"},
                 source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
             )
 
             snapshot = load_dashboard_snapshot(

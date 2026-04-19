@@ -46,8 +46,8 @@ class DeployArtifactTests(unittest.TestCase):
     def test_check_health_script_invokes_healthcheck_command(self) -> None:
         content = (ROOT / "scripts" / "check_health.sh").read_text()
         self.assertIn("healthcheck", content)
-        self.assertIn("momentum-alpha.log", content)
-        self.assertIn("momentum-alpha-user-stream.log", content)
+        self.assertNotIn("momentum-alpha.log", content)
+        self.assertNotIn("momentum-alpha-user-stream.log", content)
         self.assertIn("RUNTIME_DB_FILE", content)
 
     def test_check_health_and_notify_script_invokes_serverchan_helper(self) -> None:
@@ -55,6 +55,8 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("check_health.sh", content)
         self.assertIn("-m momentum_alpha.serverchan", content)
         self.assertIn("SERVERCHAN_SENDKEY", content)
+        self.assertIn("--runtime-db-file", content)
+        self.assertNotIn("SERVERCHAN_STATUS_FILE", content)
 
     def test_run_dashboard_script_prefers_project_venv_python(self) -> None:
         content = (ROOT / "scripts" / "run_dashboard.sh").read_text()
@@ -62,6 +64,8 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("dashboard", content)
         self.assertIn("--runtime-db-file", content)
         self.assertIn("RUNTIME_DB_FILE", content)
+        self.assertNotIn("momentum-alpha.log", content)
+        self.assertNotIn("momentum-alpha-user-stream.log", content)
 
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
@@ -71,7 +75,7 @@ class DeployArtifactTests(unittest.TestCase):
     def test_env_example_contains_serverchan_settings(self) -> None:
         content = (ROOT / "deploy" / "env.example").read_text()
         self.assertIn("SERVERCHAN_SENDKEY=", content)
-        self.assertIn("SERVERCHAN_STATUS_FILE=", content)
+        self.assertNotIn("SERVERCHAN_STATUS_FILE=", content)
         self.assertIn("RUNTIME_DB_FILE=", content)
 
     def test_readme_mentions_dashboard_script(self) -> None:

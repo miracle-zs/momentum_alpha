@@ -38,7 +38,7 @@ from momentum_alpha.runtime_store import (
     rebuild_trade_analytics,
     summarize_audit_events,
 )
-from momentum_alpha.state_store import StoredStrategyState
+from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
     apply_user_stream_event_to_state,
@@ -78,6 +78,13 @@ def resolve_runtime_db_path(*, explicit_path: str | None, default_dir: Path | No
     if default_dir is not None:
         return default_dir / "runtime.db"
     return None
+
+
+def _require_runtime_db_path(*, parser: argparse.ArgumentParser, command: str, explicit_path: str | None) -> Path:
+    runtime_db_path = resolve_runtime_db_path(explicit_path=explicit_path)
+    if runtime_db_path is None:
+        parser.error(f"{command} requires --runtime-db-file or RUNTIME_DB_FILE")
+    return runtime_db_path
 
 
 def _build_audit_recorder(
@@ -1398,12 +1405,12 @@ def cli_main(
     user_stream_parser.add_argument("--testnet", action="store_true")
     user_stream_parser.add_argument("--runtime-db-file")
     healthcheck_parser = subparsers.add_parser("healthcheck")
-    healthcheck_parser.add_argument("--poll-log-file", required=True)
-    healthcheck_parser.add_argument("--user-stream-log-file", required=True)
+    healthcheck_parser.add_argument("--poll-log-file")
+    healthcheck_parser.add_argument("--user-stream-log-file")
     healthcheck_parser.add_argument("--runtime-db-file", required=True)
     healthcheck_parser.add_argument("--max-state-age-seconds", type=int, default=3600)
-    healthcheck_parser.add_argument("--max-poll-log-age-seconds", type=int, default=180)
-    healthcheck_parser.add_argument("--max-user-stream-log-age-seconds", type=int, default=1800)
+    healthcheck_parser.add_argument("--max-poll-event-age-seconds", type=int, default=180)
+    healthcheck_parser.add_argument("--max-user-stream-event-age-seconds", type=int, default=1800)
     healthcheck_parser.add_argument("--max-runtime-db-age-seconds", type=int, default=1800)
     audit_report_parser = subparsers.add_parser("audit-report")
     audit_report_parser.add_argument("--runtime-db-file", required=True)
@@ -1417,8 +1424,8 @@ def cli_main(
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8080)
-    dashboard_parser.add_argument("--poll-log-file", required=True)
-    dashboard_parser.add_argument("--user-stream-log-file", required=True)
+    dashboard_parser.add_argument("--poll-log-file")
+    dashboard_parser.add_argument("--user-stream-log-file")
     dashboard_parser.add_argument("--runtime-db-file", required=True)
 
     args = parser.parse_args(argv)
@@ -1444,7 +1451,11 @@ def cli_main(
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
         broker = broker_factory(client)
-        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_db_path = _require_runtime_db_path(
+            parser=parser,
+            command=args.command,
+            explicit_path=args.runtime_db_file,
+        )
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
             runtime_db_path=runtime_db_path,
@@ -1472,7 +1483,11 @@ def cli_main(
     if args.command == "poll":
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
-        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_db_path = _require_runtime_db_path(
+            parser=parser,
+            command=args.command,
+            explicit_path=args.runtime_db_file,
+        )
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         audit_recorder = _build_audit_recorder(
             runtime_db_path=runtime_db_path,
@@ -1506,7 +1521,11 @@ def cli_main(
         runtime_settings = load_runtime_settings_from_env()
         use_testnet = args.testnet or runtime_settings["use_testnet"]
         client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
-        runtime_db_path = resolve_runtime_db_path(explicit_path=args.runtime_db_file)
+        runtime_db_path = _require_runtime_db_path(
+            parser=parser,
+            command=args.command,
+            explicit_path=args.runtime_db_file,
+        )
         runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
         print(f"starting user-stream testnet={use_testnet}")
         return run_user_stream_fn(
@@ -1520,12 +1539,10 @@ def cli_main(
     if args.command == "healthcheck":
         report = build_runtime_health_report(
             now=now_provider(),
-            poll_log_file=Path(os.path.abspath(args.poll_log_file)),
-            user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
             runtime_db_file=Path(os.path.abspath(args.runtime_db_file)),
             max_state_age_seconds=args.max_state_age_seconds,
-            max_poll_log_age_seconds=args.max_poll_log_age_seconds,
-            max_user_stream_log_age_seconds=args.max_user_stream_log_age_seconds,
+            max_poll_event_age_seconds=args.max_poll_event_age_seconds,
+            max_user_stream_event_age_seconds=args.max_user_stream_event_age_seconds,
             max_runtime_db_age_seconds=args.max_runtime_db_age_seconds,
         )
         print(f"overall={report.overall_status}")
@@ -1568,8 +1585,8 @@ def cli_main(
         return run_dashboard_fn(
             host=args.host,
             port=args.port,
-            poll_log_file=Path(os.path.abspath(args.poll_log_file)),
-            user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)),
+            poll_log_file=Path(os.path.abspath(args.poll_log_file)) if args.poll_log_file else None,
+            user_stream_log_file=Path(os.path.abspath(args.user_stream_log_file)) if args.user_stream_log_file else None,
             runtime_db_file=runtime_db_path,
             now_provider=now_provider,
             stop_budget_usdt=os.environ.get("STOP_BUDGET_USDT", "10"),

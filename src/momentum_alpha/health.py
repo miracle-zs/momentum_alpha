@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -24,19 +24,6 @@ class RuntimeHealthReport:
         if any(item.status == "WARN" for item in self.items):
             return "WARN"
         return "OK"
-
-
-def _check_file_freshness(*, name: str, path: Path, now: datetime, max_age_seconds: int) -> HealthCheckItem:
-    if not path.exists():
-        return HealthCheckItem(name=name, status="FAIL", message=f"missing path={path}")
-    age_seconds = int(now.astimezone(timezone.utc).timestamp() - path.stat().st_mtime)
-    if age_seconds > max_age_seconds:
-        return HealthCheckItem(
-            name=name,
-            status="FAIL",
-            message=f"stale path={path} age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
-        )
-    return HealthCheckItem(name=name, status="OK", message=f"fresh path={path} age_seconds={age_seconds}")
 
 
 def _check_runtime_db_freshness(*, path: Path, now: datetime, max_age_seconds: int) -> HealthCheckItem:
@@ -106,25 +93,71 @@ def _check_strategy_state_freshness(*, path: Path, now: datetime, max_age_second
     return HealthCheckItem(name="strategy_state", status="OK", message=f"fresh age_seconds={age_seconds}")
 
 
+def _check_audit_event_freshness(
+    *,
+    name: str,
+    path: Path,
+    now: datetime,
+    max_age_seconds: int,
+    event_types: tuple[str, ...],
+) -> HealthCheckItem:
+    if not path.exists():
+        return HealthCheckItem(name=name, status="FAIL", message=f"missing path={path}")
+    placeholders = ", ".join("?" for _ in event_types)
+    try:
+        connection = sqlite3.connect(path)
+        try:
+            row = connection.execute(
+                f"""
+                SELECT timestamp
+                FROM audit_events
+                WHERE event_type IN ({placeholders})
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """,
+                event_types,
+            ).fetchone()
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        return HealthCheckItem(name=name, status="FAIL", message=f"invalid path={path} error={exc}")
+    if row is None or not row[0]:
+        return HealthCheckItem(name=name, status="WARN", message=f"no events event_types={','.join(event_types)}")
+    latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
+    age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
+    if age_seconds > max_age_seconds:
+        return HealthCheckItem(
+            name=name,
+            status="FAIL",
+            message=f"stale age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
+        )
+    return HealthCheckItem(name=name, status="OK", message=f"fresh age_seconds={age_seconds}")
+
+
 def build_runtime_health_report(
     *,
     now: datetime,
-    poll_log_file: Path,
-    user_stream_log_file: Path,
     runtime_db_file: Path,
-    max_poll_log_age_seconds: int = 180,
-    max_user_stream_log_age_seconds: int = 1800,
+    max_poll_event_age_seconds: int = 180,
+    max_user_stream_event_age_seconds: int = 1800,
     max_runtime_db_age_seconds: int = 1800,
     max_state_age_seconds: int = 3600,
 ) -> RuntimeHealthReport:
     items = [
         _check_strategy_state_freshness(path=runtime_db_file, now=now, max_age_seconds=max_state_age_seconds),
-        _check_file_freshness(name="poll_log", path=poll_log_file, now=now, max_age_seconds=max_poll_log_age_seconds),
-        _check_file_freshness(
-            name="user_stream_log",
-            path=user_stream_log_file,
+        _check_audit_event_freshness(
+            name="poll_events",
+            path=runtime_db_file,
             now=now,
-            max_age_seconds=max_user_stream_log_age_seconds,
+            max_age_seconds=max_poll_event_age_seconds,
+            event_types=("poll_tick", "poll_worker_start", "tick_result"),
+        ),
+        _check_audit_event_freshness(
+            name="user_stream_events",
+            path=runtime_db_file,
+            now=now,
+            max_age_seconds=max_user_stream_event_age_seconds,
+            event_types=("user_stream_worker_start", "user_stream_event"),
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
     ]

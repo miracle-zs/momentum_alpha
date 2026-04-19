@@ -4,7 +4,7 @@
 
 **Goal:** Upgrade the live dashboard into a more visual trading monitor while expanding SQLite from a generic event sink into a structured runtime store for signals, orders, and position snapshots.
 
-**Architecture:** Keep `state.json` as the runtime recovery source of truth, but make SQLite the primary analytics and dashboard backend. Extend the existing runtime database with structured tables written by `poll` and `user-stream`, then teach the dashboard to prefer those tables for richer summaries, charts, and recent activity panels while keeping `audit_events` as a general event log and compatibility layer.
+**Architecture:** Keep SQLite as the runtime recovery source of truth and the primary analytics and dashboard backend. Extend the existing runtime database with structured tables written by `poll` and `user-stream`, then teach the dashboard to prefer those tables for richer summaries, charts, and recent activity panels while keeping `audit_events` as a general event log.
 
 **Tech Stack:** Python 3, SQLite, stdlib HTTP server, HTML/CSS/JS dashboard, unittest
 

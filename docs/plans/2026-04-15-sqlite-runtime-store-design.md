@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-15
 
-**Goal:** Move audit and dashboard query data from file-centric reads to SQLite while keeping `state.json` as the live strategy recovery source.
+**Goal:** Move audit, health, notification, and dashboard query data to SQLite so `runtime.db` is the live recovery and query source.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Adopt SQLite as the primary store for:
 - dashboard queries
 - health snapshots
 
-Keep `state.json` as the authoritative runtime state file for:
+Keep `runtime.db` as the authoritative runtime state store for:
 
 - previous leader restore
 - local position restore
@@ -21,7 +21,7 @@ Keep `state.json` as the authoritative runtime state file for:
 
 ## Why This Split
 
-`state.json` is small, direct, and tightly coupled to live recovery. Replacing it immediately adds migration risk without much operational benefit.
+`runtime.db` is small, direct, and tightly coupled to live recovery. Replacing it with file state would add migration risk without much operational benefit.
 
 Audit and dashboard data are different:
 
@@ -37,8 +37,7 @@ That makes them a better fit for SQLite than JSONL files.
 
 Short transition window:
 
-- keep writing `audit.jsonl`
-- also write the same audit events to SQLite
+- keep audit events in SQLite
 - switch dashboard reads to SQLite first
 
 This lowers risk because:
@@ -50,8 +49,8 @@ This lowers risk because:
 
 After SQLite writes are proven stable:
 
-- stop treating `audit.jsonl` as the primary source
-- optionally stop writing JSONL completely
+- stop treating file-based audit output as the primary source
+- keep the runtime database as the only source of truth for structured live data
 
 The user already approved this end state, but the implementation should still use a brief dual-write stage to de-risk rollout.
 
@@ -101,7 +100,7 @@ Indexes:
 
 ### `dashboard_cache`
 
-Optional denormalized latest-summary table. Not required for v1. Prefer computing current summary from `audit_events` and `state.json` first.
+Optional denormalized latest-summary table. Not required for v1. Prefer computing current summary from `audit_events` and runtime state tables first.
 
 ## Write Path
 
@@ -132,14 +131,14 @@ When health checks run, optionally persist one row into `health_snapshots`.
 
 ## Dashboard Read Path
 
-The dashboard should stop reading `audit.jsonl` directly.
+The dashboard should stop reading file-based audit output directly.
 
 Instead it should:
 
 1. query recent audit events from SQLite
 2. aggregate event counts from SQLite
 3. compute latest timestamps from SQLite
-4. still read `state.json` for live recovery state
+4. still read runtime state from SQLite
 5. still use the existing health builder until health snapshots become useful enough to query directly
 
 ## Error Handling

@@ -1,5 +1,4 @@
 import io
-import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 class ServerChanTests(unittest.TestCase):
     def test_notify_on_fail_transition_and_persist_status(self) -> None:
+        from momentum_alpha.runtime_store import fetch_notification_status
         from momentum_alpha.serverchan import process_health_notification
 
         requests = []
@@ -34,16 +34,16 @@ class ServerChanTests(unittest.TestCase):
             return FakeResponse()
 
         with TemporaryDirectory() as tmpdir:
-            status_path = Path(tmpdir) / "health-status.json"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
             output = "\n".join(
                 [
                     "overall=FAIL",
-                    "poll_log status=FAIL stale path=/tmp/poll.log age_seconds=900 max_age_seconds=180",
+                    "poll_events status=FAIL stale age_seconds=900 max_age_seconds=180",
                 ]
             )
             result = process_health_notification(
                 sendkey="SCT123456",
-                status_file=status_path,
+                runtime_db_path=runtime_db_path,
                 health_output=output,
                 now=datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc),
                 hostname="vm-1",
@@ -55,10 +55,11 @@ class ServerChanTests(unittest.TestCase):
             self.assertEqual(requests[0]["url"], "https://sctapi.ftqq.com/SCT123456.send")
             self.assertEqual(requests[0]["method"], "POST")
             self.assertIn("text=Momentum+Alpha+%E5%81%A5%E5%BA%B7%E5%91%8A%E8%AD%A6+%40+vm-1", requests[0]["data"])
-            stored = json.loads(status_path.read_text(encoding="utf-8"))
+            stored = fetch_notification_status(path=runtime_db_path, status_key="serverchan")
             self.assertEqual(stored["status"], "FAIL")
 
     def test_notify_on_recovery_transition_only_once(self) -> None:
+        from momentum_alpha.runtime_store import fetch_notification_status, save_notification_status
         from momentum_alpha.serverchan import process_health_notification
 
         requests = []
@@ -78,20 +79,22 @@ class ServerChanTests(unittest.TestCase):
             return FakeResponse()
 
         with TemporaryDirectory() as tmpdir:
-            status_path = Path(tmpdir) / "health-status.json"
-            status_path.write_text(
-                json.dumps({"status": "FAIL", "updated_at": "2026-04-15T06:59:00+00:00"}),
-                encoding="utf-8",
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            save_notification_status(
+                path=runtime_db_path,
+                status_key="serverchan",
+                status="FAIL",
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
             )
             output = "\n".join(
                 [
                     "overall=OK",
-                    "poll_log status=OK fresh path=/tmp/poll.log age_seconds=5",
+                    "poll_events status=OK fresh age_seconds=5",
                 ]
             )
             result = process_health_notification(
                 sendkey="SCT123456",
-                status_file=status_path,
+                runtime_db_path=runtime_db_path,
                 health_output=output,
                 now=datetime(2026, 4, 15, 7, 1, tzinfo=timezone.utc),
                 hostname="vm-1",
@@ -104,7 +107,7 @@ class ServerChanTests(unittest.TestCase):
 
             result = process_health_notification(
                 sendkey="SCT123456",
-                status_file=status_path,
+                runtime_db_path=runtime_db_path,
                 health_output=output,
                 now=datetime(2026, 4, 15, 7, 2, tzinfo=timezone.utc),
                 hostname="vm-1",
@@ -113,6 +116,8 @@ class ServerChanTests(unittest.TestCase):
             self.assertFalse(result["notified"])
             self.assertEqual(result["event"], "none")
             self.assertEqual(len(requests), 1)
+            stored = fetch_notification_status(path=runtime_db_path, status_key="serverchan")
+            self.assertEqual(stored["status"], "OK")
 
     def test_cli_main_reads_health_output_file(self) -> None:
         from momentum_alpha.serverchan import cli_main
@@ -134,16 +139,16 @@ class ServerChanTests(unittest.TestCase):
             return FakeResponse()
 
         with TemporaryDirectory() as tmpdir:
-            status_path = Path(tmpdir) / "health-status.json"
+            runtime_db_path = Path(tmpdir) / "runtime.db"
             health_path = Path(tmpdir) / "health.txt"
-            health_path.write_text("overall=FAIL\nstate_file status=FAIL missing path=/tmp/state.json\n", encoding="utf-8")
+            health_path.write_text("overall=FAIL\nruntime_db status=FAIL missing path=/tmp/runtime.db\n", encoding="utf-8")
             stdout = io.StringIO()
             exit_code = cli_main(
                 argv=[
                     "--sendkey",
                     "SCT123456",
-                    "--status-file",
-                    str(status_path),
+                    "--runtime-db-file",
+                    str(runtime_db_path),
                     "--health-output-file",
                     str(health_path),
                     "--hostname",

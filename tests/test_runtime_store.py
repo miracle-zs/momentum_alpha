@@ -830,7 +830,7 @@ class RuntimeStoreTests(unittest.TestCase):
 
         from momentum_alpha.models import Position, PositionLeg
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "runtime.db"
@@ -870,7 +870,7 @@ class RuntimeStoreTests(unittest.TestCase):
 
     def test_runtime_state_store_merge_save_preserves_existing_fields(self) -> None:
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "runtime.db"

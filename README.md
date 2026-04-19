@@ -38,25 +38,25 @@ export BINANCE_USE_TESTNET=1
 Dry-run a single live evaluation without submitting orders:
 
 ```bash
-python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --state-file ./var/state.json
+python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --runtime-db-file ./var/runtime.db
 ```
 
 Omit `--symbols` to auto-discover all Binance USDⓈ-M perpetual contracts:
 
 ```bash
-python3 -m momentum_alpha.main run-once-live --state-file ./var/state.json
+python3 -m momentum_alpha.main run-once-live --runtime-db-file ./var/runtime.db
 ```
 
 Submit orders for a single live evaluation:
 
 ```bash
-python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --state-file ./var/state.json --submit-orders
+python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --runtime-db-file ./var/runtime.db --submit-orders
 ```
 
 Dry-run the same evaluation against Testnet:
 
 ```bash
-python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --state-file ./var/state.json --testnet
+python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --runtime-db-file ./var/runtime.db --testnet
 ```
 
 ## Polling
@@ -65,7 +65,7 @@ Run the minute-based polling loop in dry-run mode:
 
 ```bash
 python3 -m momentum_alpha.main poll \
-  --state-file ./var/state.json \
+  --runtime-db-file ./var/runtime.db \
   --restore-positions \
   --execute-stop-replacements
 ```
@@ -77,7 +77,7 @@ Limit the loop for testing:
 ```bash
 python3 -m momentum_alpha.main poll \
   --symbols BTCUSDT \
-  --state-file ./var/state.json \
+  --runtime-db-file ./var/runtime.db \
   --max-ticks 5
 ```
 
@@ -142,7 +142,7 @@ chmod +x scripts/check_health.sh scripts/check_health_and_notify.sh scripts/audi
 ./scripts/init_runtime_dirs.sh
 ```
 
-Then edit `deploy/env.local` with your real API key, secret, state file path, audit log path, runtime DB path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. If you want health notifications through Server酱, also set `SERVERCHAN_SENDKEY` and optionally `SERVERCHAN_STATUS_FILE`. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
+Then edit `deploy/env.local` with your real API key, secret, runtime DB path, and whether `SUBMIT_ORDERS=1`. Leave `SYMBOLS` empty for the default all-market scan, or fill it only if you want an explicit whitelist. If you want health notifications through Server酱, also set `SERVERCHAN_SENDKEY`. The wrapper scripts and systemd units now expect the project virtualenv at `.venv/`.
 
 Suggested systemd rollout:
 
@@ -164,7 +164,7 @@ Practical live startup order:
 2. Initialize runtime directories with `./scripts/init_runtime_dirs.sh`.
 3. Fill in credentials and runtime flags in your chosen env file.
 4. Start `momentum-alpha-user-stream.service` first so local order/account state begins converging.
-5. Start `momentum-alpha.service` second so minute polling runs against a warmed state file.
+5. Start `momentum-alpha.service` second so minute polling runs against a warmed runtime database.
 6. Watch `var/log/momentum-alpha-user-stream.log` and `var/log/momentum-alpha.log` for reconnects, keepalive activity, and order flow.
 7. Install log rotation so the two service logs do not grow without bound.
 8. Use `./scripts/check_health.sh` for a scriptable health verdict, `./scripts/check_health_and_notify.sh` for deduplicated Server酱 alerts, and `./scripts/audit_report.sh` for structured replay summaries.
@@ -184,8 +184,7 @@ Then open:
 
 The dashboard reads:
 
-- `state.json`
-- `runtime.db` for event queries
+- `runtime.db` for event queries and health state
 - `momentum-alpha.log`
 - `momentum-alpha-user-stream.log`
 
@@ -200,5 +199,5 @@ Pre-go-live review:
 
 - `run-once-live` and `poll` default to dry-run mode.
 - Real order submission only happens when `--submit-orders` is explicitly provided.
-- State persistence now stores previous leader, local position view, processed user-stream event ids, and tracked order statuses.
+- Runtime persistence now stores previous leader, local position view, processed user-stream event ids, tracked order statuses, and notification status in `runtime.db`.
 - Structured audit events are stored in `runtime.db` and can be replayed with `audit-report`.

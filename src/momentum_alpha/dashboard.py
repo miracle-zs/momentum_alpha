@@ -1101,8 +1101,8 @@ def build_dashboard_tables_payload(snapshot: dict) -> dict:
 def load_dashboard_snapshot(
     *,
     now: datetime,
-    poll_log_file: Path,
-    user_stream_log_file: Path,
+    poll_log_file: Path | None = None,
+    user_stream_log_file: Path | None = None,
     runtime_db_file: Path,
     recent_limit: int = 20,
     stop_budget_usdt: str | None = None,
@@ -1115,8 +1115,6 @@ def load_dashboard_snapshot(
     account_range_key = normalize_account_range(account_range_key)
     health_report = build_runtime_health_report(
         now=now,
-        poll_log_file=poll_log_file,
-        user_stream_log_file=user_stream_log_file,
         runtime_db_file=runtime_db_file,
     )
     warnings: list[str] = []
@@ -3677,8 +3675,8 @@ def run_dashboard_server(
     *,
     host: str,
     port: int,
-    poll_log_file: Path,
-    user_stream_log_file: Path,
+    poll_log_file: Path | None = None,
+    user_stream_log_file: Path | None = None,
     runtime_db_file: Path,
     now_provider=None,
     server_factory=ThreadingHTTPServer,
@@ -3698,8 +3696,6 @@ def run_dashboard_server(
             account_range_key = normalize_account_range(query_params.get("range", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
-                poll_log_file=poll_log_file,
-                user_stream_log_file=user_stream_log_file,
                 runtime_db_file=runtime_db_file,
                 stop_budget_usdt=stop_budget_usdt,
                 entry_start_hour_utc=entry_start_hour_utc,

@@ -11,7 +11,7 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 SERVERCHAN_SENDKEY="${SERVERCHAN_SENDKEY:-}"
-SERVERCHAN_STATUS_FILE="${SERVERCHAN_STATUS_FILE:-${PROJECT_ROOT}/var/health_status.json}"
+RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 
 if [[ -z "${SERVERCHAN_SENDKEY}" ]]; then
   echo "missing SERVERCHAN_SENDKEY" >&2
@@ -30,6 +30,6 @@ cat "${TMP_OUTPUT}"
 
 exec "${VENV_PYTHON}" -m momentum_alpha.serverchan \
   --sendkey "${SERVERCHAN_SENDKEY}" \
-  --status-file "${SERVERCHAN_STATUS_FILE}" \
+  --runtime-db-file "${RUNTIME_DB_FILE}" \
   --health-output-file "${TMP_OUTPUT}" \
   --hostname "$(hostname)"

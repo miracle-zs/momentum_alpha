@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a read-only single-page dashboard that shows runtime health, current strategy state, and recent audit events from the existing file-based artifacts.
+**Goal:** Add a read-only single-page dashboard that shows runtime health, current strategy state, and recent audit events from the SQLite runtime artifacts.
 
-**Architecture:** Keep the dashboard inside the existing Python project. Add a tiny file-reading dashboard module, expose one HTML route and one JSON route through a minimal standard-library HTTP server, and avoid any database or frontend framework dependency. Reuse the existing health-report builder and audit/state file formats directly.
+**Architecture:** Keep the dashboard inside the existing Python project. Add a tiny dashboard module, expose one HTML route and one JSON route through a minimal standard-library HTTP server, and reuse the existing health-report builder and SQLite runtime store directly.
 
 **Tech Stack:** Python 3.12+, unittest, standard-library `http.server`, JSON, existing shell/systemd deployment flow
 
@@ -20,8 +20,8 @@
 **Step 1: Write the failing test**
 
 Add tests for:
-- loading `state.json`
-- loading recent `audit.jsonl` events
+- loading runtime state from SQLite
+- loading recent audit events from SQLite
 - combining health, state, and audit into one dashboard payload
 
 **Step 2: Run test to verify it fails**
@@ -102,10 +102,7 @@ Add:
 - configuration flags such as:
   - `--host`
   - `--port`
-  - `--state-file`
-  - `--poll-log-file`
-  - `--user-stream-log-file`
-  - `--audit-log-file`
+  - `--runtime-db-file`
 
 **Step 2: Run focused tests**
 
@@ -192,10 +189,7 @@ Run:
 
 ```bash
 python3 -m momentum_alpha.main dashboard \
-  --state-file ./var/state.json \
-  --poll-log-file ./var/log/momentum-alpha.log \
-  --user-stream-log-file ./var/log/momentum-alpha-user-stream.log \
-  --audit-log-file ./var/audit.jsonl \
+  --runtime-db-file ./var/runtime.db \
   --host 127.0.0.1 \
   --port 8080
 ```

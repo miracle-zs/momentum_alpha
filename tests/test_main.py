@@ -74,7 +74,7 @@ class MainTests(unittest.TestCase):
     def test_save_strategy_state_preserves_newer_runtime_fields_during_poll_write(self) -> None:
         from momentum_alpha.main import _save_strategy_state
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
@@ -112,7 +112,7 @@ class MainTests(unittest.TestCase):
 
         from momentum_alpha.main import _save_user_stream_strategy_state
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
@@ -158,7 +158,7 @@ class MainTests(unittest.TestCase):
 
         from momentum_alpha.main import _save_user_stream_strategy_state
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
@@ -202,7 +202,7 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.main import _save_strategy_state
         from momentum_alpha.models import Position, PositionLeg
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
@@ -261,7 +261,7 @@ class MainTests(unittest.TestCase):
         from momentum_alpha.main import _save_strategy_state
         from momentum_alpha.models import Position, PositionLeg
         from momentum_alpha.runtime_store import RuntimeStateStore
-        from momentum_alpha.state_store import StoredStrategyState
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
 
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
@@ -1144,14 +1144,24 @@ class MainTests(unittest.TestCase):
             def submit_execution_plan(self, plan):
                 return [{"status": "NEW"}]
 
-        out = StringIO()
-        with redirect_stdout(out):
-            exit_code = cli_main(
-                argv=["run-once-live", "--symbols", "BTCUSDT", "--previous-leader", "ETHUSDT"],
-                client_factory=lambda: FakeClient(),
-                broker_factory=lambda client: FakeBroker(),
-                now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
-        )
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=[
+                        "run-once-live",
+                        "--symbols",
+                        "BTCUSDT",
+                        "--previous-leader",
+                        "ETHUSDT",
+                        "--runtime-db-file",
+                        str(runtime_db_path),
+                    ],
+                    client_factory=lambda: FakeClient(),
+                    broker_factory=lambda client: FakeBroker(),
+                    now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                )
         self.assertEqual(exit_code, 0)
         self.assertIn("mode=DRY_RUN", out.getvalue())
         self.assertIn("BTCUSDT", out.getvalue())
@@ -1370,12 +1380,14 @@ class MainTests(unittest.TestCase):
             client_calls.append(testnet)
             return FakeClient()
 
-        exit_code = cli_main(
-            argv=["run-once-live", "--symbols", "BTCUSDT", "--testnet"],
-            client_factory=fake_client_factory,
-            broker_factory=lambda client: FakeBroker(),
-            now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
-        )
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            exit_code = cli_main(
+                argv=["run-once-live", "--symbols", "BTCUSDT", "--testnet", "--runtime-db-file", str(runtime_db_path)],
+                client_factory=fake_client_factory,
+                broker_factory=lambda client: FakeBroker(),
+                now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            )
         self.assertEqual(exit_code, 0)
         self.assertEqual(client_calls, [True])
 
@@ -1396,13 +1408,15 @@ class MainTests(unittest.TestCase):
             kwargs.get("logger")("user-stream-started")
             return 0
 
-        out = StringIO()
-        with redirect_stdout(out):
-            exit_code = cli_main(
-                argv=["user-stream", "--testnet"],
-                client_factory=fake_client_factory,
-                run_user_stream_fn=fake_run_user_stream,
-            )
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=["user-stream", "--testnet", "--runtime-db-file", str(runtime_db_path)],
+                    client_factory=fake_client_factory,
+                    run_user_stream_fn=fake_run_user_stream,
+                )
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0], ("client", True))
         self.assertEqual(calls[1], ("stream", True, "FakeClient"))
@@ -1435,6 +1449,13 @@ class MainTests(unittest.TestCase):
                 event_type="poll_tick",
                 payload={"symbol_count": 538},
                 source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db,
+                timestamp=now,
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
             )
 
             out = StringIO()
@@ -2658,14 +2679,23 @@ class MainTests(unittest.TestCase):
             def submit_execution_plan(self, plan):
                 return [{"status": "NEW"} for _ in range(len(plan.entry_orders) + len(plan.stop_orders))]
 
-        out = StringIO()
-        with redirect_stdout(out):
-            exit_code = cli_main(
-                argv=["run-once-live", "--symbols", "BTCUSDT", "--submit-orders"],
-                client_factory=lambda: FakeClient(),
-                broker_factory=lambda client: FakeBroker(),
-                now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
-            )
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=[
+                        "run-once-live",
+                        "--symbols",
+                        "BTCUSDT",
+                        "--submit-orders",
+                        "--runtime-db-file",
+                        str(runtime_db_path),
+                    ],
+                    client_factory=lambda: FakeClient(),
+                    broker_factory=lambda client: FakeBroker(),
+                    now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                )
         self.assertEqual(exit_code, 0)
         self.assertIn("mode=LIVE", out.getvalue())
 

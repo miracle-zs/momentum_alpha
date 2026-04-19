@@ -17,7 +17,6 @@ __all__ = [
     "scheduler",
     "runtime",
     "sizing",
-    "state_store",
     "strategy",
     "user_stream",
 ]

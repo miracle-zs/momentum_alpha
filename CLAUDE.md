@@ -27,27 +27,27 @@ python -m unittest tests.test_strategy.StrategyTests.test_opens_base_entry_when_
 
 Single evaluation (dry-run by default):
 ```bash
-python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --state-file ./var/state.json
+python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT ETHUSDT --runtime-db-file ./var/runtime.db
 ```
 
 Submit orders (requires `--submit-orders`):
 ```bash
-python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT --state-file ./var/state.json --submit-orders
+python3 -m momentum_alpha.main run-once-live --symbols BTCUSDT --runtime-db-file ./var/runtime.db --submit-orders
 ```
 
 Minute-based polling loop:
 ```bash
-python3 -m momentum_alpha.main poll --state-file ./var/state.json --restore-positions --execute-stop-replacements
+python3 -m momentum_alpha.main poll --runtime-db-file ./var/runtime.db --restore-positions --execute-stop-replacements
 ```
 
 User stream for real-time updates:
 ```bash
-python3 -m momentum_alpha.main user-stream --testnet --state-file ./var/state.json
+python3 -m momentum_alpha.main user-stream --testnet --runtime-db-file ./var/runtime.db
 ```
 
 Dashboard server:
 ```bash
-python3 -m momentum_alpha.main dashboard --state-file ./var/state.json --poll-log-file ./var/log/momentum-alpha.log --user-stream-log-file ./var/log/momentum-alpha-user-stream.log --runtime-db-file ./var/runtime.db
+python3 -m momentum_alpha.main dashboard --runtime-db-file ./var/runtime.db
 ```
 
 ### Environment Setup
@@ -66,7 +66,7 @@ export BINANCE_USE_TESTNET=1  # 1 for testnet, 0 for production
 ```
 Market Snapshots → Strategy Evaluation → Execution Plan → Broker → Binance API
                          ↓
-                   State Persistence (state.json)
+                   Runtime State (runtime.db)
                          ↓
                    Telemetry (runtime.db)
 ```
@@ -91,8 +91,8 @@ Market Snapshots → Strategy Evaluation → Execution Plan → Broker → Binan
 - `exchange_info.py`: Parses Binance exchange info for symbol filters
 
 **Persistence**:
-- `state_store.py`: JSON-based strategy state persistence
-- `runtime_store.py`: SQLite-based telemetry (signal decisions, broker orders, position/account snapshots)
+- `strategy_state_codec.py`: strategy state serialization for SQLite persistence
+- `runtime_store.py`: SQLite-based telemetry and runtime state persistence (signal decisions, broker orders, position/account snapshots)
 
 **Infrastructure**:
 - `main.py`: CLI entry point, orchestrates all components
@@ -107,7 +107,7 @@ The system runs as two separate long-lived processes:
 1. **`poll`** (momentum-alpha.service): Minute-based strategy evaluation and order placement
 2. **`user-stream`** (momentum-alpha-user-stream.service): WebSocket for account/order state convergence
 
-Both processes write to shared state (`state.json`) and telemetry (`runtime.db`).
+Both processes write to shared runtime state and telemetry in `runtime.db`.
 
 ### Strategy Logic
 
@@ -144,8 +144,7 @@ Production deployment uses systemd:
 - `deploy/env.local`: Environment configuration
 
 Runtime directories initialized by `scripts/init_runtime_dirs.sh`:
-- `var/state.json`: Strategy state
-- `var/runtime.db`: SQLite telemetry
+- `var/runtime.db`: strategy state, runtime state, and SQLite telemetry
 - `var/log/`: Service logs
 
 ## Safety Model
@@ -153,4 +152,4 @@ Runtime directories initialized by `scripts/init_runtime_dirs.sh`:
 - All operations default to dry-run mode
 - Real order submission requires explicit `--submit-orders` flag or `SUBMIT_ORDERS=1` env var
 - Testnet mode via `BINANCE_USE_TESTNET=1` or `--testnet` flag
-- State file persists previous leader, positions, processed event IDs, tracked order statuses
+- Runtime database persists previous leader, positions, processed event IDs, tracked order statuses, and notification status

@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a SQLite-backed runtime store for audit and dashboard query data while keeping `state.json` as the live strategy recovery source.
+**Goal:** Add a SQLite-backed runtime store for audit, dashboard, and runtime recovery data.
 
-**Architecture:** Introduce a small SQLite repository layer with automatic schema bootstrap and WAL mode, dual-write audit events during migration, switch dashboard reads from `audit.jsonl` to SQLite, and keep health and state-file logic intact. Prefer narrow changes that preserve current runtime behavior and isolate DB concerns behind a few helper functions.
+**Architecture:** Introduce a small SQLite repository layer with automatic schema bootstrap and WAL mode, switch dashboard reads to SQLite, and keep runtime behavior isolated behind a few helper functions.
 
 **Tech Stack:** Python 3.12+, sqlite3, unittest, existing CLI/scripts/systemd deployment
 
@@ -138,7 +138,7 @@ git commit -m "feat: dual write audit events to sqlite"
 Add tests for:
 - loading recent events from SQLite
 - building event counts from SQLite
-- keeping `state.json` reads intact
+- keeping runtime state reads intact
 
 **Step 2: Run test to verify it fails**
 
@@ -150,7 +150,7 @@ Expected: FAIL because the dashboard still reads JSONL directly.
 
 Change dashboard aggregation to:
 - query SQLite for recent events and counts
-- read `state.json` as before
+- read runtime state from SQLite as before
 - keep health checks unchanged
 
 Leave a small JSONL fallback only if absolutely needed during migration.
@@ -264,12 +264,9 @@ Expected: PASS with the full suite green.
 Run:
 
 ```bash
-python3 -m momentum_alpha.main audit-report --audit-log-file ./var/audit.jsonl
+python3 -m momentum_alpha.main audit-report --runtime-db-file ./var/runtime.db
 python3 -m momentum_alpha.main dashboard \
-  --state-file ./var/state.json \
-  --poll-log-file ./var/log/momentum-alpha.log \
-  --user-stream-log-file ./var/log/momentum-alpha-user-stream.log \
-  --audit-log-file ./var/audit.jsonl
+  --runtime-db-file ./var/runtime.db
 ```
 
 Then verify:

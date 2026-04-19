@@ -812,7 +812,7 @@ Expected: All tests PASS
 
 - [ ] **Step 2: Start dashboard locally and verify UI**
 
-Run: `python3 -m momentum_alpha.main dashboard --state-file ./var/state.json --poll-log-file ./var/log/momentum-alpha.log --user-stream-log-file ./var/log/momentum-alpha-user-stream.log --runtime-db-file ./var/runtime.db`
+Run: `python3 -m momentum_alpha.main dashboard --runtime-db-file ./var/runtime.db`
 
 Open: http://localhost:8080
 

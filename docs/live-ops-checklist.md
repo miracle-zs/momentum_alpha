@@ -7,7 +7,7 @@ Use this checklist during the first production session and any later restart or 
 - Confirm `deploy/env.local` has the intended production values:
   - `BINANCE_USE_TESTNET=0`
   - `SUBMIT_ORDERS=1`
-  - `STATE_FILE=/root/momentum_alpha/var/state.json`
+  - `RUNTIME_DB_FILE=/root/momentum_alpha/var/runtime.db`
   - `SYMBOLS=` unless you intentionally want a whitelist
 - Confirm the virtualenv exists and the current code is installed with `./.venv/bin/python -m pip install -e .[live]`
 - Confirm runtime directories exist:
@@ -48,7 +48,7 @@ Use this checklist during the first production session and any later restart or 
 - `momentum-alpha.service` remains `active (running)` for multiple minute ticks
 - `momentum-alpha.log` shows periodic `tick ...` lines without new errors
 - `momentum-alpha-user-stream.log` does not show repeated prewarm or listen-key failures
-- `/root/momentum_alpha/var/state.json` exists and updates over time
+- `/root/momentum_alpha/var/runtime.db` exists and receives new strategy/runtime rows over time
 
 ## If Something Breaks
 
@@ -72,5 +72,5 @@ Use this checklist during the first production session and any later restart or 
 - Confirm both services are still `active`
 - Confirm log files are rotating instead of growing without bound
 - Confirm there is no repeated error pattern in the latest 100 log lines
-- Confirm `state.json` is still writable and current
-- Confirm `audit.jsonl` is still growing with new runtime and user-stream events
+- Confirm `runtime.db` is still writable and current
+- Confirm `audit_events` and related runtime tables are still growing with new runtime and user-stream events

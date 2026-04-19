@@ -24,7 +24,7 @@ This checklist is the shortest path to deciding whether the current codebase is 
 - The account is enabled for USDⓈ-M perpetual trading
 - `BINANCE_USE_TESTNET=0`
 - `SUBMIT_ORDERS=1`
-- `STATE_FILE` points to a persistent writable path
+- `RUNTIME_DB_FILE` points to a persistent writable path
 - `SYMBOLS` matches the symbols you actually want the polling worker to scan
 - Project virtualenv exists at `.venv/`
 - `websocket-client` is installed with `./.venv/bin/python -m pip install -e .[live]`
@@ -44,7 +44,7 @@ This checklist is the shortest path to deciding whether the current codebase is 
 
 1. Run `run-once-live --testnet --submit-orders` only after validating dry-run output.
 2. Run `poll --testnet --submit-orders` on Testnet as a long-lived worker.
-3. Run `user-stream --testnet` in parallel and confirm state file convergence.
+3. Run `user-stream --testnet` in parallel and confirm runtime database convergence.
 4. Verify:
    - positions are restored after restart
    - stop orders appear in tracked `order_statuses`

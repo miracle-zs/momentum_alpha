@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,30 +8,19 @@ from typing import Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from momentum_alpha.runtime_store import fetch_notification_status, save_notification_status
 
-def _load_status(path: Path) -> str | None:
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+
+def _load_status(*, runtime_db_path: Path, status_key: str) -> str | None:
+    payload = fetch_notification_status(path=runtime_db_path, status_key=status_key)
+    if payload is None:
         return None
     status = payload.get("status")
     return str(status) if status in {"OK", "FAIL"} else None
 
 
-def _save_status(*, path: Path, status: str, now: datetime) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "status": status,
-                "updated_at": now.astimezone(timezone.utc).isoformat(),
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+def _save_status(*, runtime_db_path: Path, status_key: str, status: str, now: datetime) -> None:
+    save_notification_status(path=runtime_db_path, status_key=status_key, status=status, timestamp=now)
 
 
 def _current_status(health_output: str) -> str:
@@ -82,13 +70,14 @@ def _send_notification(
 def process_health_notification(
     *,
     sendkey: str,
-    status_file: Path,
+    runtime_db_path: Path,
     health_output: str,
     now: datetime,
     hostname: str,
+    status_key: str = "serverchan",
     opener=urlopen,
 ) -> dict:
-    previous_status = _load_status(status_file)
+    previous_status = _load_status(runtime_db_path=runtime_db_path, status_key=status_key)
     current_status = _current_status(health_output)
     event = _notification_event(previous_status=previous_status, current_status=current_status)
     notified = False
@@ -96,7 +85,7 @@ def process_health_notification(
         title, body = _build_message(event=event, hostname=hostname, health_output=health_output)
         _send_notification(sendkey=sendkey, title=title, body=body, opener=opener)
         notified = True
-    _save_status(path=status_file, status=current_status, now=now)
+    _save_status(runtime_db_path=runtime_db_path, status_key=status_key, status=current_status, now=now)
     return {
         "previous_status": previous_status,
         "current_status": current_status,
@@ -114,7 +103,8 @@ def cli_main(
 ) -> int:
     parser = argparse.ArgumentParser(prog="momentum_alpha.serverchan")
     parser.add_argument("--sendkey", required=True)
-    parser.add_argument("--status-file", required=True)
+    parser.add_argument("--runtime-db-file", required=True)
+    parser.add_argument("--status-key", default="serverchan")
     parser.add_argument("--health-output-file")
     parser.add_argument("--hostname", default=os.uname().nodename)
     args = parser.parse_args(argv)
@@ -127,10 +117,11 @@ def cli_main(
     stdout = stdout or __import__("sys").stdout
     result = process_health_notification(
         sendkey=args.sendkey,
-        status_file=Path(os.path.abspath(args.status_file)),
+        runtime_db_path=Path(os.path.abspath(args.runtime_db_file)),
         health_output=health_output,
         now=now_provider(),
         hostname=args.hostname,
+        status_key=args.status_key,
         opener=opener,
     )
     stdout.write(

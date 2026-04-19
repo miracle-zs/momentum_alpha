@@ -10,7 +10,11 @@ from pathlib import Path
 
 from dataclasses import dataclass
 from momentum_alpha.orders import is_strategy_client_order_id
-from momentum_alpha.state_store import StoredStrategyState, _deserialize_state, _serialize_state
+from momentum_alpha.strategy_state_codec import (
+    StoredStrategyState,
+    deserialize_strategy_state,
+    serialize_strategy_state,
+)
 
 
 MAX_PROCESSED_EVENT_ID_AGE_HOURS = 24
@@ -218,6 +222,12 @@ CREATE INDEX IF NOT EXISTS idx_account_snapshots_timestamp
 CREATE INDEX IF NOT EXISTS idx_account_snapshots_leader_timestamp
     ON account_snapshots(leader_symbol, timestamp DESC);
 
+CREATE TABLE IF NOT EXISTS notification_statuses (
+    status_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS strategy_state (
     id INTEGER PRIMARY KEY,
     payload_json TEXT NOT NULL
@@ -234,14 +244,14 @@ class RuntimeStateStore:
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
         if not row:
             return None
-        return _deserialize_state(json.loads(row[0]))
+        return deserialize_strategy_state(json.loads(row[0]))
 
     def save(self, state: StoredStrategyState) -> None:
         bootstrap_runtime_db(path=self.path)
         with _connect(self.path) as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
-                (_json_dumps(_serialize_state(state)),),
+                (_json_dumps(serialize_strategy_state(state)),),
             )
 
     def merge_save(self, state: StoredStrategyState) -> None:
@@ -249,7 +259,7 @@ class RuntimeStateStore:
         with _connect(self.path) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
-            existing = _deserialize_state(json.loads(row[0])) if row else None
+            existing = deserialize_strategy_state(json.loads(row[0])) if row else None
             merged = StoredStrategyState(
                 current_day=state.current_day,
                 previous_leader_symbol=state.previous_leader_symbol,
@@ -272,7 +282,7 @@ class RuntimeStateStore:
             )
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
-                (_json_dumps(_serialize_state(merged)),),
+                (_json_dumps(serialize_strategy_state(merged)),),
             )
 
     def atomic_update(
@@ -295,11 +305,11 @@ class RuntimeStateStore:
         with _connect(self.path) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
-            existing = _deserialize_state(json.loads(row[0])) if row else None
+            existing = deserialize_strategy_state(json.loads(row[0])) if row else None
             new_state = updater(existing)
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
-                (_json_dumps(_serialize_state(new_state)),),
+                (_json_dumps(serialize_strategy_state(new_state)),),
             )
             return new_state
 
@@ -487,6 +497,33 @@ def _connect(path: Path):
 def bootstrap_runtime_db(*, path: Path) -> None:
     with _connect(path) as connection:
         connection.executescript(SCHEMA)
+
+
+def fetch_notification_status(*, path: Path, status_key: str) -> dict | None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        row = connection.execute(
+            "SELECT status, updated_at FROM notification_statuses WHERE status_key = ?",
+            (status_key,),
+        ).fetchone()
+    if row is None:
+        return None
+    return {"status": row[0], "updated_at": row[1]}
+
+
+def save_notification_status(*, path: Path, status_key: str, status: str, timestamp: datetime) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO notification_statuses(status_key, status, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(status_key) DO UPDATE SET
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            """,
+            (status_key, status, _as_utc_iso(timestamp)),
+        )
 
 
 def insert_audit_event(
