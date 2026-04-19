@@ -370,7 +370,7 @@ def _build_trade_round_trip_leg_payload(
     *,
     entry_fills: list[dict],
     total_entry_qty: Decimal,
-    realized_total: Decimal,
+    weighted_exit_price: Decimal | None,
     commission_total: Decimal,
     stop_trigger_by_client_order_id: dict[str, Decimal],
 ) -> tuple[list[dict], Decimal | None, Decimal | None]:
@@ -422,8 +422,10 @@ def _build_trade_round_trip_leg_payload(
             cumulative_risk += leg_risk
             cumulative_risk_after_leg = cumulative_risk if all_leg_risks_known else None
 
+        gross_pnl_contribution = None
+        if weighted_exit_price is not None and item["price"] is not None:
+            gross_pnl_contribution = (weighted_exit_price - item["price"]) * item["quantity"]
         quantity_share = item["quantity"] / total_entry_qty if total_entry_qty > Decimal("0") else None
-        gross_pnl_contribution = realized_total * quantity_share if quantity_share is not None else None
         fee_share = commission_total * quantity_share if quantity_share is not None else None
         net_pnl_contribution = (
             gross_pnl_contribution - fee_share
@@ -1638,7 +1640,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             legs, base_leg_risk, peak_cumulative_risk = _build_trade_round_trip_leg_payload(
                 entry_fills=entry_fills,
                 total_entry_qty=total_entry_qty,
-                realized_total=realized_total,
+                weighted_exit_price=weighted_exit,
                 commission_total=commission_total,
                 stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
             )

@@ -660,7 +660,7 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(payload["legs"][0]["stop_price_at_entry"], "9.5")
             self.assertEqual(payload["legs"][0]["leg_risk"], "1.0")
             self.assertEqual(payload["legs"][0]["cumulative_risk_after_leg"], "1.0")
-            self.assertEqual(payload["legs"][0]["gross_pnl_contribution"], "-4.0")
+            self.assertEqual(payload["legs"][0]["gross_pnl_contribution"], "-4")
             self.assertEqual(payload["legs"][0]["fee_share"], "0.200")
             self.assertEqual(payload["legs"][0]["net_pnl_contribution"], "-4.200")
             self.assertEqual(payload["legs"][1]["leg_index"], 2)
@@ -668,9 +668,9 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertIsNone(payload["legs"][1]["stop_price_at_entry"])
             self.assertIsNone(payload["legs"][1]["leg_risk"])
             self.assertIsNone(payload["legs"][1]["cumulative_risk_after_leg"])
-            self.assertEqual(payload["legs"][1]["gross_pnl_contribution"], "-6.0")
+            self.assertEqual(payload["legs"][1]["gross_pnl_contribution"], "-9")
             self.assertEqual(payload["legs"][1]["fee_share"], "0.300")
-            self.assertEqual(payload["legs"][1]["net_pnl_contribution"], "-6.300")
+            self.assertEqual(payload["legs"][1]["net_pnl_contribution"], "-9.300")
             self.assertEqual(stop_exits[0]["trigger_price"], "9.5")
 
     def test_rebuild_trade_analytics_keeps_trade_visible_when_stop_price_is_missing(self) -> None:
