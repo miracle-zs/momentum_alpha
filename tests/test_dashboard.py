@@ -163,13 +163,81 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('?tab=system&range=1W', html)
         self.assertIn('dashboard-tab is-active', html)
         self.assertIn('data-dashboard-tab-content="overview"', html)
-        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("DESIGN SYSTEM", html)
+        self.assertIn("COSMIC GRAVITY", html)
+        self.assertIn("UI COMPONENTS", html)
+        self.assertIn("Stardust Gold", html)
+        self.assertIn("Cosmic Black", html)
         self.assertIn("POSITION SUMMARY", html)
         self.assertIn("HOME COMMAND", html)
         self.assertIn("NEXT ACTIONS", html)
         self.assertNotIn("ACCOUNT OVERVIEW", html)
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
+
+    def test_render_cosmic_identity_panel_composes_design_system_sections(self) -> None:
+        from momentum_alpha.dashboard import (
+            _render_cosmic_color_swatches,
+            _render_cosmic_component_gallery,
+            _render_cosmic_data_display,
+            _render_dashboard_base_styles,
+            _render_dashboard_cosmic_styles,
+            _render_dashboard_responsive_styles,
+            _render_cosmic_visual_elements,
+            render_dashboard_styles,
+            render_cosmic_identity_panel,
+        )
+
+        panel_html = render_cosmic_identity_panel()
+
+        self.assertIn("DESIGN SYSTEM", panel_html)
+        self.assertIn("COSMIC GRAVITY", panel_html)
+        self.assertIn("VISUAL ELEMENTS", panel_html)
+        self.assertIn("BLACK HOLE", panel_html)
+        self.assertIn("GRAVITY RING", panel_html)
+        self.assertIn("LIGHT GLOW", panel_html)
+        self.assertIn("NEBULA DUST", panel_html)
+        self.assertIn("GLASS SURFACE", panel_html)
+        self.assertIn("COLOR", _render_cosmic_color_swatches())
+        self.assertIn("BUTTON", _render_cosmic_component_gallery())
+        self.assertIn("TAGS", _render_cosmic_component_gallery())
+        self.assertIn("DATA DISPLAY", _render_cosmic_data_display())
+        self.assertIn("VISUAL ELEMENTS", _render_cosmic_visual_elements())
+        self.assertIn(".dashboard-tab", _render_dashboard_base_styles())
+        self.assertIn(".cosmic-identity-panel", _render_dashboard_cosmic_styles())
+        self.assertIn("@media (max-width: 768px)", _render_dashboard_responsive_styles())
+        self.assertIn(".cosmic-visual-tiles", render_dashboard_styles())
+
+    def test_render_dashboard_document_parts_are_split_by_concern(self) -> None:
+        from momentum_alpha.dashboard import (
+            render_dashboard_body,
+            render_dashboard_document,
+            render_dashboard_head,
+            render_dashboard_scripts,
+        )
+
+        head_html = render_dashboard_head()
+        body_html = render_dashboard_body(
+            snapshot=self._build_tabbed_snapshot(),
+            active_tab="overview",
+            account_range_key="1D",
+        )
+        scripts_html = render_dashboard_scripts()
+        document_html = render_dashboard_document(
+            snapshot=self._build_tabbed_snapshot(),
+            active_tab="overview",
+            account_range_key="1D",
+        )
+
+        self.assertIn("<head>", head_html)
+        self.assertIn("render_dashboard_styles", head_html)
+        self.assertIn("<body>", body_html)
+        self.assertIn("render_dashboard_shell", body_html)
+        self.assertIn("ACCOUNT_METRIC_STORAGE_KEY", scripts_html)
+        self.assertIn("setInterval(() => refreshDashboard(false), 5000)", scripts_html)
+        self.assertIn("<!doctype html>", document_html)
+        self.assertIn("<head>", document_html)
+        self.assertIn("<body>", document_html)
 
     def test_render_dashboard_html_performance_shows_margin_usage_summary_cards(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -401,6 +469,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
+        self.assertIn("DESIGN SYSTEM", overview_html)
+        self.assertIn("COSMIC GRAVITY", overview_html)
+        self.assertIn("BLACK HOLE", overview_html)
         self.assertIn("POSITION SUMMARY", overview_html)
         self.assertIn("HOME COMMAND", overview_html)
         self.assertIn("LIVE OVERVIEW", overview_html)
@@ -560,6 +631,12 @@ class DashboardTests(unittest.TestCase):
             "TODAY NET PNL",
             "OPEN RISK / EQUITY",
             "SYSTEM HEALTH",
+            "DESIGN SYSTEM",
+            "UI COMPONENTS",
+            "COLOR",
+            "BUTTON",
+            "TAGS",
+            "CARDS",
             "POSITION SUMMARY",
             "LIVE OVERVIEW",
         ):

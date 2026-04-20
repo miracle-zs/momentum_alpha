@@ -2059,6 +2059,708 @@ def render_dashboard_system_tab(
     )
 
 
+def _render_cosmic_color_swatches() -> str:
+    swatches = (
+        ("Cosmic Black", "#050507", "cosmic-dot-black"),
+        ("Deep Space", "#0E0F14", "cosmic-dot-space"),
+        ("Soft White", "#F5F6F8", "cosmic-dot-white"),
+        ("Stardust Gold", "#F5D28A", "cosmic-dot-gold"),
+        ("Night Purple", "#1A1C2A", "cosmic-dot-purple"),
+    )
+    return (
+        "<div class='cosmic-identity-card cosmic-identity-colors'>"
+        "<div class='cosmic-identity-card-label'>COLOR</div>"
+        "<div class='cosmic-swatches'>"
+        + "".join(
+            (
+                "<div class='cosmic-swatch'>"
+                f"<span class='cosmic-dot {escape(css_class)}'></span>"
+                "<div>"
+                f"<div class='cosmic-swatch-name'>{escape(label)}</div>"
+                f"<div class='cosmic-swatch-value'>{escape(value)}</div>"
+                "</div>"
+                "</div>"
+            )
+            for label, value, css_class in swatches
+        )
+        + "</div>"
+        "<div class='cosmic-gradient-bar'></div>"
+        "</div>"
+    )
+
+
+def _render_cosmic_component_gallery() -> str:
+    return (
+        "<div class='cosmic-identity-card cosmic-identity-components'>"
+        "<div class='cosmic-identity-card-label'>UI COMPONENTS</div>"
+        "<div class='cosmic-component-row'>"
+        "<span class='cosmic-chip cosmic-chip-primary'>BUTTON</span>"
+        "<span class='cosmic-chip cosmic-chip-secondary'>CANCEL</span>"
+        "<span class='cosmic-chip cosmic-chip-ghost'>MORE</span>"
+        "</div>"
+        "<div class='cosmic-toggle-row'>"
+        "<span class='cosmic-toggle cosmic-toggle-off'><span></span></span>"
+        "<span class='cosmic-toggle cosmic-toggle-on'><span></span></span>"
+        "</div>"
+        "<div class='cosmic-tag-block'>"
+        "<div class='cosmic-identity-card-label cosmic-inline-label'>TAGS</div>"
+        "<div class='cosmic-tag-row'>"
+        "<span class='cosmic-tag cosmic-tag-gold'>BLACK HOLE</span>"
+        "<span class='cosmic-tag cosmic-tag-violet'>JUPITER</span>"
+        "<span class='cosmic-tag cosmic-tag-teal'>ORBIT</span>"
+        "<span class='cosmic-tag'>CARDS</span>"
+        "</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _render_cosmic_data_display() -> str:
+    return (
+        "<div class='cosmic-identity-card cosmic-identity-data'>"
+        "<div class='cosmic-identity-card-label'>DATA DISPLAY</div>"
+        "<div class='cosmic-data-grid'>"
+        "<div class='cosmic-data-card'><div class='cosmic-data-label'>ENERGY</div><div class='cosmic-ring'>87%</div></div>"
+        "<div class='cosmic-data-card'><div class='cosmic-data-label'>SLIDER</div><div class='cosmic-slider'><span></span></div><div class='cosmic-data-value'>72%</div></div>"
+        "</div>"
+        "<div class='cosmic-icon-row'>"
+        "<span class='cosmic-icon'>ICON</span>"
+        "<span class='cosmic-icon'>BLACK HOLE</span>"
+        "<span class='cosmic-icon'>GRAVITY RING</span>"
+        "<span class='cosmic-icon'>NEBULA DUST</span>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _render_cosmic_visual_elements() -> str:
+    visuals = (
+        ("BLACK HOLE", "cosmic-visual-black-hole"),
+        ("GRAVITY RING", "cosmic-visual-gravity-ring"),
+        ("LIGHT GLOW", "cosmic-visual-light-glow"),
+        ("NEBULA DUST", "cosmic-visual-nebula-dust"),
+        ("GLASS SURFACE", "cosmic-visual-glass-surface"),
+    )
+    return (
+        "<div class='cosmic-identity-card cosmic-identity-visuals'>"
+        "<div class='cosmic-identity-card-label'>VISUAL ELEMENTS</div>"
+        "<div class='cosmic-visual-tiles'>"
+        + "".join(
+            (
+                "<div class='cosmic-visual-tile "
+                f"{escape(css_class)}'>"
+                "<span class='cosmic-visual-tile-glow'></span>"
+                f"<span class='cosmic-visual-tile-label'>{escape(label)}</span>"
+                "</div>"
+            )
+            for label, css_class in visuals
+        )
+        + "</div>"
+        "</div>"
+    )
+
+
+def render_cosmic_identity_panel() -> str:
+    return (
+        "<section class='cosmic-identity-panel'>"
+        "<div class='cosmic-identity-copy'>"
+        "<div class='cosmic-identity-kicker'>DESIGN SYSTEM</div>"
+        "<div class='cosmic-identity-title'>COSMIC GRAVITY</div>"
+        "<div class='cosmic-identity-subtitle'>A control surface for the trading engine, composed as a black-gold instrument panel with dense data, soft glow, and orbit-like hierarchy.</div>"
+        "</div>"
+        "<div class='cosmic-identity-grid'>"
+        f"{_render_cosmic_color_swatches()}"
+        f"{_render_cosmic_component_gallery()}"
+        f"{_render_cosmic_data_display()}"
+        f"{_render_cosmic_visual_elements()}"
+        "</div>"
+        "</section>"
+    )
+
+
+def _render_dashboard_base_styles() -> str:
+    return (
+        ".dashboard-tab { display: inline-flex; }\n"
+        ".dashboard-tab.is-active { color: var(--fg); }\n"
+        ".action-button { cursor: pointer; }\n"
+    )
+
+
+def _render_dashboard_cosmic_styles() -> str:
+    return """
+    .cosmic-identity-panel {
+      display: grid;
+      grid-template-columns: 0.92fr 1.08fr;
+      gap: 18px;
+      margin-bottom: 22px;
+      padding: 22px;
+      border: 1px solid rgba(245,210,138,0.12);
+      border-radius: 26px;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(245,210,138,0.14), transparent 28%),
+        linear-gradient(145deg, rgba(10,12,18,0.95), rgba(7,8,12,0.96));
+      box-shadow: 0 18px 42px rgba(0,0,0,0.28);
+    }
+    .cosmic-identity-copy {
+      max-width: 360px;
+    }
+    .cosmic-identity-kicker {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      margin-bottom: 14px;
+      border: 1px solid rgba(245,210,138,0.22);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      background: rgba(245,210,138,0.05);
+    }
+    .cosmic-identity-title {
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 0.92;
+      letter-spacing: 0.18em;
+      font-weight: 300;
+      margin-bottom: 12px;
+    }
+    .cosmic-identity-subtitle {
+      font-size: 0.86rem;
+      line-height: 1.7;
+      color: var(--fg-muted);
+      max-width: 34rem;
+    }
+    .cosmic-identity-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .cosmic-identity-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 216px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at 18% 14%, rgba(245,210,138,0.05), transparent 20%),
+        rgba(255,255,255,0.02);
+    }
+    .cosmic-identity-card::after {
+      content: '';
+      position: absolute;
+      inset: auto -20% -20% auto;
+      width: 120px;
+      height: 120px;
+      background: radial-gradient(circle, rgba(245,210,138,0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .cosmic-identity-card-label {
+      font-size: 0.72rem;
+      color: var(--accent);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .cosmic-inline-label {
+      margin-bottom: 10px;
+    }
+    .cosmic-swatches {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .cosmic-swatch {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .cosmic-dot {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.12);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18), 0 0 20px rgba(0,0,0,0.22);
+      flex-shrink: 0;
+    }
+    .cosmic-dot-black { background: #050507; }
+    .cosmic-dot-space { background: #0E0F14; }
+    .cosmic-dot-white { background: #F5F6F8; }
+    .cosmic-dot-gold { background: #F5D28A; }
+    .cosmic-dot-purple { background: #1A1C2A; }
+    .cosmic-swatch-name {
+      font-size: 0.84rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .cosmic-swatch-value {
+      font-size: 0.72rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .cosmic-gradient-bar {
+      height: 34px;
+      margin-top: 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(90deg, #1d4e63 0%, #29324a 24%, #f5d28a 50%, #6d516e 72%, #0e0f14 100%);
+      box-shadow: inset 0 0 30px rgba(255,255,255,0.04);
+    }
+    .cosmic-component-row,
+    .cosmic-tag-row,
+    .cosmic-toggle-row,
+    .cosmic-icon-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .cosmic-component-row { margin-bottom: 14px; }
+    .cosmic-chip,
+    .cosmic-tag,
+    .cosmic-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--fg);
+      background: rgba(255,255,255,0.02);
+    }
+    .cosmic-chip-primary {
+      border-color: rgba(245,210,138,0.28);
+      color: var(--accent);
+      background: rgba(245,210,138,0.08);
+      box-shadow: 0 0 18px rgba(245,210,138,0.12);
+    }
+    .cosmic-chip-secondary {
+      color: rgba(245,246,248,0.72);
+      background: rgba(255,255,255,0.03);
+    }
+    .cosmic-chip-ghost {
+      color: rgba(245,246,248,0.54);
+      background: transparent;
+    }
+    .cosmic-toggle {
+      position: relative;
+      width: 60px;
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.03);
+      padding: 4px;
+    }
+    .cosmic-toggle span {
+      display: block;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #20232f;
+      box-shadow: 0 0 10px rgba(0,0,0,0.35);
+    }
+    .cosmic-toggle-on {
+      border-color: rgba(245,210,138,0.34);
+      background: rgba(245,210,138,0.08);
+    }
+    .cosmic-toggle-on span {
+      margin-left: 26px;
+      background: var(--accent);
+      box-shadow: 0 0 14px rgba(245,210,138,0.28);
+    }
+    .cosmic-tag-gold {
+      border-color: rgba(245,210,138,0.36);
+      color: var(--accent);
+    }
+    .cosmic-tag-violet {
+      border-color: rgba(146,123,255,0.28);
+      color: #b8b0ff;
+    }
+    .cosmic-tag-teal {
+      border-color: rgba(138,210,255,0.26);
+      color: var(--accent-strong);
+    }
+    .cosmic-data-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .cosmic-data-card {
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.02);
+    }
+    .cosmic-data-label {
+      font-size: 0.72rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .cosmic-ring {
+      width: 88px;
+      height: 88px;
+      display: grid;
+      place-items: center;
+      margin: 6px auto 0;
+      border-radius: 50%;
+      border: 1px solid rgba(245,210,138,0.24);
+      background: radial-gradient(circle, rgba(245,210,138,0.12), transparent 65%);
+      box-shadow: inset 0 0 0 8px rgba(255,255,255,0.015);
+      color: var(--fg);
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+    .cosmic-slider {
+      position: relative;
+      height: 4px;
+      margin: 18px 0 10px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(245,246,248,0.15), rgba(245,210,138,0.7), rgba(245,246,248,0.15));
+    }
+    .cosmic-slider span {
+      position: absolute;
+      top: 50%;
+      left: 56%;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(245,210,138,0.38);
+    }
+    .cosmic-data-value {
+      text-align: right;
+      font-size: 0.82rem;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+    }
+    .cosmic-icon-row {
+      margin-top: 12px;
+    }
+    .cosmic-icon {
+      color: rgba(245,246,248,0.72);
+      border-color: rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.015);
+    }
+    .cosmic-tag-block {
+      margin-top: 14px;
+    }
+    .cosmic-identity-visuals {
+      grid-column: 1 / -1;
+      min-height: 0;
+    }
+    .cosmic-visual-tiles {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .cosmic-visual-tile {
+      position: relative;
+      overflow: hidden;
+      min-height: 120px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(160deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+      display: flex;
+      align-items: flex-end;
+    }
+    .cosmic-visual-tile::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 38%, rgba(245,210,138,0.14), transparent 24%);
+      pointer-events: none;
+    }
+    .cosmic-visual-tile-glow {
+      position: absolute;
+      inset: 12px;
+      border-radius: 14px;
+      opacity: 0.9;
+    }
+    .cosmic-visual-tile-label {
+      position: relative;
+      z-index: 1;
+      font-size: 0.7rem;
+      letter-spacing: 0.16em;
+      color: var(--fg);
+      text-transform: uppercase;
+    }
+    .cosmic-visual-black-hole .cosmic-visual-tile-glow {
+      background: radial-gradient(circle, rgba(0,0,0,0.96) 0 26%, rgba(245,210,138,0.42) 32%, rgba(120,80,255,0.14) 56%, transparent 70%);
+      box-shadow: inset 0 0 0 1px rgba(245,210,138,0.2), 0 0 26px rgba(245,210,138,0.08);
+    }
+    .cosmic-visual-gravity-ring .cosmic-visual-tile-glow {
+      background: radial-gradient(circle at 50% 40%, transparent 0 26%, rgba(245,210,138,0.36) 28%, transparent 31%), radial-gradient(circle at 52% 43%, rgba(245,210,138,0.07), transparent 58%);
+      box-shadow: inset 0 0 0 1px rgba(245,210,138,0.12);
+    }
+    .cosmic-visual-light-glow .cosmic-visual-tile-glow {
+      background: radial-gradient(circle at 55% 35%, rgba(245,210,138,0.9), rgba(245,210,138,0.08) 30%, transparent 60%);
+    }
+    .cosmic-visual-nebula-dust .cosmic-visual-tile-glow {
+      background:
+        radial-gradient(circle at 30% 40%, rgba(146,123,255,0.46), transparent 25%),
+        radial-gradient(circle at 68% 58%, rgba(138,210,255,0.3), transparent 24%),
+        radial-gradient(circle at 52% 34%, rgba(245,210,138,0.16), transparent 34%);
+      filter: blur(1px);
+    }
+    .cosmic-visual-glass-surface .cosmic-visual-tile-glow {
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.01)),
+        radial-gradient(circle at 20% 20%, rgba(138,210,255,0.14), transparent 26%),
+        radial-gradient(circle at 88% 82%, rgba(245,210,138,0.18), transparent 24%);
+      backdrop-filter: blur(12px);
+    }
+    """
+
+
+def _render_dashboard_component_styles() -> str:
+    return """
+    .section-frame { margin-bottom: 20px; }
+    .section-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .section-toggle { border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--fg-muted); border-radius: 999px; padding: 6px 11px; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
+    .section-frame.is-collapsed .section-body { display: none; }
+    .chart-container { background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; margin-top: 8px; }
+    .chart-svg, .bar-svg, .timeline-svg, .pie-svg { width: 100%; height: auto; display: block; }
+    .chart-svg .grid-line { stroke: rgba(100,130,170,0.1); stroke-width: 1; }
+    .chart-svg .axis-label { font-size: 9px; fill: var(--fg-muted); }
+    .chart-svg .chart-dot { filter: drop-shadow(0 0 4px currentColor); }
+    .chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 160px; color: var(--fg-muted); font-size: 0.85rem; gap: 8px; }
+    .chart-empty-icon { font-size: 2rem; opacity: 0.3; }
+    .pie-container { display: flex; align-items: center; gap: 20px; }
+    .pie-svg { width: 140px; height: 140px; flex-shrink: 0; }
+    .pie-slice { transition: transform 0.2s; transform-origin: center; }
+    .pie-slice:hover { transform: scale(1.05); }
+    .pie-legend { display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-color { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .legend-label { color: var(--fg-muted); flex: 1; }
+    .legend-value { font-weight: 600; }
+    .bar-svg .bar-rect { transition: opacity 0.2s; }
+    .bar-svg .bar-rect:hover { opacity: 0.8; }
+    .bar-svg .bar-value { font-size: 9px; fill: var(--fg); font-weight: 600; }
+    .bar-svg .bar-label { font-size: 8px; fill: var(--fg-muted); }
+    .timeline-svg .timeline-line { stroke: var(--border); stroke-width: 2; stroke-dasharray: 4 4; }
+    .timeline-svg .timeline-dot { filter: drop-shadow(0 0 6px currentColor); transition: r 0.2s; }
+    .timeline-svg .timeline-dot.current { animation: pulse-dot 1.5s infinite; }
+    @keyframes pulse-dot { 0%, 100% { r: 12; } 50% { r: 16; } }
+    .timeline-svg .timeline-label { font-size: 10px; fill: var(--fg); font-weight: 600; }
+    .timeline-svg .timeline-time { font-size: 8px; fill: var(--fg-muted); }
+    .health-grid { display: flex; flex-direction: column; gap: 10px; }
+    .health-item { display: grid; grid-template-columns: 8px 1fr 80px 1fr; gap: 12px; align-items: center; padding: 12px 14px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); border-left: 3px solid transparent; }
+    .health-item.status-ok { border-left-color: var(--success); }
+    .health-item.status-fail { border-left-color: var(--danger); }
+    .health-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); }
+    .status-ok .health-status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .status-fail .health-status-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+    .health-name { font-size: 0.8rem; font-weight: 500; }
+    .health-status { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .status-ok .health-status { color: var(--success); }
+    .status-fail .health-status { color: var(--danger); }
+    .health-msg { font-size: 0.75rem; color: var(--fg-muted); }
+    .decision-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .decision-item { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; }
+    .decision-label { font-size: 0.68rem; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+    .decision-value { font-size: 1rem; font-weight: 600; word-break: break-word; }
+    .signal-breakdown { display: flex; flex-direction: column; gap: 8px; }
+    .signal-breakdown-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+    .signal-breakdown-label { font-size: 0.8rem; color: var(--fg); word-break: break-word; }
+    .signal-breakdown-count { min-width: 28px; padding: 2px 8px; border-radius: 999px; background: rgba(0,212,255,0.12); color: var(--accent); font-size: 0.78rem; font-weight: 700; text-align: center; }
+    .signal-breakdown-empty { padding: 10px 12px; background: rgba(0,0,0,0.18); border: 1px dashed var(--border); border-radius: var(--radius-sm); font-size: 0.78rem; color: var(--fg-muted); }
+    .signal-breakdown-empty.compact { padding: 8px 10px; display: inline-flex; align-items: center; min-height: auto; }
+    .rotation-summary { margin-top: 10px; padding: 10px 12px; background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+    .rotation-summary-label { font-size: 0.68rem; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+    .rotation-summary-value { font-size: 0.82rem; color: var(--fg); word-break: break-word; }
+    .source-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+    .source-tag { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); border-radius: 100px; font-size: 0.75rem; }
+    .source-tag span { color: var(--fg-muted); }
+    .source-tag b { color: var(--accent); }
+    .event-list { max-height: 320px; overflow-y: auto; }
+    .event-item { display: grid; grid-template-columns: 1fr 130px 80px; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; }
+    .event-item:last-child { border-bottom: none; }
+    .event-item.empty { color: var(--fg-muted); }
+    .event-type { font-weight: 500; color: var(--accent); }
+    .event-time, .event-source { color: var(--fg-muted); font-size: 0.72rem; }
+    .refresh-indicator { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 100px; font-size: 0.75rem; color: var(--fg-muted); display: flex; align-items: center; gap: 8px; }
+    .refresh-indicator.error { border-color: rgba(255,68,102,0.35); color: var(--danger); }
+    .refresh-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; animation: blink 1s infinite; }
+    .refresh-indicator.error .refresh-dot { background: var(--danger); animation: none; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .positions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .position-card { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border-left: 3px solid var(--success); }
+    .position-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+    .position-symbol { font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', 'SF Mono', monospace; }
+    .position-direction { font-size: 0.75rem; color: var(--fg-muted); }
+    .position-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 0.82rem; }
+    .position-metric { text-align: center; padding: 4px 2px; }
+    .position-metric.position-live { background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.12); border-radius: 8px; }
+    .position-metric.position-live .metric-value { font-size: 0.96rem; font-weight: 700; }
+    .position-metric.position-risk .metric-value { font-size: 0.92rem; font-weight: 700; }
+    .metric-danger { color: var(--danger); }
+    .metric-note { display: block; margin-top: 4px; font-size: 0.62rem; color: var(--fg-muted); }
+    .position-legs { margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }
+    .positions-empty { color: var(--fg-muted); text-align: center; padding: 20px; }
+    .trade-history { max-height: 200px; overflow-y: auto; }
+    .trade-history-empty { color: var(--fg-muted); text-align: center; padding: 20px; }
+    .trade-row { display: grid; grid-template-columns: 80px 120px 60px 80px 100px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
+    .trade-row:last-child { border-bottom: none; }
+    .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .table-scroll { overflow-x: auto; }
+    .desktop-only { display: block; }
+    .mobile-only { display: none; }
+    .analytics-table.desktop-only { display: block; }
+    .analytics-card-list.mobile-only { display: none; }
+    .trade-history.desktop-only { display: block; }
+    .trade-card-list.mobile-only { display: none; }
+    .analytics-table { max-height: 220px; overflow-y: auto; }
+    .analytics-row { display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr 0.7fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; align-items: center; }
+    .analytics-row.analytics-row-header { color: var(--fg-muted); font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
+    .round-trip-view.desktop-only { display: block; }
+    .round-trip-details, .round-trip-card { border-bottom: 1px solid var(--border); }
+    .round-trip-details:last-child, .round-trip-card:last-child { border-bottom: none; }
+    .round-trip-details > summary, .round-trip-card > summary { display: grid; list-style: none; cursor: pointer; }
+    .round-trip-details > summary::-webkit-details-marker, .round-trip-card > summary::-webkit-details-marker { display: none; }
+    .round-trip-summary, .round-trip-row-header { grid-template-columns: 1.4fr 0.85fr 0.85fr 0.45fr 0.7fr 0.65fr 0.7fr 0.65fr; }
+    .round-trip-summary { padding: 10px 0; }
+    .round-trip-detail-body { padding: 0 0 12px 12px; }
+    .round-trip-leg-table { overflow-x: auto; padding-top: 8px; }
+    .round-trip-leg-row { display: grid; grid-template-columns: 0.45fr 0.7fr 0.9fr 0.6fr 0.8fr 0.85fr 0.7fr 0.7fr 0.8fr 0.7fr 0.9fr; gap: 8px; min-width: 1080px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; align-items: center; }
+    .round-trip-leg-row:last-child { border-bottom: none; }
+    .round-trip-leg-row-header { color: var(--fg-muted); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
+    .round-trip-leg-empty { color: var(--fg-muted); font-size: 0.74rem; padding: 8px 0 0 0; }
+    .analytics-row:last-child { border-bottom: none; }
+    .analytics-main { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .trade-time { color: var(--fg-muted); }
+    .trade-symbol { color: var(--accent); font-weight: 500; }
+    .side-buy { color: var(--success); }
+    .side-sell { color: var(--danger); }
+    .status-filled { color: var(--success); }
+    .status-pending { color: var(--warning); }
+    .trade-card-list, .analytics-card-list { display: flex; flex-direction: column; gap: 10px; }
+    .analytics-card { padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 14px; }
+    .analytics-card-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 0.86rem; }
+    .analytics-card-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--fg-muted); font-size: 0.74rem; }
+    .section-header { font-size: 0.7rem; color: var(--accent); padding: 4px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.1em; }
+    .config-panel { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; font-size: 0.8rem; }
+    .config-row { display: flex; justify-content: space-between; padding: 4px 0; }
+    .config-label { color: var(--fg-muted); }
+    .config-value-true { color: var(--warning); }
+    .config-value-false { color: var(--fg-muted); }
+    .dashboard-section { margin-bottom: 20px; padding: 16px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); }
+    .charts-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .chart-card { background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }
+    .account-metrics-panel { padding: 20px; }
+    .account-snapshot-panel { padding: 18px; margin-bottom: 20px; }
+    .account-snapshot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .account-snapshot-card { background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-radius: 14px; padding: 14px; min-height: 112px; }
+    .account-snapshot-label { font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    .account-snapshot-value { font-size: 1.18rem; font-weight: 700; }
+    .account-snapshot-sub { margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }
+    .execution-flow-panel { padding: 18px; margin-bottom: 20px; }
+    .execution-flow-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .execution-flow-card { background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-radius: 14px; padding: 14px; min-height: 116px; }
+    .execution-flow-label { font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+    .execution-flow-primary { font-size: 1rem; font-weight: 700; word-break: break-word; }
+    .execution-flow-secondary { margin-top: 8px; font-size: 0.8rem; color: var(--fg); word-break: break-word; }
+    .execution-flow-detail { margin-top: 6px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; word-break: break-word; }
+    .system-diagnostics-panel, .system-warning-panel { margin-bottom: 20px; }
+    .system-warning-list { display: flex; flex-direction: column; gap: 10px; }
+    .system-warning-item { padding: 12px 14px; background: rgba(255,184,0,0.08); border: 1px solid rgba(255,184,0,0.22); border-radius: 12px; color: var(--warning); font-size: 0.78rem; line-height: 1.5; word-break: break-word; }
+    .account-panel-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
+    .account-panel-title { font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }
+    .account-panel-subtitle { font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }
+    .account-panel-note { font-size: 0.76rem; color: var(--warning); max-width: 420px; line-height: 1.45; padding: 10px 12px; background: rgba(255,184,0,0.08); border: 1px solid rgba(255,184,0,0.22); border-radius: var(--radius-sm); }
+    .account-range-switches, .account-metric-switches { display: flex; flex-wrap: wrap; gap: 8px; }
+    .account-chip { border: 1px solid var(--border); background: rgba(0,0,0,0.24); color: var(--fg-muted); border-radius: 999px; padding: 8px 12px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; }
+    .account-chip.active { color: var(--accent); border-color: var(--border-accent); background: rgba(0,212,255,0.08); }
+    .account-overview-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+    .account-overview-card { background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; min-height: 98px; }
+    .account-overview-card-highlight { background: rgba(0,212,255,0.05); border-color: var(--border-accent); }
+    .account-overview-label { font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    .account-overview-value { font-size: 1.2rem; font-weight: 700; }
+    .account-overview-sub { font-size: 0.72rem; color: var(--fg-muted); margin-top: 8px; }
+    .account-main-panel { background: rgba(0,0,0,0.22); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; }
+    .account-main-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
+    .account-main-meta { display: flex; gap: 16px; font-size: 0.72rem; color: var(--fg-muted); }
+    .account-main-chart { min-height: 280px; }
+    .account-chart-svg { width: 100%; height: auto; display: block; }
+    .account-grid-line { stroke: rgba(100,130,170,0.12); stroke-width: 1; }
+    .account-axis-label { fill: var(--fg-muted); font-size: 10px; }
+    .account-series-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    .account-series-area { opacity: 0.18; }
+    .account-last-dot { filter: drop-shadow(0 0 6px currentColor); }
+    .decision-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .decision-half { background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }
+    .bottom-row { display: grid; grid-template-columns: 200px 1fr 1fr; gap: 16px; }
+    .decision-grid-stack { grid-template-columns: 1fr 1fr; }
+    .decision-support { margin-top: 6px; color: var(--fg-muted); font-size: 0.76rem; }
+    .bottom-col { }
+    """
+
+
+def _render_dashboard_responsive_styles() -> str:
+    return """
+    @media (max-width: 1200px) {
+      .cosmic-identity-panel { grid-template-columns: 1fr; }
+      .cosmic-identity-grid { grid-template-columns: 1fr; }
+      .cosmic-visual-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .hero-grid { grid-template-columns: 1fr; }
+      .home-command-grid { grid-template-columns: 1fr; }
+      .charts-row { grid-template-columns: 1fr; }
+      .decision-row { grid-template-columns: 1fr; }
+      .bottom-row { grid-template-columns: 1fr; }
+      .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
+      .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
+      .execution-flow-grid { grid-template-columns: repeat(2, 1fr); }
+      .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
+    }
+    @media (max-width: 768px) {
+      .app { padding: 12px; }
+      .app-shell { padding: 18px; border-radius: 18px; }
+      .cosmic-identity-panel { padding: 16px; }
+      .cosmic-identity-title { font-size: 2rem; letter-spacing: 0.14em; }
+      .cosmic-visual-tiles { grid-template-columns: 1fr; }
+      .metrics-grid { grid-template-columns: 1fr; }
+      .header { flex-direction: column; align-items: flex-start; gap: 16px; }
+      .header-status { justify-content: flex-start; }
+      .dashboard-tabs { padding: 8px; gap: 8px; }
+      .dashboard-tab { flex: 1 1 calc(50% - 8px); min-width: 0; }
+      .decision-grid { grid-template-columns: 1fr; }
+      .home-command-stat-grid,
+      .home-command-chip-grid { grid-template-columns: 1fr; }
+      .positions-grid { grid-template-columns: 1fr; }
+      .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
+      .analytics-grid { grid-template-columns: 1fr; }
+      .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
+      .account-overview-grid { grid-template-columns: 1fr; }
+      .account-snapshot-grid { grid-template-columns: 1fr; }
+      .execution-flow-grid { grid-template-columns: 1fr; }
+      .desktop-only { display: none; }
+      .mobile-only { display: block; }
+      .analytics-table.desktop-only { display: none; }
+      .analytics-card-list.mobile-only { display: flex; }
+      .trade-history.desktop-only { display: none; }
+      .trade-card-list.mobile-only { display: flex; }
+    }
+    """
+
+
+def render_dashboard_styles() -> str:
+    return (
+        _render_dashboard_base_styles()
+        + _render_dashboard_cosmic_styles()
+        + _render_dashboard_component_styles()
+        + _render_dashboard_responsive_styles()
+    )
+
+
 def render_dashboard_shell(
     *,
     health_status: str,
@@ -2073,6 +2775,7 @@ def render_dashboard_shell(
         "<body>"
         "<div class='app'>"
         "<div class='app-shell'>"
+        f"{render_cosmic_identity_panel()}"
         "<header class='header'>"
         "<div class='header-left'>"
         "<div class='logo'>M</div>"
@@ -2099,353 +2802,40 @@ def render_dashboard_shell(
     )
 
 
-def render_dashboard_html(
-    snapshot: dict,
-    strategy_config: dict | None = None,
-    active_tab: str | None = None,
-    account_range_key: str = "1D",
-) -> str:
-    active_tab = normalize_dashboard_tab(active_tab)
-    account_range_key = normalize_account_range(account_range_key)
-    timeseries = build_dashboard_timeseries_payload(snapshot)
-    runtime = snapshot["runtime"]
-    latest_signal = runtime.get("latest_signal_decision") or {}
-    latest_position_snapshot = runtime.get("latest_position_snapshot") or {}
-    latest_account_snapshot = runtime.get("latest_account_snapshot") or {}
-    latest_signal_payload = latest_signal.get("payload") or {}
-    blocked_reason = latest_signal_payload.get("blocked_reason")
-    decision_status = latest_signal.get("decision_type") or "none"
-    latest_signal_symbol = latest_signal.get("symbol") or "none"
-    latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
-    config = strategy_config or snapshot.get("strategy_config") or {}
-    execution_mode_label, execution_mode_state = _build_execution_mode(config)
-    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"], account_range_key=account_range_key)
-    account_range_stats = _compute_account_range_stats(timeseries["account"])
-    event_counts = snapshot.get("event_counts", {})
-    decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
-    leader_history = list(reversed(snapshot.get("leader_history", [])))
-    timeline_chart = _render_timeline_svg(events=leader_history)
-    health_status = snapshot["health"]["overall_status"]
-    # Build position cards
-    equity_value = latest_account_snapshot.get("equity")
-    position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
-    trader_metrics = build_trader_summary_metrics(
-        snapshot,
-        position_details=position_details,
-        range_key=account_range_key,
-    )
-    home_command_html = _build_overview_home_command(
-        position_details=position_details,
-        trader_metrics=trader_metrics,
-        account_range_stats=account_range_stats,
-        health_status=health_status,
-        account_range_key=account_range_key,
-    )
-    # Build trade history
-    trade_fills = snapshot.get("recent_trade_fills") or []
-    recent_broker_orders = snapshot.get("recent_broker_orders") or []
-    recent_algo_orders = snapshot.get("recent_algo_orders") or []
-    recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
-    trade_history_html = render_trade_history_table(trade_fills)
-    recent_trade_round_trips = snapshot.get("recent_trade_round_trips") or []
-    closed_trades_html = render_closed_trades_table(recent_trade_round_trips)
-    leg_count_aggregate_html = render_trade_leg_count_aggregate_table(build_trade_leg_count_aggregates(recent_trade_round_trips))
-    leg_index_aggregate_html = render_trade_leg_index_aggregate_table(build_trade_leg_index_aggregates(recent_trade_round_trips))
-    stop_slippage_html = render_stop_slippage_table(recent_stop_exit_summaries)
-    execution_flow_html = _build_execution_flow_panel(
-        recent_broker_orders=recent_broker_orders,
-        recent_algo_orders=recent_algo_orders,
-        recent_trade_fills=trade_fills,
-        recent_stop_exit_summaries=recent_stop_exit_summaries,
-    )
-    # Build strategy config
-    config_html = (
-        f"<div class='config-panel'>"
-        f"<div class='config-row'><span class='config-label'>Stop Budget</span><span>{escape(str(config.get('stop_budget_usdt') or 'n/a'))}</span></div>"
-        f"<div class='config-row'><span class='config-label'>Entry Window</span><span>{escape(str(config.get('entry_window') or 'n/a'))}</span></div>"
-        f"<div class='config-row'><span class='config-label'>Testnet</span><span class='{'config-value-true' if config.get('testnet') else 'config-value-false'}'>{'Yes' if config.get('testnet') else 'No'}</span></div>"
-        f"<div class='config-row'><span class='config-label'>Submit Orders</span><span class='{'config-value-true' if config.get('submit_orders') else 'config-value-false'}'>{'Yes' if config.get('submit_orders') else 'No'}</span></div>"
-        f"</div>"
-    )
-    latest_update_display = max(
-        [
-            timestamp
-            for timestamp in (
-                runtime.get("latest_tick_result_timestamp"),
-                latest_signal.get("timestamp"),
-                (snapshot.get("recent_events") or [{}])[0].get("timestamp") if snapshot.get("recent_events") else None,
-            )
-            if timestamp
-        ],
-        default=None,
-    )
-    health_items_html = "".join(
-        f"<div class='health-item status-{escape(item['status'].lower())}'>"
-        f"<span class='health-status-dot'></span>"
-        f"<span class='health-name'>{escape(item['name'])}</span>"
-        f"<span class='health-status'>{escape(item['status'])}</span>"
-        f"<span class='health-msg'>{escape(item['message'])}</span></div>"
-        for item in snapshot["health"]["items"]
-    )
-    recent_events_html = "".join(
-        f"<div class='event-item'>"
-        f"<span class='event-type'>{escape(e['event_type'])}</span>"
-        f"<span class='event-time'>{escape(format_timestamp_for_display(e['timestamp']))}</span>"
-        f"<span class='event-source'>{escape(str(e.get('source') or '-'))}</span></div>"
-        for e in snapshot["recent_events"][:12]
-    ) or "<div class='event-item empty'>No recent events</div>"
-    source_counts = snapshot.get("source_counts", {})
-    source_html = "".join(
-        f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
-        for src, cnt in sorted(source_counts.items())[:4]
-    ) or "<div class='source-tag empty'>No sources</div>"
-    warnings = snapshot.get("warnings", [])
-    primary_source, primary_source_count = max(
-        source_counts.items(),
-        key=lambda item: (item[1], item[0]),
-        default=("n/a", 0),
-    )
-    primary_source_label = primary_source if primary_source_count <= 0 else f"{primary_source} · {primary_source_count}"
-    diagnostics_html = (
-        "<div class='dashboard-section system-diagnostics-panel section-body'>"
-        "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Primary Source</div><div class='decision-value'>{escape(primary_source_label)}</div></div>"
-        "</div>"
-        "</div>"
-    )
-    warning_list_html = (
-        "<div class='dashboard-section system-warning-panel section-body'>"
-        "<div class='section-header'>ACTIVE WARNINGS</div>"
-        "<div class='system-warning-list'>"
-        + "".join(f"<div class='system-warning-item'>{escape(str(warning))}</div>" for warning in warnings[:5])
-        + "</div>"
-        "</div>"
-        if warnings
-        else ""
-    )
-
-    def _format_pct(value: float | None, *, signed: bool = False) -> str:
-        if value is None:
-            return "n/a"
-        if signed and float(value) == 0:
-            return "0.00%"
-        return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
-
-    performance_win_rate = trader_metrics["performance"].get("win_rate")
-    health_metric_state = "danger" if health_status != "OK" else ""
-    blocked_reason_counts = trader_metrics["signals"].get("blocked_reason_counts", {})
-    blocked_reason_summary = ", ".join(
-        f"{reason}: {count}"
-        for reason, count in blocked_reason_counts.items()
-    ) or "No blocked signals"
-    blocked_reason_breakdown_html = (
-        "<div class='signal-breakdown'>"
-        + "".join(
-            f"<div class='signal-breakdown-item'><span class='signal-breakdown-label'>{escape(str(reason))}</span><span class='signal-breakdown-count'>{escape(str(count))}</span></div>"
-            for reason, count in blocked_reason_counts.items()
-        )
-        + "</div>"
-        if blocked_reason_counts
-        else "<div class='signal-breakdown-empty compact'>No blocked signals</div>"
-    )
-    recent_leader_sequence = [str(item.get("symbol") or "-") for item in leader_history[:5]]
-    recent_leader_sequence_html = (
-        " \u2192 ".join(recent_leader_sequence)
-        if len(recent_leader_sequence) >= 2
-        else "insufficient history"
-    )
-    open_risk_pct = trader_metrics["account"].get("open_risk_pct")
-    if open_risk_pct is None:
-        open_risk_state = ""
-    elif open_risk_pct > 60:
-        open_risk_state = "danger"
-    elif open_risk_pct >= 30:
-        open_risk_state = "warning"
-    else:
-        open_risk_state = "normal"
-    top_metric_cards = [
-        (
-            "EQUITY",
-            _format_metric(trader_metrics["account"].get("current_equity")),
-            "Latest account snapshot",
-            "",
-        ),
-        (
-            "TODAY NET PNL",
-            _format_metric(trader_metrics["account"].get("today_net_pnl"), signed=True),
-            "Adjusted equity delta across visible account history",
-            "",
-        ),
-        (
-            "OPEN RISK / EQUITY",
-            _format_pct(trader_metrics["account"].get("open_risk_pct")),
-            f"{_format_metric(trader_metrics['account'].get('open_risk'))} USDT at risk",
-            open_risk_state,
-        ),
-        (
-            "SYSTEM HEALTH",
-            escape(health_status),
-            f"Last update {format_timestamp_for_display(latest_update_display)}",
-            health_metric_state,
-        ),
-    ]
-    top_metrics_html = "".join(
-        (
-            f"<div class='metric {metric_state}'>"
-            f"<div class='metric-label'>{label}</div>"
-            f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
-            f"<div class='metric-sub'>{escape(subtext)}</div>"
-            "</div>"
-        )
-        for label, value, subtext, metric_state in top_metric_cards
-    )
-    execution_summary_html = (
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('avg_slippage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Max Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('max_slippage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Stop Exits</div><div class='decision-value'>{escape(str(trader_metrics['execution'].get('stop_exit_count') or 0))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Fee Total</div><div class='decision-value'>{escape(_format_metric(trader_metrics['execution'].get('fee_total')))}</div></div>"
-        "</div>"
-    )
-    performance_summary_html = (
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Win Rate</div><div class='decision-value'>{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else 'n/a')}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Profit Factor</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('profit_factor')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Win</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_win')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Loss</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_loss'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Expectancy</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('expectancy'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Hold</div><div class='decision-value'>{escape(_format_duration_seconds(trader_metrics['performance'].get('avg_hold_time_seconds')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Current Streak</div><div class='decision-value'>{escape(str((trader_metrics['performance'].get('current_streak') or {}).get('label') or 'n/a'))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Trade Count</div><div class='decision-value'>{escape(str(trader_metrics['performance'].get('trade_count') or 0))}</div></div>"
-        "</div>"
-    )
-    risk_overview_html = (
-        "<div class='decision-grid decision-grid-stack'>"
-        f"<div class='decision-item'><div class='decision-label'>Available Balance</div><div class='decision-value'>{escape(_format_metric(trader_metrics['account'].get('current_available_balance')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Margin Usage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['account'].get('margin_usage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(trader_metrics['account'].get('current_positions') or 0))} / {escape(str(trader_metrics['account'].get('current_orders') or 0))}</div></div>"
-        "</div>"
-    )
-    hero_html = (
-        "<section class='hero-grid'>"
-        "<div class='hero-card hero-card-wide'>"
-        "<div class='hero-eyebrow'>LIVE OVERVIEW</div>"
-        "<div class='hero-title'>ACTIVE SIGNAL</div>"
-        "<div class='hero-copy'>Keep the current decision, rotation context, and blocked reasons in one glance before drilling into execution details.</div>"
-        "<div class='decision-grid'>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Decision Type</div>"
-        f"<div class='decision-value'>{escape(str(decision_status))}</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Target Symbol</div>"
-        f"<div class='decision-value'>{escape(str(latest_signal_symbol))}</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Blocked Reason</div>"
-        f"<div class='decision-value'>{escape(str(blocked_reason or 'None'))}</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Decision Time</div>"
-        f"<div class='decision-value'>{escape(latest_signal_time)}</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Rotation Count</div>"
-        f"<div class='decision-value'>{escape(str(trader_metrics['signals'].get('rotation_count') or 0))}</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Blocked Reasons</div>"
-        f"{f'<div class=\"decision-value\" style=\"margin-bottom:8px;\">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}"
-        f"{blocked_reason_breakdown_html}"
-        "</div>"
-        "</div>"
-        "</div>"
-        "<div class='hero-card hero-card-compact'>"
-        "<div class='hero-eyebrow'>RISK &amp; DEPLOYMENT</div>"
-        "<div class='hero-title'>Capital Pressure</div>"
-        "<div class='hero-copy'>Balance available capital against live drawdown and deployed risk before the next tick updates the book.</div>"
-        f"{risk_overview_html}"
-        "</div>"
-        "<div class='hero-card hero-card-compact'>"
-        "<div class='hero-eyebrow'>LEADER ROTATION</div>"
-        "<div class='hero-title'>Sequence Monitor</div>"
-        f"<div class='chart-container'>{timeline_chart}</div>"
-        "<div class='rotation-summary'>"
-        "<div class='rotation-summary-label'>Recent Sequence</div>"
-        f"<div class='rotation-summary-value'>{escape(recent_leader_sequence_html)}</div>"
-        "</div>"
-        "</div>"
-        "</section>"
-    )
-    tab_bar_html = render_dashboard_tab_bar(active_tab, account_range_key=account_range_key)
-    tab_content_html = {
-        "overview": render_dashboard_overview_tab(
-            top_metrics_html=top_metrics_html,
-            hero_html=hero_html,
-            positions_html=render_position_cards(position_details),
-            home_command_html=home_command_html,
-        ),
-        "execution": render_dashboard_execution_tab(
-            execution_flow_html=execution_flow_html,
-            execution_summary_html=execution_summary_html,
-            trade_history_html=trade_history_html,
-            stop_slippage_html=stop_slippage_html,
-        ),
-        "performance": render_dashboard_performance_tab(
-            performance_summary_html=performance_summary_html,
-            round_trip_detail_html=closed_trades_html,
-            leg_count_aggregate_html=leg_count_aggregate_html,
-            leg_index_aggregate_html=leg_index_aggregate_html,
-            account_metrics_panel_html=account_metrics_panel_html,
-        ),
-        "system": render_dashboard_system_tab(
-            diagnostics_html=diagnostics_html,
-            warning_list_html=warning_list_html,
-            config_html=config_html,
-            source_html=source_html,
-            health_items_html=health_items_html,
-            recent_events_html=recent_events_html,
-        ),
-    }[active_tab]
-
-    return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
+def render_dashboard_head() -> str:
+    return f"""<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Momentum Alpha | 交易监控面板</title>
-  <style>
+    <style>
     :root {{
-      --bg-deep: #060a10;
-      --bg: #0c1018;
-      --bg-panel: linear-gradient(145deg, rgba(16,24,40,0.95), rgba(10,16,28,0.98));
-      --bg-card: rgba(18,28,45,0.8);
-      --fg: #e4eaf2;
-      --fg-muted: #6b7d95;
-      --accent: #00d4ff;
-      --accent-glow: rgba(0,212,255,0.25);
+      --bg-deep: #050507;
+      --bg: #0b0d12;
+      --bg-panel: linear-gradient(145deg, rgba(14,18,27,0.94), rgba(8,10,15,0.98));
+      --bg-card: rgba(16,20,29,0.84);
+      --fg: #f5f6f8;
+      --fg-muted: #9aa3b2;
+      --accent: #f5d28a;
+      --accent-strong: #8ad2ff;
+      --accent-glow: rgba(245,210,138,0.25);
       --success: #00ff88;
       --success-bg: rgba(0,255,136,0.1);
       --warning: #ffb800;
       --danger: #ff4466;
       --danger-bg: rgba(255,68,102,0.1);
-      --border: rgba(100,130,170,0.15);
-      --border-accent: rgba(0,212,255,0.3);
-      --shadow: 0 8px 32px rgba(0,0,0,0.4);
-      --radius: 16px;
-      --radius-sm: 8px;
+      --border: rgba(184,160,120,0.12);
+      --border-accent: rgba(245,210,138,0.32);
+      --shadow: 0 16px 48px rgba(0,0,0,0.45);
+      --radius: 18px;
+      --radius-sm: 10px;
     }}
     * {{ margin: 0; padding: 0; box-sizing: border-box; }}
     body {{
       font-family: 'SF Pro Display', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
       background:
-        radial-gradient(circle at top right, rgba(0,212,255,0.08), transparent 32%),
-        radial-gradient(circle at top left, rgba(255,184,0,0.06), transparent 28%),
+        radial-gradient(circle at top right, rgba(245,210,138,0.12), transparent 28%),
+        radial-gradient(circle at top left, rgba(138,210,255,0.08), transparent 24%),
+        radial-gradient(circle at bottom left, rgba(120,80,255,0.08), transparent 26%),
         var(--bg-deep);
       color: var(--fg);
       min-height: 100vh;
@@ -2458,11 +2848,14 @@ def render_dashboard_html(
     }}
     .app-shell {{
       position: relative;
-      border: 1px solid rgba(100,130,170,0.12);
-      border-radius: 28px;
+      border: 1px solid rgba(245,210,138,0.1);
+      border-radius: 30px;
       padding: 28px;
-      background: linear-gradient(180deg, rgba(8,14,23,0.92), rgba(5,9,16,0.98));
-      box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+      background:
+        radial-gradient(circle at 18% 12%, rgba(245,210,138,0.06), transparent 22%),
+        radial-gradient(circle at 82% 4%, rgba(138,210,255,0.06), transparent 18%),
+        linear-gradient(180deg, rgba(10,12,18,0.94), rgba(5,6,10,0.98));
+      box-shadow: 0 28px 90px rgba(0,0,0,0.42);
       overflow: hidden;
     }}
     .app-shell::before {{
@@ -2480,8 +2873,8 @@ def render_dashboard_html(
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 28px;
-      padding-bottom: 20px;
+      margin-bottom: 22px;
+      padding: 18px 0 20px;
       border-bottom: 1px solid var(--border);
     }}
     .header-left {{
@@ -2499,7 +2892,7 @@ def render_dashboard_html(
     .logo {{
       width: 48px;
       height: 48px;
-      background: linear-gradient(135deg, var(--accent), #0088cc);
+      background: linear-gradient(135deg, rgba(245,210,138,0.96), rgba(138,210,255,0.68));
       border-radius: 12px;
       display: flex;
       align-items: center;
@@ -2510,8 +2903,9 @@ def render_dashboard_html(
     }}
     .title-group h1 {{
       font-size: 1.5rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
       background: linear-gradient(90deg, var(--fg), var(--accent));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -2796,6 +3190,7 @@ def render_dashboard_html(
       border: 1px solid var(--border);
       border-radius: 18px;
       background: rgba(255,255,255,0.02);
+      backdrop-filter: blur(18px);
     }}
     .dashboard-tab {{
       display: inline-flex;
@@ -2820,8 +3215,8 @@ def render_dashboard_html(
     .dashboard-tab.is-active {{
       color: var(--fg);
       border-color: var(--border-accent);
-      background: rgba(0,212,255,0.1);
-      box-shadow: 0 0 0 1px rgba(0,212,255,0.08);
+      background: rgba(245,210,138,0.1);
+      box-shadow: 0 0 0 1px rgba(245,210,138,0.08);
     }}
     .dashboard-tab-shell {{
       min-height: 480px;
@@ -2845,7 +3240,7 @@ def render_dashboard_html(
     }}
     .action-button {{
       border: 1px solid var(--border-accent);
-      background: rgba(0,212,255,0.08);
+      background: rgba(245,210,138,0.08);
       color: var(--fg);
       border-radius: 999px;
       padding: 9px 14px;
@@ -2857,540 +3252,21 @@ def render_dashboard_html(
     }}
     .action-button:hover {{
       transform: translateY(-1px);
-      background: rgba(0,212,255,0.16);
+      background: rgba(245,210,138,0.16);
     }}
     .action-button.is-refreshing {{
       border-color: rgba(255,184,0,0.35);
       background: rgba(255,184,0,0.1);
     }}
-    .section-frame {{
-      margin-bottom: 20px;
-    }}
-    .section-topbar {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 10px;
-    }}
-    .section-toggle {{
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.03);
-      color: var(--fg-muted);
-      border-radius: 999px;
-      padding: 6px 11px;
-      font-size: 0.68rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      cursor: pointer;
-    }}
-    .section-frame.is-collapsed .section-body {{
-      display: none;
-    }}
-    .chart-container {{
-      background: rgba(0,0,0,0.2);
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      margin-top: 8px;
-    }}
-    .chart-svg, .bar-svg, .timeline-svg, .pie-svg {{
-      width: 100%;
-      height: auto;
-      display: block;
-    }}
-    .chart-svg .grid-line {{ stroke: rgba(100,130,170,0.1); stroke-width: 1; }}
-    .chart-svg .axis-label {{ font-size: 9px; fill: var(--fg-muted); }}
-    .chart-svg .chart-dot {{ filter: drop-shadow(0 0 4px currentColor); }}
-    .chart-empty {{
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 160px;
-      color: var(--fg-muted);
-      font-size: 0.85rem;
-      gap: 8px;
-    }}
-    .chart-empty-icon {{ font-size: 2rem; opacity: 0.3; }}
-    .pie-container {{ display: flex; align-items: center; gap: 20px; }}
-    .pie-svg {{ width: 140px; height: 140px; flex-shrink: 0; }}
-    .pie-slice {{ transition: transform 0.2s; transform-origin: center; }}
-    .pie-slice:hover {{ transform: scale(1.05); }}
-    .pie-legend {{ display: flex; flex-direction: column; gap: 6px; font-size: 0.75rem; }}
-    .legend-item {{ display: flex; align-items: center; gap: 8px; }}
-    .legend-color {{ width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }}
-    .legend-label {{ color: var(--fg-muted); flex: 1; }}
-    .legend-value {{ font-weight: 600; }}
-    .bar-svg .bar-rect {{ transition: opacity 0.2s; }}
-    .bar-svg .bar-rect:hover {{ opacity: 0.8; }}
-    .bar-svg .bar-value {{ font-size: 9px; fill: var(--fg); font-weight: 600; }}
-    .bar-svg .bar-label {{ font-size: 8px; fill: var(--fg-muted); }}
-    .timeline-svg .timeline-line {{ stroke: var(--border); stroke-width: 2; stroke-dasharray: 4 4; }}
-    .timeline-svg .timeline-dot {{ filter: drop-shadow(0 0 6px currentColor); transition: r 0.2s; }}
-    .timeline-svg .timeline-dot.current {{ animation: pulse-dot 1.5s infinite; }}
-    @keyframes pulse-dot {{
-      0%, 100% {{ r: 12; }}
-      50% {{ r: 16; }}
-    }}
-    .timeline-svg .timeline-label {{ font-size: 10px; fill: var(--fg); font-weight: 600; }}
-    .timeline-svg .timeline-time {{ font-size: 8px; fill: var(--fg-muted); }}
-    .health-grid {{ display: flex; flex-direction: column; gap: 10px; }}
-    .health-item {{
-      display: grid;
-      grid-template-columns: 8px 1fr 80px 1fr;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 14px;
-      background: rgba(0,0,0,0.2);
-      border-radius: var(--radius-sm);
-      border-left: 3px solid transparent;
-    }}
-    .health-item.status-ok {{ border-left-color: var(--success); }}
-    .health-item.status-fail {{ border-left-color: var(--danger); }}
-    .health-status-dot {{
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--fg-muted);
-    }}
-    .status-ok .health-status-dot {{ background: var(--success); box-shadow: 0 0 8px var(--success); }}
-    .status-fail .health-status-dot {{ background: var(--danger); box-shadow: 0 0 8px var(--danger); }}
-    .health-name {{ font-size: 0.8rem; font-weight: 500; }}
-    .health-status {{ font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }}
-    .status-ok .health-status {{ color: var(--success); }}
-    .status-fail .health-status {{ color: var(--danger); }}
-    .health-msg {{ font-size: 0.75rem; color: var(--fg-muted); }}
-    .decision-grid {{
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-    }}
-    .decision-item {{
-      background: rgba(0,0,0,0.25);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 14px;
-    }}
-    .decision-label {{
-      font-size: 0.68rem;
-      color: var(--fg-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 6px;
-    }}
-    .decision-value {{
-      font-size: 1rem;
-      font-weight: 600;
-      word-break: break-word;
-    }}
-    .signal-breakdown {{
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }}
-    .signal-breakdown-item {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      background: rgba(0,0,0,0.18);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-    }}
-    .signal-breakdown-label {{
-      font-size: 0.8rem;
-      color: var(--fg);
-      word-break: break-word;
-    }}
-    .signal-breakdown-count {{
-      min-width: 28px;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: rgba(0,212,255,0.12);
-      color: var(--accent);
-      font-size: 0.78rem;
-      font-weight: 700;
-      text-align: center;
-    }}
-    .signal-breakdown-empty {{
-      padding: 10px 12px;
-      background: rgba(0,0,0,0.18);
-      border: 1px dashed var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 0.78rem;
-      color: var(--fg-muted);
-    }}
-    .signal-breakdown-empty.compact {{
-      padding: 8px 10px;
-      display: inline-flex;
-      align-items: center;
-      min-height: auto;
-    }}
-    .rotation-summary {{
-      margin-top: 10px;
-      padding: 10px 12px;
-      background: rgba(0,0,0,0.18);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-    }}
-    .rotation-summary-label {{
-      font-size: 0.68rem;
-      color: var(--fg-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      margin-bottom: 6px;
-    }}
-    .rotation-summary-value {{
-      font-size: 0.82rem;
-      color: var(--fg);
-      word-break: break-word;
-    }}
-    .source-tags {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .source-tag {{
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: rgba(0,212,255,0.08);
-      border: 1px solid rgba(0,212,255,0.2);
-      border-radius: 100px;
-      font-size: 0.75rem;
-    }}
-    .source-tag span {{ color: var(--fg-muted); }}
-    .source-tag b {{ color: var(--accent); }}
-    .event-list {{ max-height: 320px; overflow-y: auto; }}
-    .event-item {{
-      display: grid;
-      grid-template-columns: 1fr 130px 80px;
-      gap: 12px;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.78rem;
-    }}
-    .event-item:last-child {{ border-bottom: none; }}
-    .event-item.empty {{ color: var(--fg-muted); }}
-    .event-type {{ font-weight: 500; color: var(--accent); }}
-    .event-time, .event-source {{ color: var(--fg-muted); font-size: 0.72rem; }}
-    .refresh-indicator {{
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 10px 16px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 100px;
-      font-size: 0.75rem;
-      color: var(--fg-muted);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }}
-    .refresh-indicator.error {{
-      border-color: rgba(255,68,102,0.35);
-      color: var(--danger);
-    }}
-    .refresh-dot {{
-      width: 8px;
-      height: 8px;
-      background: var(--success);
-      border-radius: 50%;
-      animation: blink 1s infinite;
-    }}
-    .refresh-indicator.error .refresh-dot {{
-      background: var(--danger);
-      animation: none;
-    }}
-    @keyframes blink {{
-      0%, 100% {{ opacity: 1; }}
-      50% {{ opacity: 0.3; }}
-    }}
-    .positions-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }}
-    .position-card {{ background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border-left: 3px solid var(--success); }}
-    .position-header {{ display: flex; justify-content: space-between; margin-bottom: 10px; }}
-    .position-symbol {{ font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', 'SF Mono', monospace; }}
-    .position-direction {{ font-size: 0.75rem; color: var(--fg-muted); }}
-    .position-metrics {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 0.82rem; }}
-    .position-metric {{ text-align: center; padding: 4px 2px; }}
-    .position-metric.position-live {{
-      background: rgba(0,212,255,0.06);
-      border: 1px solid rgba(0,212,255,0.12);
-      border-radius: 8px;
-    }}
-    .position-metric.position-live .metric-value {{
-      font-size: 0.96rem;
-      font-weight: 700;
-    }}
-    .position-metric.position-risk .metric-value {{
-      font-size: 0.92rem;
-      font-weight: 700;
-    }}
-    .metric-danger {{ color: var(--danger); }}
-    .metric-note {{ display: block; margin-top: 4px; font-size: 0.62rem; color: var(--fg-muted); }}
-    .position-legs {{ margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }}
-    .positions-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
-    .trade-history {{ max-height: 200px; overflow-y: auto; }}
-    .trade-history-empty {{ color: var(--fg-muted); text-align: center; padding: 20px; }}
-    .trade-row {{ display: grid; grid-template-columns: 80px 120px 60px 80px 100px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }}
-    .trade-row:last-child {{ border-bottom: none; }}
-    .analytics-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
-    .table-scroll {{ overflow-x: auto; }}
-    .desktop-only {{ display: block; }}
-    .mobile-only {{ display: none; }}
-    .analytics-table.desktop-only {{ display: block; }}
-    .analytics-card-list.mobile-only {{ display: none; }}
-    .trade-history.desktop-only {{ display: block; }}
-    .trade-card-list.mobile-only {{ display: none; }}
-    .analytics-table {{ max-height: 220px; overflow-y: auto; }}
-    .analytics-row {{ display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr 0.7fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; align-items: center; }}
-    .analytics-row.analytics-row-header {{
-      color: var(--fg-muted);
-      font-size: 0.68rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 700;
-    }}
-    .round-trip-view.desktop-only {{ display: block; }}
-    .round-trip-details,
-    .round-trip-card {{
-      border-bottom: 1px solid var(--border);
-    }}
-    .round-trip-details:last-child,
-    .round-trip-card:last-child {{
-      border-bottom: none;
-    }}
-    .round-trip-details > summary,
-    .round-trip-card > summary {{
-      display: grid;
-      list-style: none;
-      cursor: pointer;
-    }}
-    .round-trip-details > summary::-webkit-details-marker,
-    .round-trip-card > summary::-webkit-details-marker {{
-      display: none;
-    }}
-    .round-trip-summary,
-    .round-trip-row-header {{
-      grid-template-columns: 1.4fr 0.85fr 0.85fr 0.45fr 0.7fr 0.65fr 0.7fr 0.65fr;
-    }}
-    .round-trip-summary {{
-      padding: 10px 0;
-    }}
-    .round-trip-detail-body {{
-      padding: 0 0 12px 12px;
-    }}
-    .round-trip-leg-table {{
-      overflow-x: auto;
-      padding-top: 8px;
-    }}
-    .round-trip-leg-row {{
-      display: grid;
-      grid-template-columns: 0.45fr 0.7fr 0.9fr 0.6fr 0.8fr 0.85fr 0.7fr 0.7fr 0.8fr 0.7fr 0.9fr;
-      gap: 8px;
-      min-width: 1080px;
-      padding: 6px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.7rem;
-      align-items: center;
-    }}
-    .round-trip-leg-row:last-child {{ border-bottom: none; }}
-    .round-trip-leg-row-header {{
-      color: var(--fg-muted);
-      font-size: 0.64rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-weight: 700;
-    }}
-    .round-trip-leg-empty {{
-      color: var(--fg-muted);
-      font-size: 0.74rem;
-      padding: 8px 0 0 0;
-    }}
-    .analytics-row:last-child {{ border-bottom: none; }}
-    .analytics-main {{ color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    .trade-time {{ color: var(--fg-muted); }}
-    .trade-symbol {{ color: var(--accent); font-weight: 500; }}
-    .side-buy {{ color: var(--success); }}
-    .side-sell {{ color: var(--danger); }}
-    .status-filled {{ color: var(--success); }}
-    .status-pending {{ color: var(--warning); }}
-    .trade-card-list, .analytics-card-list {{
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }}
-    .analytics-card {{
-      padding: 12px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-    }}
-    .analytics-card-main {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 8px;
-      font-size: 0.86rem;
-    }}
-    .analytics-card-meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      color: var(--fg-muted);
-      font-size: 0.74rem;
-    }}
-    .section-header {{ font-size: 0.7rem; color: var(--accent); padding: 4px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.1em; }}
-    .config-panel {{ background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; font-size: 0.8rem; }}
-    .config-row {{ display: flex; justify-content: space-between; padding: 4px 0; }}
-    .config-label {{ color: var(--fg-muted); }}
-    .config-value-true {{ color: var(--warning); }}
-    .config-value-false {{ color: var(--fg-muted); }}
-    .dashboard-section {{ margin-bottom: 20px; padding: 16px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); }}
-    .charts-row {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }}
-    .chart-card {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
-    .account-metrics-panel {{ padding: 20px; }}
-    .account-snapshot-panel {{ padding: 18px; margin-bottom: 20px; }}
-    .account-snapshot-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }}
-    .account-snapshot-card {{
-      background: rgba(0,0,0,0.18);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      min-height: 112px;
-    }}
-    .account-snapshot-label {{
-      font-size: 0.68rem;
-      color: var(--fg-muted);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }}
-    .account-snapshot-value {{ font-size: 1.18rem; font-weight: 700; }}
-    .account-snapshot-sub {{ margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }}
-    .execution-flow-panel {{ padding: 18px; margin-bottom: 20px; }}
-    .execution-flow-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }}
-    .execution-flow-card {{
-      background: rgba(0,0,0,0.18);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      min-height: 116px;
-    }}
-    .execution-flow-label {{
-      font-size: 0.68rem;
-      color: var(--fg-muted);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 10px;
-    }}
-    .execution-flow-primary {{ font-size: 1rem; font-weight: 700; word-break: break-word; }}
-    .execution-flow-secondary {{ margin-top: 8px; font-size: 0.8rem; color: var(--fg); word-break: break-word; }}
-    .execution-flow-detail {{ margin-top: 6px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; word-break: break-word; }}
-    .system-diagnostics-panel,
-    .system-warning-panel {{ margin-bottom: 20px; }}
-    .system-warning-list {{ display: flex; flex-direction: column; gap: 10px; }}
-    .system-warning-item {{
-      padding: 12px 14px;
-      background: rgba(255,184,0,0.08);
-      border: 1px solid rgba(255,184,0,0.22);
-      border-radius: 12px;
-      color: var(--warning);
-      font-size: 0.78rem;
-      line-height: 1.5;
-      word-break: break-word;
-    }}
-    .account-panel-header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }}
-    .account-panel-title {{ font-size: 0.95rem; font-weight: 700; letter-spacing: 0.06em; }}
-    .account-panel-subtitle {{ font-size: 0.76rem; color: var(--fg-muted); margin-top: 6px; max-width: 680px; }}
-    .account-panel-note {{
-      font-size: 0.76rem;
-      color: var(--warning);
-      max-width: 420px;
-      line-height: 1.45;
-      padding: 10px 12px;
-      background: rgba(255,184,0,0.08);
-      border: 1px solid rgba(255,184,0,0.22);
-      border-radius: var(--radius-sm);
-    }}
-    .account-range-switches, .account-metric-switches {{ display: flex; flex-wrap: wrap; gap: 8px; }}
-    .account-chip {{ border: 1px solid var(--border); background: rgba(0,0,0,0.24); color: var(--fg-muted); border-radius: 999px; padding: 8px 12px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; }}
-    .account-chip.active {{ color: var(--accent); border-color: var(--border-accent); background: rgba(0,212,255,0.08); }}
-    .account-overview-grid {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }}
-    .account-overview-card {{ background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; min-height: 98px; }}
-    .account-overview-card-highlight {{ background: rgba(0,212,255,0.05); border-color: var(--border-accent); }}
-    .account-overview-label {{ font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }}
-    .account-overview-value {{ font-size: 1.2rem; font-weight: 700; }}
-    .account-overview-sub {{ font-size: 0.72rem; color: var(--fg-muted); margin-top: 8px; }}
-    .account-main-panel {{ background: rgba(0,0,0,0.22); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; }}
-    .account-main-toolbar {{ display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }}
-    .account-main-meta {{ display: flex; gap: 16px; font-size: 0.72rem; color: var(--fg-muted); }}
-    .account-main-chart {{ min-height: 280px; }}
-    .account-chart-svg {{ width: 100%; height: auto; display: block; }}
-    .account-grid-line {{ stroke: rgba(100,130,170,0.12); stroke-width: 1; }}
-    .account-axis-label {{ fill: var(--fg-muted); font-size: 10px; }}
-    .account-series-line {{ fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }}
-    .account-series-area {{ opacity: 0.18; }}
-    .account-last-dot {{ filter: drop-shadow(0 0 6px currentColor); }}
-    .decision-row {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
-    .decision-half {{ background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); padding: 12px; }}
-    .bottom-row {{ display: grid; grid-template-columns: 200px 1fr 1fr; gap: 16px; }}
-    .decision-grid-stack {{ grid-template-columns: 1fr 1fr; }}
-    .decision-support {{ margin-top: 6px; color: var(--fg-muted); font-size: 0.76rem; }}
-    .bottom-col {{ }}
-    @media (max-width: 1200px) {{
-      .metrics-grid {{ grid-template-columns: repeat(2, 1fr); }}
-      .hero-grid {{ grid-template-columns: 1fr; }}
-      .home-command-grid {{ grid-template-columns: 1fr; }}
-      .charts-row {{ grid-template-columns: 1fr; }}
-      .decision-row {{ grid-template-columns: 1fr; }}
-      .bottom-row {{ grid-template-columns: 1fr; }}
-      .account-overview-grid {{ grid-template-columns: repeat(3, 1fr); }}
-      .account-snapshot-grid {{ grid-template-columns: repeat(2, 1fr); }}
-      .execution-flow-grid {{ grid-template-columns: repeat(2, 1fr); }}
-      .account-panel-header, .account-main-toolbar {{ flex-direction: column; align-items: flex-start; }}
-    }}
-    @media (max-width: 768px) {{
-      .app {{ padding: 12px; }}
-      .app-shell {{ padding: 18px; border-radius: 18px; }}
-      .metrics-grid {{ grid-template-columns: 1fr; }}
-      .header {{ flex-direction: column; align-items: flex-start; gap: 16px; }}
-      .header-status {{ justify-content: flex-start; }}
-      .dashboard-tabs {{ padding: 8px; gap: 8px; }}
-      .dashboard-tab {{ flex: 1 1 calc(50% - 8px); min-width: 0; }}
-      .decision-grid {{ grid-template-columns: 1fr; }}
-      .home-command-stat-grid,
-      .home-command-chip-grid {{ grid-template-columns: 1fr; }}
-      .positions-grid {{ grid-template-columns: 1fr; }}
-      .trade-row {{ min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }}
-      .analytics-grid {{ grid-template-columns: 1fr; }}
-      .analytics-row {{ min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }}
-      .account-overview-grid {{ grid-template-columns: 1fr; }}
-      .account-snapshot-grid {{ grid-template-columns: 1fr; }}
-      .execution-flow-grid {{ grid-template-columns: 1fr; }}
-      .desktop-only {{ display: none; }}
-      .mobile-only {{ display: block; }}
-      .analytics-table.desktop-only {{ display: none; }}
-      .analytics-card-list.mobile-only {{ display: flex; }}
-      .trade-history.desktop-only {{ display: none; }}
-      .trade-card-list.mobile-only {{ display: flex; }}
-    }}
-  </style>
-</head>
-{render_dashboard_shell(
-    health_status=health_status,
-    latest_update_display=latest_update_display,
-    execution_mode_label=execution_mode_label,
-    execution_mode_state=execution_mode_state,
-    active_tab=active_tab,
-    tab_bar_html=tab_bar_html,
-    tab_content_html=tab_content_html,
-)}
-  <div class="refresh-indicator {'error' if health_status != 'OK' else ''}" id="refresh-indicator">
-    <div class="refresh-dot"></div>
-    <span id="refresh-indicator-text">{'Unable to refresh' if health_status != 'OK' else 'Auto refresh: 5s'}</span>
-  </div>
-  <script>
+
+    <!-- render_dashboard_styles -->
+    {render_dashboard_styles()}
+    </style>
+</head>"""
+
+
+def render_dashboard_scripts() -> str:
+    return """  <script>
     const ACCOUNT_METRIC_STORAGE_KEY = 'dashboard.account.metric';
     const ACCOUNT_RANGE_STORAGE_KEY = 'dashboard.account.range';
     const COLLAPSED_SECTIONS_STORAGE_KEY = 'dashboard.collapsed-sections';
@@ -3743,7 +3619,367 @@ def render_dashboard_html(
     setInterval(() => refreshDashboard(false), 5000);
   </script>
 </body>
-</html>"""
+</html>""".replace("{{", "{").replace("}}", "}")
+
+def render_dashboard_document(
+    snapshot: dict,
+    strategy_config: dict | None = None,
+    active_tab: str | None = None,
+    account_range_key: str = "1D",
+) -> str:
+    return (
+        "<!doctype html>\n"
+        '<html lang="zh-CN">\n'
+        f"{render_dashboard_head()}\n"
+        f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_tab=active_tab, account_range_key=account_range_key)}"
+        f"{render_dashboard_scripts()}"
+    )
+
+
+def render_dashboard_body(
+    snapshot: dict,
+    strategy_config: dict | None = None,
+    active_tab: str | None = None,
+    account_range_key: str = "1D",
+) -> str:
+    active_tab = normalize_dashboard_tab(active_tab)
+    account_range_key = normalize_account_range(account_range_key)
+    timeseries = build_dashboard_timeseries_payload(snapshot)
+    runtime = snapshot["runtime"]
+    latest_signal = runtime.get("latest_signal_decision") or {}
+    latest_position_snapshot = runtime.get("latest_position_snapshot") or {}
+    latest_account_snapshot = runtime.get("latest_account_snapshot") or {}
+    latest_signal_payload = latest_signal.get("payload") or {}
+    blocked_reason = latest_signal_payload.get("blocked_reason")
+    decision_status = latest_signal.get("decision_type") or "none"
+    latest_signal_symbol = latest_signal.get("symbol") or "none"
+    latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
+    config = strategy_config or snapshot.get("strategy_config") or {}
+    execution_mode_label, execution_mode_state = _build_execution_mode(config)
+    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"], account_range_key=account_range_key)
+    account_range_stats = _compute_account_range_stats(timeseries["account"])
+    event_counts = snapshot.get("event_counts", {})
+    decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
+    leader_history = list(reversed(snapshot.get("leader_history", [])))
+    timeline_chart = _render_timeline_svg(events=leader_history)
+    health_status = snapshot["health"]["overall_status"]
+    # Build position cards
+    equity_value = latest_account_snapshot.get("equity")
+    position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
+    trader_metrics = build_trader_summary_metrics(
+        snapshot,
+        position_details=position_details,
+        range_key=account_range_key,
+    )
+    home_command_html = _build_overview_home_command(
+        position_details=position_details,
+        trader_metrics=trader_metrics,
+        account_range_stats=account_range_stats,
+        health_status=health_status,
+        account_range_key=account_range_key,
+    )
+    # Build trade history
+    trade_fills = snapshot.get("recent_trade_fills") or []
+    recent_broker_orders = snapshot.get("recent_broker_orders") or []
+    recent_algo_orders = snapshot.get("recent_algo_orders") or []
+    recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
+    trade_history_html = render_trade_history_table(trade_fills)
+    recent_trade_round_trips = snapshot.get("recent_trade_round_trips") or []
+    closed_trades_html = render_closed_trades_table(recent_trade_round_trips)
+    leg_count_aggregate_html = render_trade_leg_count_aggregate_table(build_trade_leg_count_aggregates(recent_trade_round_trips))
+    leg_index_aggregate_html = render_trade_leg_index_aggregate_table(build_trade_leg_index_aggregates(recent_trade_round_trips))
+    stop_slippage_html = render_stop_slippage_table(recent_stop_exit_summaries)
+    execution_flow_html = _build_execution_flow_panel(
+        recent_broker_orders=recent_broker_orders,
+        recent_algo_orders=recent_algo_orders,
+        recent_trade_fills=trade_fills,
+        recent_stop_exit_summaries=recent_stop_exit_summaries,
+    )
+    # Build strategy config
+    config_html = (
+        f"<div class='config-panel'>"
+        f"<div class='config-row'><span class='config-label'>Stop Budget</span><span>{escape(str(config.get('stop_budget_usdt') or 'n/a'))}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Entry Window</span><span>{escape(str(config.get('entry_window') or 'n/a'))}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Testnet</span><span class='{'config-value-true' if config.get('testnet') else 'config-value-false'}'>{'Yes' if config.get('testnet') else 'No'}</span></div>"
+        f"<div class='config-row'><span class='config-label'>Submit Orders</span><span class='{'config-value-true' if config.get('submit_orders') else 'config-value-false'}'>{'Yes' if config.get('submit_orders') else 'No'}</span></div>"
+        f"</div>"
+    )
+    latest_update_display = max(
+        [
+            timestamp
+            for timestamp in (
+                runtime.get("latest_tick_result_timestamp"),
+                latest_signal.get("timestamp"),
+                (snapshot.get("recent_events") or [{}])[0].get("timestamp") if snapshot.get("recent_events") else None,
+            )
+            if timestamp
+        ],
+        default=None,
+    )
+    health_items_html = "".join(
+        f"<div class='health-item status-{escape(item['status'].lower())}'>"
+        f"<span class='health-status-dot'></span>"
+        f"<span class='health-name'>{escape(item['name'])}</span>"
+        f"<span class='health-status'>{escape(item['status'])}</span>"
+        f"<span class='health-msg'>{escape(item['message'])}</span></div>"
+        for item in snapshot["health"]["items"]
+    )
+    recent_events_html = "".join(
+        f"<div class='event-item'>"
+        f"<span class='event-type'>{escape(e['event_type'])}</span>"
+        f"<span class='event-time'>{escape(format_timestamp_for_display(e['timestamp']))}</span>"
+        f"<span class='event-source'>{escape(str(e.get('source') or '-'))}</span></div>"
+        for e in snapshot["recent_events"][:12]
+    ) or "<div class='event-item empty'>No recent events</div>"
+    source_counts = snapshot.get("source_counts", {})
+    source_html = "".join(
+        f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
+        for src, cnt in sorted(source_counts.items())[:4]
+    ) or "<div class='source-tag empty'>No sources</div>"
+    warnings = snapshot.get("warnings", [])
+    primary_source, primary_source_count = max(
+        source_counts.items(),
+        key=lambda item: (item[1], item[0]),
+        default=("n/a", 0),
+    )
+    primary_source_label = primary_source if primary_source_count <= 0 else f"{primary_source} · {primary_source_count}"
+    diagnostics_html = (
+        "<div class='dashboard-section system-diagnostics-panel section-body'>"
+        "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Primary Source</div><div class='decision-value'>{escape(primary_source_label)}</div></div>"
+        "</div>"
+        "</div>"
+    )
+    warning_list_html = (
+        "<div class='dashboard-section system-warning-panel section-body'>"
+        "<div class='section-header'>ACTIVE WARNINGS</div>"
+        "<div class='system-warning-list'>"
+        + "".join(f"<div class='system-warning-item'>{escape(str(warning))}</div>" for warning in warnings[:5])
+        + "</div>"
+        "</div>"
+        if warnings
+        else ""
+    )
+
+    def _format_pct(value: float | None, *, signed: bool = False) -> str:
+        if value is None:
+            return "n/a"
+        if signed and float(value) == 0:
+            return "0.00%"
+        return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
+
+    performance_win_rate = trader_metrics["performance"].get("win_rate")
+    health_metric_state = "danger" if health_status != "OK" else ""
+    blocked_reason_counts = trader_metrics["signals"].get("blocked_reason_counts", {})
+    blocked_reason_summary = ", ".join(
+        f"{reason}: {count}"
+        for reason, count in blocked_reason_counts.items()
+    ) or "No blocked signals"
+    blocked_reason_breakdown_html = (
+        "<div class='signal-breakdown'>"
+        + "".join(
+            f"<div class='signal-breakdown-item'><span class='signal-breakdown-label'>{escape(str(reason))}</span><span class='signal-breakdown-count'>{escape(str(count))}</span></div>"
+            for reason, count in blocked_reason_counts.items()
+        )
+        + "</div>"
+        if blocked_reason_counts
+        else "<div class='signal-breakdown-empty compact'>No blocked signals</div>"
+    )
+    recent_leader_sequence = [str(item.get("symbol") or "-") for item in leader_history[:5]]
+    recent_leader_sequence_html = (
+        " \u2192 ".join(recent_leader_sequence)
+        if len(recent_leader_sequence) >= 2
+        else "insufficient history"
+    )
+    open_risk_pct = trader_metrics["account"].get("open_risk_pct")
+    if open_risk_pct is None:
+        open_risk_state = ""
+    elif open_risk_pct > 60:
+        open_risk_state = "danger"
+    elif open_risk_pct >= 30:
+        open_risk_state = "warning"
+    else:
+        open_risk_state = "normal"
+    top_metric_cards = [
+        (
+            "EQUITY",
+            _format_metric(trader_metrics["account"].get("current_equity")),
+            "Latest account snapshot",
+            "",
+        ),
+        (
+            "TODAY NET PNL",
+            _format_metric(trader_metrics["account"].get("today_net_pnl"), signed=True),
+            "Adjusted equity delta across visible account history",
+            "",
+        ),
+        (
+            "OPEN RISK / EQUITY",
+            _format_pct(trader_metrics["account"].get("open_risk_pct")),
+            f"{_format_metric(trader_metrics['account'].get('open_risk'))} USDT at risk",
+            open_risk_state,
+        ),
+        (
+            "SYSTEM HEALTH",
+            escape(health_status),
+            f"Last update {format_timestamp_for_display(latest_update_display)}",
+            health_metric_state,
+        ),
+    ]
+    top_metrics_html = "".join(
+        (
+            f"<div class='metric {metric_state}'>"
+            f"<div class='metric-label'>{label}</div>"
+            f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
+            f"<div class='metric-sub'>{escape(subtext)}</div>"
+            "</div>"
+        )
+        for label, value, subtext, metric_state in top_metric_cards
+    )
+    execution_summary_html = (
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('avg_slippage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Max Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('max_slippage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Stop Exits</div><div class='decision-value'>{escape(str(trader_metrics['execution'].get('stop_exit_count') or 0))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Fee Total</div><div class='decision-value'>{escape(_format_metric(trader_metrics['execution'].get('fee_total')))}</div></div>"
+        "</div>"
+    )
+    performance_summary_html = (
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Win Rate</div><div class='decision-value'>{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else 'n/a')}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Profit Factor</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('profit_factor')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Win</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_win')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Loss</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_loss'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Expectancy</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('expectancy'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Avg Hold</div><div class='decision-value'>{escape(_format_duration_seconds(trader_metrics['performance'].get('avg_hold_time_seconds')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Current Streak</div><div class='decision-value'>{escape(str((trader_metrics['performance'].get('current_streak') or {}).get('label') or 'n/a'))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Trade Count</div><div class='decision-value'>{escape(str(trader_metrics['performance'].get('trade_count') or 0))}</div></div>"
+        "</div>"
+    )
+    risk_overview_html = (
+        "<div class='decision-grid decision-grid-stack'>"
+        f"<div class='decision-item'><div class='decision-label'>Available Balance</div><div class='decision-value'>{escape(_format_metric(trader_metrics['account'].get('current_available_balance')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Margin Usage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['account'].get('margin_usage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(trader_metrics['account'].get('current_positions') or 0))} / {escape(str(trader_metrics['account'].get('current_orders') or 0))}</div></div>"
+        "</div>"
+    )
+    hero_html = (
+        "<section class='hero-grid'>"
+        "<div class='hero-card hero-card-wide'>"
+        "<div class='hero-eyebrow'>LIVE OVERVIEW</div>"
+        "<div class='hero-title'>ACTIVE SIGNAL</div>"
+        "<div class='hero-copy'>Keep the current decision, rotation context, and blocked reasons in one glance before drilling into execution details.</div>"
+        "<div class='decision-grid'>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Decision Type</div>"
+        f"<div class='decision-value'>{escape(str(decision_status))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Target Symbol</div>"
+        f"<div class='decision-value'>{escape(str(latest_signal_symbol))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Blocked Reason</div>"
+        f"<div class='decision-value'>{escape(str(blocked_reason or 'None'))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Decision Time</div>"
+        f"<div class='decision-value'>{escape(latest_signal_time)}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Rotation Count</div>"
+        f"<div class='decision-value'>{escape(str(trader_metrics['signals'].get('rotation_count') or 0))}</div>"
+        "</div>"
+        "<div class='decision-item'>"
+        "<div class='decision-label'>Blocked Reasons</div>"
+        f"{f'<div class=\"decision-value\" style=\"margin-bottom:8px;\">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}"
+        f"{blocked_reason_breakdown_html}"
+        "</div>"
+        "</div>"
+        "</div>"
+        "<div class='hero-card hero-card-compact'>"
+        "<div class='hero-eyebrow'>RISK &amp; DEPLOYMENT</div>"
+        "<div class='hero-title'>Capital Pressure</div>"
+        "<div class='hero-copy'>Balance available capital against live drawdown and deployed risk before the next tick updates the book.</div>"
+        f"{risk_overview_html}"
+        "</div>"
+        "<div class='hero-card hero-card-compact'>"
+        "<div class='hero-eyebrow'>LEADER ROTATION</div>"
+        "<div class='hero-title'>Sequence Monitor</div>"
+        f"<div class='chart-container'>{timeline_chart}</div>"
+        "<div class='rotation-summary'>"
+        "<div class='rotation-summary-label'>Recent Sequence</div>"
+        f"<div class='rotation-summary-value'>{escape(recent_leader_sequence_html)}</div>"
+        "</div>"
+        "</div>"
+        "</section>"
+    )
+    tab_bar_html = render_dashboard_tab_bar(active_tab, account_range_key=account_range_key)
+    tab_content_html = {
+        "overview": render_dashboard_overview_tab(
+            top_metrics_html=top_metrics_html,
+            hero_html=hero_html,
+            positions_html=render_position_cards(position_details),
+            home_command_html=home_command_html,
+        ),
+        "execution": render_dashboard_execution_tab(
+            execution_flow_html=execution_flow_html,
+            execution_summary_html=execution_summary_html,
+            trade_history_html=trade_history_html,
+            stop_slippage_html=stop_slippage_html,
+        ),
+        "performance": render_dashboard_performance_tab(
+            performance_summary_html=performance_summary_html,
+            round_trip_detail_html=closed_trades_html,
+            leg_count_aggregate_html=leg_count_aggregate_html,
+            leg_index_aggregate_html=leg_index_aggregate_html,
+            account_metrics_panel_html=account_metrics_panel_html,
+        ),
+        "system": render_dashboard_system_tab(
+            diagnostics_html=diagnostics_html,
+            warning_list_html=warning_list_html,
+            config_html=config_html,
+            source_html=source_html,
+            health_items_html=health_items_html,
+            recent_events_html=recent_events_html,
+        ),
+    }[active_tab]
+
+    return (
+        "<!-- render_dashboard_shell -->"
+        + " "
+        + render_dashboard_shell(
+            health_status=health_status,
+            latest_update_display=latest_update_display,
+            execution_mode_label=execution_mode_label,
+            execution_mode_state=execution_mode_state,
+            active_tab=active_tab,
+            tab_bar_html=tab_bar_html,
+            tab_content_html=tab_content_html,
+        )
+        + f"  <div class=\"refresh-indicator {'error' if health_status != 'OK' else ''}\" id=\"refresh-indicator\">\n"
+        + "    <div class=\"refresh-dot\"></div>\n"
+        + f"    <span id=\"refresh-indicator-text\">{'Unable to refresh' if health_status != 'OK' else 'Auto refresh: 5s'}</span>\n"
+        + "  </div>\n"
+    )
+
+def render_dashboard_html(
+    snapshot: dict,
+    strategy_config: dict | None = None,
+    active_tab: str | None = None,
+    account_range_key: str = "1D",
+) -> str:
+    return render_dashboard_document(
+        snapshot,
+        strategy_config=strategy_config,
+        active_tab=active_tab,
+        account_range_key=account_range_key,
+    )
 
 
 def run_dashboard_server(
