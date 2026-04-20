@@ -83,19 +83,17 @@ class BrokerTests(unittest.TestCase):
 
             def fetch_open_algo_orders(self, **params):
                 self.open_algo_order_calls.append(params)
-                symbol = params.get("symbol")
-                # Only strategy orders (ma_ prefix) should be cancelled
-                # Return symbol-specific orders
+                symbol = params["symbol"]
                 if symbol == "BTCUSDT":
                     return [
-                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 11, "clientAlgoId": "ma_250101_120000_BTCUSDT_b00s"},
-                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 13, "clientAlgoId": "manual_stop_order"},
+                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 11, "clientAlgoId": "ma_240101120000_BTCUSDT_b01s"},
+                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 13, "clientAlgoId": "user_manual_stop"},
                         {"symbol": symbol, "orderType": "TAKE_PROFIT_MARKET", "algoId": 12},
                     ]
                 else:
                     return [
-                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 21, "clientAlgoId": "ma_250101_120000_ETHUSDT_b00s"},
-                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 23, "clientAlgoId": "manual_eth_stop"},
+                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 21, "clientAlgoId": "ma_240101120000_ETHUSDT_b01s"},
+                        {"symbol": symbol, "orderType": "STOP_MARKET", "algoId": 23, "clientAlgoId": "another_manual"},
                     ]
 
             def cancel_algo_order(self, **params):
@@ -121,10 +119,10 @@ class BrokerTests(unittest.TestCase):
         )
         self.assertEqual(len(responses), 2)
         self.assertEqual(broker.client.open_algo_order_calls[0]["symbol"], "BTCUSDT")
-        # Only strategy orders (ma_ prefix) should be cancelled, not manual orders
+        # Only strategy-created stop orders (clientAlgoId starts with "ma_") should be cancelled
         self.assertEqual(len(broker.client.cancel_algo_calls), 2)
-        self.assertEqual(broker.client.cancel_algo_calls[0]["algo_id"], 11)  # BTCUSDT strategy order
-        self.assertEqual(broker.client.cancel_algo_calls[1]["algo_id"], 21)  # ETHUSDT strategy order
+        self.assertEqual(broker.client.cancel_algo_calls[0]["algo_id"], 11)
+        self.assertEqual(broker.client.cancel_algo_calls[1]["algo_id"], 21)
         self.assertEqual(broker.client.new_algo_order_calls[1]["symbol"], "ETHUSDT")
         self.assertEqual(broker.client.new_algo_order_calls[0]["type"], "STOP_MARKET")
         self.assertEqual(broker.client.new_algo_order_calls[0]["stopPrice"], "61000.0")
