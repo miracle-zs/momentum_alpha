@@ -262,6 +262,59 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
 
+    def test_apply_order_trade_update_partial_fills_for_same_order_merge_into_one_leg(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        state = StrategyState(current_day=date(2026, 4, 15), previous_leader_symbol="BTCUSDT", positions={})
+        first_fill = parse_user_stream_event(
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1776215100000,
+                "o": {
+                    "s": "ETHUSDT",
+                    "i": 101,
+                    "c": "ma_260415010000_ETHUSDT_b00e",
+                    "S": "BUY",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ot": "MARKET",
+                    "ap": "100",
+                    "z": "1",
+                    "sp": "95",
+                },
+            }
+        )
+        second_fill = parse_user_stream_event(
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1776215160000,
+                "o": {
+                    "s": "ETHUSDT",
+                    "i": 101,
+                    "c": "ma_260415010000_ETHUSDT_b00e",
+                    "S": "BUY",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ot": "MARKET",
+                    "ap": "110",
+                    "z": "2",
+                    "sp": "95",
+                },
+            }
+        )
+
+        after_first = apply_user_stream_event_to_state(state=state, event=first_fill)
+        updated = apply_user_stream_event_to_state(state=after_first, event=second_fill)
+
+        self.assertIn("ETHUSDT", updated.positions)
+        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("3"))
+        self.assertEqual(len(updated.positions["ETHUSDT"].legs), 1)
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].entry_order_id, "ma_260415010000_ETHUSDT_b00e")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].quantity, Decimal("3"))
+        self.assertAlmostEqual(float(updated.positions["ETHUSDT"].legs[0].entry_price), 106.6666666667, places=9)
+        self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("95"))
+
     def test_apply_stop_market_sell_fill_removes_position(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
         from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event

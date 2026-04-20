@@ -377,6 +377,7 @@ def apply_user_stream_event_to_state(
             stop_price=stop_price,
             leg_type="stream_fill",
             filled_at=filled_at,
+            entry_order_id=event.client_order_id or (str(event.order_id) if event.order_id is not None else None),
         )
 
     if _is_strategy_stop_fill(event):

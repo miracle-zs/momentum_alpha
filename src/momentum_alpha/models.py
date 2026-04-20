@@ -28,6 +28,7 @@ class PositionLeg:
     stop_price: Decimal
     opened_at: datetime
     leg_type: str
+    entry_order_id: str | None = None
 
     @property
     def stop_risk(self) -> Decimal:

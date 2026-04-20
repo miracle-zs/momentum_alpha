@@ -208,6 +208,7 @@ def _serialize_snapshot_position(position) -> dict:
                 "stop_price": str(leg.stop_price),
                 "opened_at": leg.opened_at.isoformat(),
                 "leg_type": leg.leg_type,
+                "entry_order_id": leg.entry_order_id,
             }
         )
     payload = {

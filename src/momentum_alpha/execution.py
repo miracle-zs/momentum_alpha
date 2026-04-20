@@ -112,6 +112,7 @@ def apply_fill(
     stop_price: Decimal,
     leg_type: str,
     filled_at: datetime,
+    entry_order_id: str | None = None,
     new_previous_leader_symbol: str | None = None,
 ) -> StrategyState:
     positions = dict(state.positions)
@@ -123,17 +124,34 @@ def apply_fill(
         stop_price=stop_price,
         opened_at=filled_at,
         leg_type=leg_type,
+        entry_order_id=entry_order_id,
     )
 
     if position is None:
         positions[symbol] = Position(symbol=symbol, stop_price=stop_price, legs=(new_leg,))
     else:
-        updated_position = Position(
-            symbol=symbol,
-            stop_price=stop_price,
-            legs=(*position.with_stop_price(stop_price).legs, new_leg),
-        )
-        positions[symbol] = updated_position
+        updated_legs = list(position.with_stop_price(stop_price).legs)
+        last_leg = updated_legs[-1] if updated_legs else None
+        if (
+            last_leg is not None
+            and last_leg.entry_order_id is not None
+            and entry_order_id is not None
+            and last_leg.entry_order_id == entry_order_id
+            and last_leg.leg_type == leg_type
+        ):
+            merged_quantity = last_leg.quantity + quantity
+            merged_entry_price = (
+                (last_leg.entry_price * last_leg.quantity) + (entry_price * quantity)
+            ) / merged_quantity
+            updated_legs[-1] = replace(
+                last_leg,
+                quantity=merged_quantity,
+                entry_price=merged_entry_price,
+                stop_price=stop_price,
+            )
+        else:
+            updated_legs.append(new_leg)
+        positions[symbol] = Position(symbol=symbol, stop_price=stop_price, legs=tuple(updated_legs))
 
     return replace(
         state,

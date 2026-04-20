@@ -1166,6 +1166,7 @@ class RuntimeStoreTests(unittest.TestCase):
                                 Decimal("106"),
                                 datetime(2026, 4, 15, 1, 5, tzinfo=timezone.utc),
                                 "stream_fill",
+                                "ma_260415010000_ETHUSDT_b00e",
                             ),
                         ),
                     )
@@ -1180,6 +1181,7 @@ class RuntimeStoreTests(unittest.TestCase):
 
             self.assertEqual(loaded.previous_leader_symbol, "BTCUSDT")
             self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
+            self.assertEqual(loaded.positions["ETHUSDT"].legs[0].entry_order_id, "ma_260415010000_ETHUSDT_b00e")
             self.assertEqual(loaded.processed_event_ids, {"evt-1": "2026-04-15T01:00:00+00:00"})
             self.assertEqual(loaded.order_statuses["101"]["status"], "NEW")
             self.assertEqual(loaded.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
