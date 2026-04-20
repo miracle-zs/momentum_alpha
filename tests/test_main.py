@@ -696,6 +696,99 @@ class MainTests(unittest.TestCase):
             self.assertEqual(signal_decisions[0]["payload"]["blocked_reason"], "invalid_stop_price")
             self.assertNotIn("positions", snapshots[0]["payload"])
 
+    def test_run_once_live_records_skipped_add_on_price_for_non_leader_position(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.runtime_store import fetch_recent_signal_decisions
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                        {
+                            "symbol": "ETHUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                    ]
+                }
+
+            def fetch_ticker_prices(self):
+                return [
+                    {"symbol": "BTCUSDT", "price": "105"},
+                    {"symbol": "ETHUSDT", "price": "130"},
+                ]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "100", "0", "0", "0"]]
+                lows = {"BTCUSDT": "101", "ETHUSDT": "120"}
+                return [[0, "0", "0", lows[symbol], "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return [
+                    {"symbol": "BTCUSDT", "positionAmt": "1", "entryPrice": "104", "updateTime": 1700000000000},
+                    {"symbol": "ETHUSDT", "positionAmt": "1", "entryPrice": "125", "updateTime": 1700000000000},
+                ]
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return [
+                    {"symbol": "BTCUSDT", "type": "STOP_MARKET", "stopPrice": "100"},
+                    {"symbol": "ETHUSDT", "type": "STOP_MARKET", "stopPrice": "118"},
+                ]
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+            def replace_stop_orders(self, replacements):
+                return []
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            result = run_once_live(
+                symbols=["BTCUSDT", "ETHUSDT"],
+                now=datetime(2026, 4, 15, 2, 0, tzinfo=timezone.utc),
+                previous_leader_symbol="ETHUSDT",
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=False,
+                restore_positions=True,
+                last_add_on_hour=1,
+                audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
+            )
+
+            self.assertEqual([intent.symbol for intent in result.runtime_result.decision.add_on_entries], ["ETHUSDT"])
+            self.assertEqual([skipped.symbol for skipped in result.runtime_result.decision.skipped_add_ons], ["BTCUSDT"])
+
+            signal_decisions = fetch_recent_signal_decisions(path=runtime_db_path, limit=10)
+            skipped_decisions = [item for item in signal_decisions if item["decision_type"] == "add_on_skipped"]
+            self.assertEqual(len(skipped_decisions), 1)
+            self.assertEqual(skipped_decisions[0]["symbol"], "BTCUSDT")
+            self.assertEqual(skipped_decisions[0]["next_leader_symbol"], "ETHUSDT")
+            self.assertEqual(skipped_decisions[0]["payload"]["blocked_reason"], "not_current_leader")
+            self.assertEqual(skipped_decisions[0]["payload"]["latest_price"], "105")
+            self.assertEqual(skipped_decisions[0]["payload"]["stop_price"], "101")
+
     def test_run_once_live_uses_utc_midnight_minute_as_daily_open_source(self) -> None:
         from momentum_alpha.main import run_once_live
 

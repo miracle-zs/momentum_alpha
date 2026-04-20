@@ -274,7 +274,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual([intent.symbol for intent in result.base_entries], ["ETHUSDT"])
         self.assertIsNone(result.blocked_reason)
 
-    def test_hour_close_updates_stops_and_adds_one_leg_per_open_symbol(self) -> None:
+    def test_hour_close_adds_only_current_leader_and_records_skipped_symbols(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
         from momentum_alpha.strategy import evaluate_hour_close
 
@@ -298,8 +298,16 @@ class StrategyTests(unittest.TestCase):
         )
         latest_hour_lows = {"BTCUSDT": Decimal("105"), "ETHUSDT": Decimal("205")}
 
-        result = evaluate_hour_close(now=now, state=state, latest_hour_lows=latest_hour_lows)
-        self.assertEqual([intent.symbol for intent in result.add_on_entries], ["BTCUSDT", "ETHUSDT"])
+        result = evaluate_hour_close(
+            now=now,
+            state=state,
+            latest_hour_lows=latest_hour_lows,
+            current_leader_symbol="ETHUSDT",
+        )
+        self.assertEqual([intent.symbol for intent in result.add_on_entries], ["ETHUSDT"])
+        self.assertEqual([skipped.symbol for skipped in result.skipped_add_ons], ["BTCUSDT"])
+        self.assertEqual(result.skipped_add_ons[0].reason, "not_current_leader")
+        self.assertEqual(result.skipped_add_ons[0].stop_price, Decimal("105"))
         self.assertEqual(result.updated_stop_prices["BTCUSDT"], Decimal("105"))
         self.assertEqual(result.updated_stop_prices["ETHUSDT"], Decimal("205"))
 
@@ -341,4 +349,5 @@ class StrategyTests(unittest.TestCase):
 
         result = process_clock_tick(now=now, state=state, market=market, last_add_on_hour=0)
         self.assertEqual(result.base_entries[0].symbol, "SOLUSDT")
-        self.assertEqual(result.add_on_entries[0].symbol, "BTCUSDT")
+        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual(result.skipped_add_ons[0].symbol, "BTCUSDT")

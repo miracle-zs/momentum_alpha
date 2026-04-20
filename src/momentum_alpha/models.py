@@ -61,6 +61,13 @@ class EntryIntent:
 
 
 @dataclass(frozen=True)
+class SkippedAddOn:
+    symbol: str
+    stop_price: Decimal
+    reason: str
+
+
+@dataclass(frozen=True)
 class MinuteCloseDecision:
     base_entries: list[EntryIntent]
     new_previous_leader_symbol: str | None
@@ -71,6 +78,7 @@ class MinuteCloseDecision:
 class HourCloseDecision:
     add_on_entries: list[EntryIntent]
     updated_stop_prices: dict[str, Decimal]
+    skipped_add_ons: list[SkippedAddOn] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,7 @@ class TickDecision:
     new_previous_leader_symbol: str | None
     new_last_add_on_hour: int | None = None
     blocked_reason: str | None = None
+    skipped_add_ons: list[SkippedAddOn] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

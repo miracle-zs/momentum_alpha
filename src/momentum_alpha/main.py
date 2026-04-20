@@ -965,6 +965,20 @@ def run_once_live(
         )
         signal_records.extend(
             (
+                "add_on_skipped",
+                skipped.symbol,
+                {
+                    "leg_type": "add_on",
+                    "blocked_reason": skipped.reason,
+                    "stop_price": str(skipped.stop_price),
+                    "would_add_on_under_previous_strategy": True,
+                    **{key: value for key, value in market_payloads.get(skipped.symbol, {}).items() if value is not None},
+                },
+            )
+            for skipped in result.runtime_result.decision.skipped_add_ons
+        )
+        signal_records.extend(
+            (
                 "stop_update",
                 symbol,
                 {

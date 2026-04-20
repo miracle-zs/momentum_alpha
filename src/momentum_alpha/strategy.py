@@ -8,6 +8,7 @@ from momentum_alpha.models import (
     HourCloseDecision,
     MarketSnapshot,
     MinuteCloseDecision,
+    SkippedAddOn,
     StrategyState,
     TickDecision,
 )
@@ -74,17 +75,28 @@ def evaluate_hour_close(
     now: datetime,
     state: StrategyState,
     latest_hour_lows: dict[str, Decimal],
+    current_leader_symbol: str | None,
 ) -> HourCloseDecision:
     _ = now
     add_on_entries: list[EntryIntent] = []
+    skipped_add_ons: list[SkippedAddOn] = []
     updated_stop_prices: dict[str, Decimal] = {}
     for symbol in sorted(state.positions):
         if symbol not in latest_hour_lows:
             continue
         stop_price = latest_hour_lows[symbol]
         updated_stop_prices[symbol] = stop_price
-        add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
-    return HourCloseDecision(add_on_entries=add_on_entries, updated_stop_prices=updated_stop_prices)
+        if symbol == current_leader_symbol:
+            add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
+        else:
+            skipped_add_ons.append(
+                SkippedAddOn(symbol=symbol, stop_price=stop_price, reason="not_current_leader")
+            )
+    return HourCloseDecision(
+        add_on_entries=add_on_entries,
+        updated_stop_prices=updated_stop_prices,
+        skipped_add_ons=skipped_add_ons,
+    )
 
 
 def process_clock_tick(
@@ -96,6 +108,7 @@ def process_clock_tick(
 ) -> TickDecision:
     minute_close = evaluate_minute_close(now=now, state=state, market=market)
     add_on_entries: list[EntryIntent] = []
+    skipped_add_ons: list[SkippedAddOn] = []
     updated_stop_prices: dict[str, Decimal] = {}
     new_last_add_on_hour = last_add_on_hour
     current_hour = now.hour
@@ -109,8 +122,14 @@ def process_clock_tick(
             for symbol, snapshot in market.items()
             if symbol in state.positions
         }
-        hour_close = evaluate_hour_close(now=now, state=state, latest_hour_lows=latest_hour_lows)
+        hour_close = evaluate_hour_close(
+            now=now,
+            state=state,
+            latest_hour_lows=latest_hour_lows,
+            current_leader_symbol=minute_close.new_previous_leader_symbol,
+        )
         add_on_entries = hour_close.add_on_entries
+        skipped_add_ons = hour_close.skipped_add_ons
         updated_stop_prices = hour_close.updated_stop_prices
         new_last_add_on_hour = current_hour
 
@@ -121,5 +140,6 @@ def process_clock_tick(
         new_previous_leader_symbol=minute_close.new_previous_leader_symbol,
         new_last_add_on_hour=new_last_add_on_hour,
         blocked_reason=minute_close.blocked_reason,
+        skipped_add_ons=skipped_add_ons,
     )
 STOP_LOSS_COOLDOWN = timedelta(minutes=60)
