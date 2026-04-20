@@ -31,7 +31,13 @@ from .runtime_store import (
 
 DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
-DASHBOARD_TABS = ("overview", "execution", "performance", "system")
+DASHBOARD_ROOMS = ("live", "review", "system")
+LEGACY_DASHBOARD_TAB_TO_ROOM = {
+    "overview": "live",
+    "execution": "live",
+    "performance": "review",
+    "system": "system",
+}
 ACCOUNT_RANGE_WINDOWS = {
     "1H": timedelta(hours=1),
     "1D": timedelta(days=1),
@@ -46,8 +52,19 @@ def normalize_account_range(range_key: str | None) -> str:
     return normalized if normalized in {*ACCOUNT_RANGE_WINDOWS, "ALL"} else "1D"
 
 
+def normalize_dashboard_room(value: str | None) -> str:
+    room = (value or "").strip().lower()
+    if room in DASHBOARD_ROOMS:
+        return room
+    return LEGACY_DASHBOARD_TAB_TO_ROOM.get(room, "live")
+
+
+def _build_dashboard_room_href(*, room: str, account_range_key: str) -> str:
+    return f"?{urlencode({'room': normalize_dashboard_room(room), 'range': normalize_account_range(account_range_key)})}"
+
+
 def _build_dashboard_tab_href(*, tab: str, account_range_key: str) -> str:
-    return f"?{urlencode({'tab': normalize_dashboard_tab(tab), 'range': normalize_account_range(account_range_key)})}"
+    return _build_dashboard_room_href(room=normalize_dashboard_room(tab), account_range_key=account_range_key)
 
 
 def _account_flow_since(*, now: datetime, range_key: str) -> datetime:
@@ -1663,6 +1680,52 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
     )
 
 
+def _build_live_account_risk_panel(
+    *,
+    trader_metrics: dict[str, dict[str, object | None]],
+    account_range_stats: dict[str, float | None],
+) -> str:
+    account_metrics = trader_metrics["account"]
+    return (
+        "<section class='dashboard-section live-account-risk-panel'>"
+        "<div class='section-header'>ACCOUNT RISK</div>"
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Equity</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_equity')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Available Balance</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_available_balance')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Unrealized PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_unrealized_pnl'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Today Net PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('today_net_pnl'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Margin Usage</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('margin_usage_pct')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>OPEN RISK / EQUITY</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('open_risk_pct')))}</div><div class='decision-support'>{escape(_format_metric(account_metrics.get('open_risk')))} USDT at risk</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct_value(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(account_metrics.get('current_positions') or 0))} / {escape(str(account_metrics.get('current_orders') or 0))}</div></div>"
+        "</div>"
+        "</section>"
+    )
+
+
+def _build_live_core_lines_panel(account_points: list[dict]) -> str:
+    chart_specs = (
+        ("Account Equity", "equity", "#4cc9f0"),
+        ("Margin Usage %", "margin_usage_pct", "#ff8c42"),
+        ("Position Count", "position_count", "#36d98a"),
+    )
+    chart_cards = "".join(
+        (
+            "<div class='chart-card live-core-line-card'>"
+            f"<div class='section-header'>{escape(label)}</div>"
+            f"{_render_line_chart_svg(points=account_points, value_key=value_key, stroke=color, fill=color)}"
+            "</div>"
+        )
+        for label, value_key, color in chart_specs
+    )
+    return (
+        "<section class='dashboard-section live-core-lines-panel'>"
+        "<div class='section-header'>CORE LIVE LINES</div>"
+        f"<div class='analytics-grid'>{chart_cards}</div>"
+        "</section>"
+    )
+
+
 def _render_round_trip_leg_rows(legs: list[dict]) -> str:
     if not legs:
         return "<div class='round-trip-leg-empty'>No leg detail available</div>"
@@ -1778,19 +1841,14 @@ def _build_overview_home_command(
     ]
     action_cards = [
         (
-            "Execution",
-            "Trace fills, stop behavior, and broker actions.",
-            _build_dashboard_tab_href(tab="execution", account_range_key=account_range_key),
+            "复盘室",
+            "Review closed trades, leg contribution, slippage, and strategy parameters.",
+            _build_dashboard_room_href(room="review", account_range_key=account_range_key),
         ),
         (
-            "Performance",
-            "Review streak, expectancy, and account curve.",
-            _build_dashboard_tab_href(tab="performance", account_range_key=account_range_key),
-        ),
-        (
-            "System",
-            "Check freshness, warnings, and runtime health.",
-            _build_dashboard_tab_href(tab="system", account_range_key=account_range_key),
+            "系统状态室",
+            "Check freshness, warnings, configuration, and runtime health.",
+            _build_dashboard_room_href(room="system", account_range_key=account_range_key),
         ),
     ]
     return (
@@ -1890,8 +1948,8 @@ def _build_execution_flow_panel(
 
 
 def normalize_dashboard_tab(value: str | None) -> str:
-    tab = (value or "").strip().lower()
-    return tab if tab in DASHBOARD_TABS else "overview"
+    room = normalize_dashboard_room(value)
+    return {"live": "overview", "review": "performance", "system": "system"}[room]
 
 
 def _build_execution_mode(config: dict) -> tuple[str, str]:
@@ -1901,50 +1959,81 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
     return f"{venue} {order_mode}", state
 
 
-def render_dashboard_tab_bar(active_tab: str, *, account_range_key: str = "1D") -> str:
+def render_dashboard_room_nav(active_room: str, *, account_range_key: str = "1D") -> str:
+    active_room = normalize_dashboard_room(active_room)
     labels = {
-        "overview": "Overview",
-        "execution": "Execution",
-        "performance": "Performance",
-        "system": "System",
+        "live": "实时监控室",
+        "review": "复盘室",
+        "system": "系统状态室",
     }
     links = "".join(
         (
-            f'<a class="dashboard-tab{" is-active" if tab == active_tab else ""}" '
-            f'data-dashboard-tab="{tab}" href="{_build_dashboard_tab_href(tab=tab, account_range_key=account_range_key)}">{escape(labels[tab])}</a>'
+            f'<a class="dashboard-tab{" is-active" if room == active_room else ""}" '
+            f'data-dashboard-room="{room}" href="{_build_dashboard_room_href(room=room, account_range_key=account_range_key)}">{escape(labels[room])}</a>'
         )
-        for tab in DASHBOARD_TABS
+        for room in DASHBOARD_ROOMS
     )
     return (
-        '<nav class="dashboard-tabs" data-dashboard-section="tab-bar" aria-label="Dashboard views">'
+        '<nav class="dashboard-tabs" data-dashboard-section="room-nav" aria-label="Dashboard rooms">'
         f"{links}"
         "</nav>"
     )
 
 
-def render_dashboard_overview_tab(
+def render_dashboard_tab_bar(active_tab: str, *, account_range_key: str = "1D") -> str:
+    return render_dashboard_room_nav(normalize_dashboard_room(active_tab), account_range_key=account_range_key)
+
+
+def render_dashboard_live_room(
     *,
+    account_risk_html: str,
+    core_lines_html: str,
     top_metrics_html: str,
     hero_html: str,
     positions_html: str,
     home_command_html: str,
+    execution_flow_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-tab-content="overview">'
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="live">'
+        f"{account_risk_html}"
+        f"{core_lines_html}"
         f"<div class='metrics-grid'>{top_metrics_html}</div>"
         f"{hero_html}"
         "<section class='dashboard-section active-positions-panel'>"
         "<div class='section-header'>ACTIVE POSITIONS</div>"
         f"{positions_html}"
         "</section>"
+        f"{execution_flow_html}"
         f"{home_command_html}"
         "</div>"
     )
 
 
+def render_dashboard_overview_tab(
+    *,
+    account_risk_html: str,
+    core_lines_html: str,
+    top_metrics_html: str,
+    hero_html: str,
+    positions_html: str,
+    home_command_html: str,
+    execution_flow_html: str,
+) -> str:
+    return render_dashboard_live_room(
+        account_risk_html=account_risk_html,
+        core_lines_html=core_lines_html,
+        top_metrics_html=top_metrics_html,
+        hero_html=hero_html,
+        positions_html=positions_html,
+        home_command_html=home_command_html,
+        execution_flow_html=execution_flow_html,
+    )
+
+
 def render_dashboard_execution_tab(*, execution_flow_html: str, execution_summary_html: str, trade_history_html: str, stop_slippage_html: str) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-tab-content="execution">'
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="live">'
         f"{execution_flow_html}"
         "<section class='section-frame' data-collapsible-section='execution'>"
         "<div class='section-topbar'>"
@@ -1978,15 +2067,17 @@ def render_dashboard_performance_tab(
     round_trip_detail_html: str,
     leg_count_aggregate_html: str,
     leg_index_aggregate_html: str,
-    account_metrics_panel_html: str,
+    stop_slippage_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-tab-content="performance">'
-        "<section class='section-frame' data-collapsible-section='performance'>"
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="review">'
+        "<section class='section-frame' data-collapsible-section='review'>"
         "<div class='section-topbar'>"
-        "<div class='section-header'>STRATEGY PERFORMANCE</div>"
-        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Complete trade summary uses all closed trades; range switches only affect account panels.</div>"
-        "<button type='button' class='section-toggle' data-section-toggle='performance'>Collapse</button>"
+        "<div>"
+        "<div class='section-header'>复盘室</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Closed Trade Detail is the primary review surface; aggregates follow the ledger.</div>"
+        "</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='review'>Collapse</button>"
         "</div>"
         "<div class='dashboard-section section-body'>"
         "<div class='analytics-grid'>"
@@ -2006,21 +2097,35 @@ def render_dashboard_performance_tab(
         "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>By Leg Index</div>"
         f"<div class='table-scroll'>{leg_index_aggregate_html}</div>"
         "</div>"
+        "<div class='chart-card'>"
+        "<div class='section-header' style='margin-bottom:10px;'>STOP SLIPPAGE ANALYSIS</div>"
+        f"<div class='table-scroll'>{stop_slippage_html}</div>"
         "</div>"
         "</div>"
-        "</section>"
-        "<section class='section-frame' data-collapsible-section='account'>"
-        "<div class='section-topbar'>"
-        "<div class='section-header'>ACCOUNT METRICS</div>"
-        "<button type='button' class='section-toggle' data-section-toggle='account'>Collapse</button>"
         "</div>"
-        f"<div class='section-body'>{account_metrics_panel_html}</div>"
         "</section>"
         "</div>"
     )
 
 
-def render_dashboard_system_tab(
+def render_dashboard_review_room(
+    *,
+    performance_summary_html: str,
+    round_trip_detail_html: str,
+    leg_count_aggregate_html: str,
+    leg_index_aggregate_html: str,
+    stop_slippage_html: str,
+) -> str:
+    return render_dashboard_performance_tab(
+        performance_summary_html=performance_summary_html,
+        round_trip_detail_html=round_trip_detail_html,
+        leg_count_aggregate_html=leg_count_aggregate_html,
+        leg_index_aggregate_html=leg_index_aggregate_html,
+        stop_slippage_html=stop_slippage_html,
+    )
+
+
+def render_dashboard_system_room(
     *,
     diagnostics_html: str,
     warning_list_html: str,
@@ -2030,10 +2135,10 @@ def render_dashboard_system_tab(
     recent_events_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-tab-content="system">'
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="system">'
         "<section class='section-frame' data-collapsible-section='system'>"
         "<div class='section-topbar'>"
-        "<div class='section-header'>SYSTEM PANELS</div>"
+        "<div class='section-header'>系统状态室</div>"
         "<button type='button' class='section-toggle' data-section-toggle='system'>Collapse</button>"
         "</div>"
         f"{diagnostics_html}"
@@ -2056,6 +2161,25 @@ def render_dashboard_system_tab(
         "</div>"
         "</section>"
         "</div>"
+    )
+
+
+def render_dashboard_system_tab(
+    *,
+    diagnostics_html: str,
+    warning_list_html: str,
+    config_html: str,
+    source_html: str,
+    health_items_html: str,
+    recent_events_html: str,
+) -> str:
+    return render_dashboard_system_room(
+        diagnostics_html=diagnostics_html,
+        warning_list_html=warning_list_html,
+        config_html=config_html,
+        source_html=source_html,
+        health_items_html=health_items_html,
+        recent_events_html=recent_events_html,
     )
 
 
@@ -2767,9 +2891,9 @@ def render_dashboard_shell(
     latest_update_display: str | None,
     execution_mode_label: str,
     execution_mode_state: str,
-    active_tab: str,
-    tab_bar_html: str,
-    tab_content_html: str,
+    active_room: str,
+    room_nav_html: str,
+    room_content_html: str,
 ) -> str:
     return (
         "<body>"
@@ -2795,8 +2919,8 @@ def render_dashboard_shell(
         "<div class='toolbar-spacer'></div>"
         "<button type='button' class='action-button' id='manual-refresh-button'>MANUAL REFRESH</button>"
         "</div>"
-        f"{tab_bar_html}"
-        f"<div class='dashboard-tab-shell' data-dashboard-active-tab='{active_tab}'>{tab_content_html}</div>"
+        f"{room_nav_html}"
+        f"<div class='dashboard-tab-shell' data-dashboard-active-room='{active_room}'>{room_content_html}</div>"
         "</div>"
         "</div>"
     )
@@ -3273,8 +3397,8 @@ def render_dashboard_scripts() -> str:
     const DASHBOARD_SECTION_SELECTORS = [
       '[data-dashboard-section="status"]',
       '[data-dashboard-section="toolbar"]',
-      '[data-dashboard-section="tab-bar"]',
-      '[data-dashboard-active-tab]',
+      '[data-dashboard-section="room-nav"]',
+      '[data-dashboard-active-room]',
     ];
 
     function getAccountMetricsData() {{
@@ -3575,8 +3699,8 @@ def render_dashboard_scripts() -> str:
     }}
     async function refreshDashboard(force = false) {{
       const refreshButton = document.getElementById('manual-refresh-button');
-      const activeTab = document.querySelector('[data-dashboard-active-tab]')?.dataset.dashboardActiveTab;
-      if (!force && activeTab === 'performance') return;
+      const activeRoom = document.querySelector('[data-dashboard-active-room]')?.dataset.dashboardActiveRoom;
+      if (!force && activeRoom === 'review') return;
       try {{
         if (refreshButton) refreshButton.classList.add('is-refreshing');
         const currentUrl = `${{window.location.pathname}}${{window.location.search}}`;
@@ -3624,6 +3748,7 @@ def render_dashboard_scripts() -> str:
 def render_dashboard_document(
     snapshot: dict,
     strategy_config: dict | None = None,
+    active_room: str | None = None,
     active_tab: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
@@ -3631,7 +3756,7 @@ def render_dashboard_document(
         "<!doctype html>\n"
         '<html lang="zh-CN">\n'
         f"{render_dashboard_head()}\n"
-        f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_tab=active_tab, account_range_key=account_range_key)}"
+        f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_room=active_room, active_tab=active_tab, account_range_key=account_range_key)}"
         f"{render_dashboard_scripts()}"
     )
 
@@ -3639,10 +3764,11 @@ def render_dashboard_document(
 def render_dashboard_body(
     snapshot: dict,
     strategy_config: dict | None = None,
+    active_room: str | None = None,
     active_tab: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
-    active_tab = normalize_dashboard_tab(active_tab)
+    active_room = normalize_dashboard_room(active_room if active_room is not None else active_tab)
     account_range_key = normalize_account_range(account_range_key)
     timeseries = build_dashboard_timeseries_payload(snapshot)
     runtime = snapshot["runtime"]
@@ -3656,7 +3782,6 @@ def render_dashboard_body(
     latest_signal_time = format_timestamp_for_display(latest_signal.get("timestamp"))
     config = strategy_config or snapshot.get("strategy_config") or {}
     execution_mode_label, execution_mode_state = _build_execution_mode(config)
-    account_metrics_panel_html = _build_account_metrics_panel(timeseries["account"], account_range_key=account_range_key)
     account_range_stats = _compute_account_range_stats(timeseries["account"])
     event_counts = snapshot.get("event_counts", {})
     decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
@@ -3671,6 +3796,11 @@ def render_dashboard_body(
         position_details=position_details,
         range_key=account_range_key,
     )
+    account_risk_html = _build_live_account_risk_panel(
+        trader_metrics=trader_metrics,
+        account_range_stats=account_range_stats,
+    )
+    core_lines_html = _build_live_core_lines_panel(timeseries["account"])
     home_command_html = _build_overview_home_command(
         position_details=position_details,
         trader_metrics=trader_metrics,
@@ -3868,6 +3998,16 @@ def render_dashboard_body(
         f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(trader_metrics['account'].get('current_positions') or 0))} / {escape(str(trader_metrics['account'].get('current_orders') or 0))}</div></div>"
         "</div>"
     )
+    live_metrics_html = "".join(
+        (
+            f"<div class='metric {metric_state}'>"
+            f"<div class='metric-label'>{label}</div>"
+            f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
+            f"<div class='metric-sub'>{escape(subtext)}</div>"
+            "</div>"
+        )
+        for label, value, subtext, metric_state in top_metric_cards
+    )
     hero_html = (
         "<section class='hero-grid'>"
         "<div class='hero-card hero-card-wide'>"
@@ -3919,28 +4059,25 @@ def render_dashboard_body(
         "</div>"
         "</section>"
     )
-    tab_bar_html = render_dashboard_tab_bar(active_tab, account_range_key=account_range_key)
-    tab_content_html = {
-        "overview": render_dashboard_overview_tab(
-            top_metrics_html=top_metrics_html,
+    room_nav_html = render_dashboard_room_nav(active_room, account_range_key=account_range_key)
+    room_content_html = {
+        "live": render_dashboard_live_room(
+            account_risk_html=account_risk_html,
+            core_lines_html=core_lines_html,
+            top_metrics_html=live_metrics_html,
             hero_html=hero_html,
             positions_html=render_position_cards(position_details),
             home_command_html=home_command_html,
-        ),
-        "execution": render_dashboard_execution_tab(
             execution_flow_html=execution_flow_html,
-            execution_summary_html=execution_summary_html,
-            trade_history_html=trade_history_html,
-            stop_slippage_html=stop_slippage_html,
         ),
-        "performance": render_dashboard_performance_tab(
+        "review": render_dashboard_review_room(
             performance_summary_html=performance_summary_html,
             round_trip_detail_html=closed_trades_html,
             leg_count_aggregate_html=leg_count_aggregate_html,
             leg_index_aggregate_html=leg_index_aggregate_html,
-            account_metrics_panel_html=account_metrics_panel_html,
+            stop_slippage_html=stop_slippage_html,
         ),
-        "system": render_dashboard_system_tab(
+        "system": render_dashboard_system_room(
             diagnostics_html=diagnostics_html,
             warning_list_html=warning_list_html,
             config_html=config_html,
@@ -3948,7 +4085,7 @@ def render_dashboard_body(
             health_items_html=health_items_html,
             recent_events_html=recent_events_html,
         ),
-    }[active_tab]
+    }[active_room]
 
     return (
         "<!-- render_dashboard_shell -->"
@@ -3958,9 +4095,9 @@ def render_dashboard_body(
             latest_update_display=latest_update_display,
             execution_mode_label=execution_mode_label,
             execution_mode_state=execution_mode_state,
-            active_tab=active_tab,
-            tab_bar_html=tab_bar_html,
-            tab_content_html=tab_content_html,
+            active_room=active_room,
+            room_nav_html=room_nav_html,
+            room_content_html=room_content_html,
         )
         + f"  <div class=\"refresh-indicator {'error' if health_status != 'OK' else ''}\" id=\"refresh-indicator\">\n"
         + "    <div class=\"refresh-dot\"></div>\n"
@@ -3971,15 +4108,17 @@ def render_dashboard_body(
 def render_dashboard_html(
     snapshot: dict,
     strategy_config: dict | None = None,
+    active_room: str | None = None,
     active_tab: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
     return render_dashboard_document(
         snapshot,
         strategy_config=strategy_config,
-        active_tab=active_tab,
-        account_range_key=account_range_key,
-    )
+            active_room=active_room,
+            active_tab=active_tab,
+            account_range_key=account_range_key,
+        )
 
 
 def run_dashboard_server(
@@ -4003,7 +4142,7 @@ def run_dashboard_server(
         def do_GET(self) -> None:  # noqa: N802
             parsed_url = urlparse(self.path)
             query_params = parse_qs(parsed_url.query)
-            active_tab = normalize_dashboard_tab(query_params.get("tab", [None])[0])
+            active_room = normalize_dashboard_room(query_params.get("room", [query_params.get("tab", [None])[0]])[0])
             account_range_key = normalize_account_range(query_params.get("range", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
@@ -4034,7 +4173,7 @@ def run_dashboard_server(
             if parsed_url.path == "/":
                 body = render_dashboard_html(
                     snapshot,
-                    active_tab=active_tab,
+                    active_room=active_room,
                     account_range_key=account_range_key,
                 ).encode("utf-8")
                 self.send_response(200)
