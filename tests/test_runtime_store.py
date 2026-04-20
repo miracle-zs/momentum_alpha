@@ -308,6 +308,53 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(account_snapshots[0]["open_order_count"], 2)
             self.assertEqual(account_snapshots[0]["payload"]["account_alias"], "primary")
 
+    def test_daily_review_report_round_trips_through_sqlite(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_latest_daily_review_report,
+            insert_daily_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_daily_review_report(
+                path=db_path,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:01+08:00",
+                status="ok",
+                trade_count=2,
+                actual_total_pnl="12.50",
+                counterfactual_total_pnl="18.25",
+                pnl_delta="5.75",
+                replayed_add_on_count=3,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=["partial_replay"],
+                payload={
+                    "rows": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "opened_at": "2026-04-20T09:00:00+08:00",
+                            "closed_at": "2026-04-20T12:00:00+08:00",
+                            "actual_net_pnl": "5.00",
+                            "counterfactual_net_pnl": "7.50",
+                        }
+                    ],
+                    "strategy_config": {"stop_budget_usdt": "10"},
+                },
+            )
+
+            report = fetch_latest_daily_review_report(path=db_path)
+
+            self.assertEqual(report["report_date"], "2026-04-21")
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["trade_count"], 2)
+            self.assertEqual(report["payload"]["rows"][0]["symbol"], "BTCUSDT")
+
     def test_fetch_account_snapshots_for_range_keeps_latest_point_per_bucket(self) -> None:
         from momentum_alpha.runtime_store import fetch_account_snapshots_for_range, insert_account_snapshot
 

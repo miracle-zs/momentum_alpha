@@ -21,6 +21,7 @@ from .runtime_store import (
     fetch_recent_audit_events,
     fetch_recent_algo_orders,
     fetch_recent_broker_orders,
+    fetch_latest_daily_review_report,
     fetch_recent_position_snapshots,
     fetch_recent_signal_decisions,
     fetch_recent_stop_exit_summaries,
@@ -1228,6 +1229,7 @@ def load_dashboard_snapshot(
     recent_stop_exit_summaries: list[dict] = []
     recent_position_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
+    daily_review_report: dict | None = None
 
     if runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
@@ -1248,6 +1250,7 @@ def load_dashboard_snapshot(
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
+        daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
@@ -1309,6 +1312,7 @@ def load_dashboard_snapshot(
         "recent_stop_exit_summaries": recent_stop_exit_summaries,
         "recent_position_snapshots": recent_position_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
+        "daily_review_report": daily_review_report,
         "recent_events": recent_events,
         "warnings": warnings,
         "strategy_config": build_strategy_config(
@@ -2061,8 +2065,46 @@ def render_dashboard_execution_tab(*, execution_flow_html: str, execution_summar
     )
 
 
+def render_daily_review_panel(report: dict | None) -> str:
+    if report is None:
+        return (
+            "<section class='chart-card daily-review-panel'>"
+            "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>每日复盘</div>"
+            "<div class='trade-history-empty'>No daily review report</div>"
+            "</section>"
+        )
+
+    rows = []
+    for row in report.get("payload", {}).get("rows", []):
+        rows.append(
+            "<div class='analytics-row'>"
+            f"<span class='analytics-main'><b>{escape(str(row.get('symbol', 'n/a')))}</b></span>"
+            f"<span>{escape(str(row.get('opened_at', 'n/a')))}</span>"
+            f"<span>{escape(str(row.get('actual_net_pnl', 'n/a')))}</span>"
+            f"<span>{escape(str(row.get('counterfactual_net_pnl', 'n/a')))}</span>"
+            f"<span>{escape(str(row.get('pnl_delta', 'n/a')))}</span>"
+            "</div>"
+        )
+    rows_html = "".join(rows) if rows else "<div class='trade-history-empty'>No trade rows</div>"
+    return (
+        "<section class='chart-card daily-review-panel'>"
+        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>每日复盘</div>"
+        "<div class='decision-grid'>"
+        f"<div class='decision-item'><div class='decision-label'>Report Date</div><div class='decision-value'>{escape(str(report.get('report_date', 'n/a')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Trades</div><div class='decision-value'>{escape(str(report.get('trade_count', 'n/a')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Actual PnL</div><div class='decision-value'>{escape(str(report.get('actual_total_pnl', 'n/a')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Counterfactual PnL</div><div class='decision-value'>{escape(str(report.get('counterfactual_total_pnl', 'n/a')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Delta</div><div class='decision-value'>{escape(str(report.get('pnl_delta', 'n/a')))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Replayed Add-Ons</div><div class='decision-value'>{escape(str(report.get('replayed_add_on_count', 'n/a')))}</div></div>"
+        "</div>"
+        f"<div class='analytics-table'>{rows_html}</div>"
+        "</section>"
+    )
+
+
 def render_dashboard_performance_tab(
     *,
+    daily_review_html: str,
     performance_summary_html: str,
     round_trip_detail_html: str,
     leg_count_aggregate_html: str,
@@ -2080,6 +2122,7 @@ def render_dashboard_performance_tab(
         "<button type='button' class='section-toggle' data-section-toggle='review'>Collapse</button>"
         "</div>"
         "<div class='dashboard-section section-body'>"
+        f"{daily_review_html}"
         "<div class='analytics-grid'>"
         "<div class='chart-card'>"
         "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Complete Trade Summary (all closed trades)</div>"
@@ -2110,6 +2153,7 @@ def render_dashboard_performance_tab(
 
 def render_dashboard_review_room(
     *,
+    daily_review_html: str,
     performance_summary_html: str,
     round_trip_detail_html: str,
     leg_count_aggregate_html: str,
@@ -2117,6 +2161,7 @@ def render_dashboard_review_room(
     stop_slippage_html: str,
 ) -> str:
     return render_dashboard_performance_tab(
+        daily_review_html=daily_review_html,
         performance_summary_html=performance_summary_html,
         round_trip_detail_html=round_trip_detail_html,
         leg_count_aggregate_html=leg_count_aggregate_html,
@@ -4058,6 +4103,7 @@ def render_dashboard_body(
         "</section>"
     )
     room_nav_html = render_dashboard_room_nav(active_room, account_range_key=account_range_key)
+    daily_review_html = render_daily_review_panel(snapshot.get("daily_review_report"))
     room_content_html = {
         "live": render_dashboard_live_room(
             account_risk_html=account_risk_html,
@@ -4069,6 +4115,7 @@ def render_dashboard_body(
             execution_flow_html=execution_flow_html,
         ),
         "review": render_dashboard_review_room(
+            daily_review_html=daily_review_html,
             performance_summary_html=performance_summary_html,
             round_trip_detail_html=closed_trades_html,
             leg_count_aggregate_html=leg_count_aggregate_html,

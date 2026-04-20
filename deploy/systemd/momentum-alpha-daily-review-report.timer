@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Momentum Alpha Daily Review Report at 08:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 08:30:00
+Timezone=Asia/Shanghai
+Persistent=true
+Unit=momentum-alpha-daily-review-report.service
+
+[Install]
+WantedBy=timers.target

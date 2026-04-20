@@ -1591,6 +1591,53 @@ class MainTests(unittest.TestCase):
             self.assertIn("total_events=1", out.getvalue())
             self.assertIn("tick_result=1", out.getvalue())
 
+    def test_cli_main_supports_daily_review_report_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeReport:
+            report_date = "2026-04-21"
+            window_start = "2026-04-20T08:30:00+08:00"
+            window_end = "2026-04-21T08:30:00+08:00"
+            generated_at = "2026-04-21T08:30:01+08:00"
+            status = "ok"
+            trade_count = 1
+            actual_total_pnl = "10.00"
+            counterfactual_total_pnl = "15.00"
+            pnl_delta = "5.00"
+            replayed_add_on_count = 1
+            stop_budget_usdt = "10"
+            entry_start_hour_utc = 1
+            entry_end_hour_utc = 23
+            warnings = ()
+            rows = ()
+
+        with patch("momentum_alpha.main.build_daily_review_report", return_value=FakeReport()), patch(
+            "momentum_alpha.main.insert_daily_review_report",
+            side_effect=lambda **kwargs: calls.append(kwargs),
+        ):
+            out = StringIO()
+            with redirect_stdout(out):
+                exit_code = cli_main(
+                    argv=[
+                        "daily-review-report",
+                        "--runtime-db-file",
+                        "/tmp/runtime.db",
+                        "--stop-budget-usdt",
+                        "10",
+                        "--entry-start-hour-utc",
+                        "1",
+                        "--entry-end-hour-utc",
+                        "23",
+                    ],
+                    now_provider=lambda: datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["report_date"], "2026-04-21")
+        self.assertIn("actual_total_pnl=10.00", out.getvalue())
+
     def test_cli_main_supports_dashboard_command(self) -> None:
         from momentum_alpha.main import cli_main
 
@@ -3146,6 +3193,36 @@ class MainTests(unittest.TestCase):
             self.assertEqual(payload["market_context"]["leader_gap_pct"], "0.05")
             self.assertEqual(payload["market_context"]["candidates"][0]["latest_price"], "108")
             self.assertEqual(payload["market_context"]["candidates"][0]["daily_change_pct"], "0.08")
+
+    def test_build_market_context_payloads_includes_symbol_filters(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.main import _build_market_context_payloads
+
+        payloads, leader_gap_pct = _build_market_context_payloads(
+            snapshots=[
+                {
+                    "symbol": "BTCUSDT",
+                    "daily_open_price": Decimal("100"),
+                    "latest_price": Decimal("110"),
+                    "previous_hour_low": Decimal("98"),
+                    "current_hour_low": Decimal("97"),
+                }
+            ],
+            exchange_symbols={
+                "BTCUSDT": ExchangeSymbol(
+                    symbol="BTCUSDT",
+                    status="TRADING",
+                    filters=SymbolFilters(step_size=Decimal("0.001"), min_qty=Decimal("0.001"), tick_size=Decimal("0.1")),
+                    min_notional=Decimal("5"),
+                )
+            },
+        )
+
+        self.assertIsNone(leader_gap_pct)
+        self.assertEqual(payloads["BTCUSDT"]["step_size"], "0.001")
+        self.assertEqual(payloads["BTCUSDT"]["min_qty"], "0.001")
+        self.assertEqual(payloads["BTCUSDT"]["tick_size"], "0.1")
 
     def test_run_forever_logs_and_uses_sleep_function(self) -> None:
         from momentum_alpha.main import run_forever

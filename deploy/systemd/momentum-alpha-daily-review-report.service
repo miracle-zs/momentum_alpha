@@ -1,0 +1,15 @@
+[Unit]
+Description=Momentum Alpha Daily Review Report
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
+ExecStart=%h/momentum_alpha/scripts/run_daily_review_report.sh
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-daily-review-report.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-daily-review-report.log
+
+[Install]
+WantedBy=multi-user.target

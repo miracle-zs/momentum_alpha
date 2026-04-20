@@ -341,6 +341,49 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("By Total Leg Count", review_html)
         self.assertNotIn("ACCOUNT METRICS", review_html)
 
+    def test_render_dashboard_html_shows_daily_review_block_in_review_room(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["daily_review_report"] = {
+            "report_date": "2026-04-21",
+            "window_start": "2026-04-20T08:30:00+08:00",
+            "window_end": "2026-04-21T08:30:00+08:00",
+            "generated_at": "2026-04-21T08:30:01+08:00",
+            "status": "ok",
+            "trade_count": 2,
+            "actual_total_pnl": "12.50",
+            "counterfactual_total_pnl": "18.25",
+            "pnl_delta": "5.75",
+            "replayed_add_on_count": 3,
+            "warnings": [],
+            "payload": {
+                "rows": [
+                    {
+                        "symbol": "BTCUSDT",
+                        "opened_at": "2026-04-20T09:00:00+08:00",
+                        "closed_at": "2026-04-20T12:00:00+08:00",
+                        "actual_net_pnl": "5.00",
+                        "counterfactual_net_pnl": "7.50",
+                        "pnl_delta": "2.50",
+                        "leg_count": 2,
+                        "replayed_add_on_count": 1,
+                    }
+                ]
+            },
+        }
+
+        html = render_dashboard_html(snapshot, active_room="review")
+
+        self.assertIn("每日复盘", html)
+        self.assertIn("2026-04-21", html)
+        self.assertIn("12.50", html)
+        self.assertIn("18.25", html)
+        self.assertLess(
+            html.index("每日复盘"),
+            html.index("<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Closed Trade Detail</div>"),
+        )
+
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
 
@@ -405,6 +448,40 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(snapshot["health"]["overall_status"], "OK")
             self.assertEqual(snapshot["runtime"]["previous_leader_symbol"], "INUSDT")
             self.assertIn("event_counts", snapshot)
+
+    def test_load_dashboard_snapshot_includes_latest_daily_review_report(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_daily_review_report
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=runtime_db_file)
+            insert_daily_review_report(
+                path=runtime_db_file,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="10.00",
+                counterfactual_total_pnl="15.00",
+                pnl_delta="5.00",
+                replayed_add_on_count=1,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": []},
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                runtime_db_file=runtime_db_file,
+            )
+
+        self.assertEqual(snapshot["daily_review_report"]["report_date"], "2026-04-21")
+        self.assertEqual(snapshot["daily_review_report"]["trade_count"], 1)
 
     def test_load_dashboard_snapshot_reports_missing_state_as_warning(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

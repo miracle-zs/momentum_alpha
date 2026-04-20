@@ -77,3 +77,5 @@ Use this checklist during the first production session and any later restart or 
 - Confirm there is no repeated error pattern in the latest 100 log lines
 - Confirm `runtime.db` is still writable and current
 - Confirm `audit_events` and related runtime tables are still growing with new runtime and user-stream events
+- Confirm the daily review timer has run successfully at 08:30 Asia/Shanghai and inserted a fresh row into `daily_review_reports`
+- Run `bash scripts/run_daily_review_report.sh` manually when you need to backfill or debug the daily review output

@@ -166,6 +166,29 @@ CREATE INDEX IF NOT EXISTS idx_trade_round_trips_symbol_closed_at
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_round_trips_round_trip_id
     ON trade_round_trips(round_trip_id);
 
+CREATE TABLE IF NOT EXISTS daily_review_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    trade_count INTEGER NOT NULL,
+    actual_total_pnl TEXT NOT NULL,
+    counterfactual_total_pnl TEXT NOT NULL,
+    pnl_delta TEXT NOT NULL,
+    replayed_add_on_count INTEGER NOT NULL,
+    stop_budget_usdt TEXT NOT NULL,
+    entry_start_hour_utc INTEGER NOT NULL,
+    entry_end_hour_utc INTEGER NOT NULL,
+    warning_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_review_reports_report_date
+    ON daily_review_reports(report_date);
+CREATE INDEX IF NOT EXISTS idx_daily_review_reports_generated_at
+    ON daily_review_reports(generated_at DESC);
+
 CREATE TABLE IF NOT EXISTS stop_exit_summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
@@ -933,6 +956,82 @@ def insert_trade_round_trip(
         )
 
 
+def insert_daily_review_report(
+    *,
+    path: Path,
+    report_date: str,
+    window_start: str,
+    window_end: str,
+    generated_at: str,
+    status: str,
+    trade_count: int,
+    actual_total_pnl: str,
+    counterfactual_total_pnl: str,
+    pnl_delta: str,
+    replayed_add_on_count: int,
+    stop_budget_usdt: str,
+    entry_start_hour_utc: int,
+    entry_end_hour_utc: int,
+    warnings: list[str],
+    payload: dict,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO daily_review_reports(
+                report_date,
+                window_start,
+                window_end,
+                generated_at,
+                status,
+                trade_count,
+                actual_total_pnl,
+                counterfactual_total_pnl,
+                pnl_delta,
+                replayed_add_on_count,
+                stop_budget_usdt,
+                entry_start_hour_utc,
+                entry_end_hour_utc,
+                warning_json,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(report_date) DO UPDATE SET
+                window_start=excluded.window_start,
+                window_end=excluded.window_end,
+                generated_at=excluded.generated_at,
+                status=excluded.status,
+                trade_count=excluded.trade_count,
+                actual_total_pnl=excluded.actual_total_pnl,
+                counterfactual_total_pnl=excluded.counterfactual_total_pnl,
+                pnl_delta=excluded.pnl_delta,
+                replayed_add_on_count=excluded.replayed_add_on_count,
+                stop_budget_usdt=excluded.stop_budget_usdt,
+                entry_start_hour_utc=excluded.entry_start_hour_utc,
+                entry_end_hour_utc=excluded.entry_end_hour_utc,
+                warning_json=excluded.warning_json,
+                payload_json=excluded.payload_json
+            """,
+            (
+                report_date,
+                window_start,
+                window_end,
+                generated_at,
+                status,
+                trade_count,
+                actual_total_pnl,
+                counterfactual_total_pnl,
+                pnl_delta,
+                replayed_add_on_count,
+                stop_budget_usdt,
+                entry_start_hour_utc,
+                entry_end_hour_utc,
+                _json_dumps(warnings),
+                _json_dumps(payload),
+            ),
+        )
+
+
 def insert_stop_exit_summary(
     *,
     path: Path,
@@ -1146,6 +1245,51 @@ def fetch_recent_signal_decisions(*, path: Path, limit: int = 20) -> list[dict]:
             LIMIT ?
             """,
             (limit,),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "decision_type": row[2],
+            "symbol": row[3],
+            "previous_leader_symbol": row[4],
+            "next_leader_symbol": row[5],
+            "position_count": row[6],
+            "order_status_count": row[7],
+            "broker_response_count": row[8],
+            "stop_replacement_count": row[9],
+            "payload": _json_loads(row[10]),
+        }
+        for row in rows
+    ]
+
+
+def fetch_signal_decisions_for_window(*, path: Path, window_start: datetime, window_end: datetime) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                decision_type,
+                symbol,
+                previous_leader_symbol,
+                next_leader_symbol,
+                position_count,
+                order_status_count,
+                broker_response_count,
+                stop_replacement_count,
+                payload_json
+            FROM signal_decisions
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (
+                _as_utc_iso(window_start),
+                _as_utc_iso(window_end),
+            ),
         ).fetchall()
     return [
         {
@@ -1443,6 +1587,89 @@ def fetch_trade_round_trips_for_range(*, path: Path, now: datetime, range_key: s
             params,
         ).fetchall()
     return [_trade_round_trip_row_to_dict(row) for row in rows]
+
+
+def fetch_trade_round_trips_for_window(*, path: Path, window_start: datetime, window_end: datetime) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                round_trip_id,
+                symbol,
+                opened_at,
+                closed_at,
+                entry_fill_count,
+                exit_fill_count,
+                total_entry_quantity,
+                total_exit_quantity,
+                weighted_avg_entry_price,
+                weighted_avg_exit_price,
+                realized_pnl,
+                commission,
+                net_pnl,
+                exit_reason,
+                duration_seconds,
+                payload_json
+            FROM trade_round_trips
+            WHERE closed_at >= ? AND closed_at < ?
+            ORDER BY closed_at DESC, id DESC
+            """,
+            (
+                _as_utc_iso(window_start),
+                _as_utc_iso(window_end),
+            ),
+        ).fetchall()
+    return [_trade_round_trip_row_to_dict(row) for row in rows]
+
+
+def fetch_latest_daily_review_report(*, path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    with _connect(path) as connection:
+        row = connection.execute(
+            """
+            SELECT
+                report_date,
+                window_start,
+                window_end,
+                generated_at,
+                status,
+                trade_count,
+                actual_total_pnl,
+                counterfactual_total_pnl,
+                pnl_delta,
+                replayed_add_on_count,
+                stop_budget_usdt,
+                entry_start_hour_utc,
+                entry_end_hour_utc,
+                warning_json,
+                payload_json
+            FROM daily_review_reports
+            ORDER BY generated_at DESC, id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "report_date": row[0],
+        "window_start": row[1],
+        "window_end": row[2],
+        "generated_at": row[3],
+        "status": row[4],
+        "trade_count": row[5],
+        "actual_total_pnl": row[6],
+        "counterfactual_total_pnl": row[7],
+        "pnl_delta": row[8],
+        "replayed_add_on_count": row[9],
+        "stop_budget_usdt": row[10],
+        "entry_start_hour_utc": row[11],
+        "entry_end_hour_utc": row[12],
+        "warnings": _json_loads(row[13]),
+        "payload": _json_loads(row[14]),
+    }
 
 
 def fetch_recent_stop_exit_summaries(*, path: Path, limit: int = 20) -> list[dict]:

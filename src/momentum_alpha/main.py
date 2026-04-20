@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.binance_client import BINANCE_TESTNET_FAPI_BASE_URL, BinanceRestClient
+from momentum_alpha.daily_review import build_daily_review_report
 from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.exchange_info import parse_exchange_info
 from momentum_alpha.health import build_runtime_health_report
@@ -32,6 +33,7 @@ from momentum_alpha.runtime_store import (
     insert_account_snapshot,
     insert_algo_order,
     insert_broker_order,
+    insert_daily_review_report,
     insert_position_snapshot,
     insert_signal_decision,
     insert_trade_fill,
@@ -317,7 +319,11 @@ def _record_signal_decision(
         pass
 
 
-def _build_market_context_payloads(*, snapshots: list[dict]) -> tuple[dict[str, dict], Decimal | None]:
+def _build_market_context_payloads(
+    *,
+    snapshots: list[dict],
+    exchange_symbols: dict[str, object] | None = None,
+) -> tuple[dict[str, dict], Decimal | None]:
     ordered = sorted(
         [
             {
@@ -339,6 +345,8 @@ def _build_market_context_payloads(*, snapshots: list[dict]) -> tuple[dict[str, 
         leader_gap_pct = ordered[0]["daily_change_pct"] - ordered[1]["daily_change_pct"]
     payloads: dict[str, dict] = {}
     for item in ordered:
+        exchange_symbol = None if exchange_symbols is None else exchange_symbols.get(item["symbol"])
+        symbol_filters = getattr(exchange_symbol, "filters", None)
         payloads[item["symbol"]] = {
             "latest_price": str(item["latest_price"]),
             "daily_open_price": str(item["daily_open_price"]),
@@ -346,6 +354,9 @@ def _build_market_context_payloads(*, snapshots: list[dict]) -> tuple[dict[str, 
             "previous_hour_low": str(item["previous_hour_low"]),
             "current_hour_low": str(item["current_hour_low"]),
             "leader_gap_pct": str(leader_gap_pct) if item["symbol"] == ordered[0]["symbol"] and leader_gap_pct is not None else None,
+            "step_size": str(symbol_filters.step_size) if symbol_filters is not None else None,
+            "min_qty": str(symbol_filters.min_qty) if symbol_filters is not None else None,
+            "tick_size": str(symbol_filters.tick_size) if symbol_filters is not None else None,
         }
     return payloads, leader_gap_pct
 
@@ -921,7 +932,12 @@ def run_once_live(
     if audit_recorder is not None:
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
-        market_payloads, leader_gap_pct = _build_market_context_payloads(snapshots=snapshots)
+        market_payloads, leader_gap_pct = _build_market_context_payloads(
+            snapshots=snapshots,
+            exchange_symbols=(
+                market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
+            ),
+        )
         audit_recorder.record(
             event_type="tick_result",
             now=now,
@@ -1434,6 +1450,11 @@ def cli_main(
     audit_report_parser.add_argument("--runtime-db-file", required=True)
     audit_report_parser.add_argument("--since-minutes", type=int, default=1440)
     audit_report_parser.add_argument("--limit", type=int, default=20)
+    daily_review_parser = subparsers.add_parser("daily-review-report")
+    daily_review_parser.add_argument("--runtime-db-file", required=True)
+    daily_review_parser.add_argument("--stop-budget-usdt", default="10")
+    daily_review_parser.add_argument("--entry-start-hour-utc", type=int, default=1)
+    daily_review_parser.add_argument("--entry-end-hour-utc", type=int, default=23)
     backfill_account_flows_parser = subparsers.add_parser("backfill-account-flows")
     backfill_account_flows_parser.add_argument("--runtime-db-file", required=True)
     backfill_account_flows_parser.add_argument("--start-time", required=True)
@@ -1583,6 +1604,49 @@ def cli_main(
             print(f"{event_type}={count}")
         for event in summary["recent_events"]:
             print(f"recent timestamp={event['timestamp']} event_type={event['event_type']} payload={event['payload']}")
+        return 0
+
+    if args.command == "daily-review-report":
+        runtime_db_path = _require_runtime_db_path(
+            parser=parser,
+            command=args.command,
+            explicit_path=args.runtime_db_file,
+        )
+        report = build_daily_review_report(
+            path=runtime_db_path,
+            now=now_provider(),
+            stop_budget_usdt=Decimal(args.stop_budget_usdt),
+            entry_start_hour_utc=args.entry_start_hour_utc,
+            entry_end_hour_utc=args.entry_end_hour_utc,
+        )
+        insert_daily_review_report(
+            path=runtime_db_path,
+            report_date=report.report_date,
+            window_start=report.window_start,
+            window_end=report.window_end,
+            generated_at=report.generated_at,
+            status=report.status,
+            trade_count=report.trade_count,
+            actual_total_pnl=report.actual_total_pnl,
+            counterfactual_total_pnl=report.counterfactual_total_pnl,
+            pnl_delta=report.pnl_delta,
+            replayed_add_on_count=report.replayed_add_on_count,
+            stop_budget_usdt=report.stop_budget_usdt,
+            entry_start_hour_utc=report.entry_start_hour_utc,
+            entry_end_hour_utc=report.entry_end_hour_utc,
+            warnings=list(report.warnings),
+            payload={
+                "rows": [row.__dict__ for row in report.rows],
+                "strategy_config": {
+                    "stop_budget_usdt": report.stop_budget_usdt,
+                    "entry_window": f"{report.entry_start_hour_utc:02d}:00-{report.entry_end_hour_utc:02d}:00 UTC",
+                },
+            },
+        )
+        print(f"report_date={report.report_date}")
+        print(f"trade_count={report.trade_count}")
+        print(f"actual_total_pnl={report.actual_total_pnl}")
+        print(f"counterfactual_total_pnl={report.counterfactual_total_pnl}")
         return 0
 
     if args.command == "backfill-account-flows":

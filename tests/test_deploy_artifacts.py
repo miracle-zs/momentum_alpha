@@ -28,10 +28,13 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "install_systemd.sh").read_text()
         self.assertIn('deploy/systemd/momentum-alpha-dashboard.service', content)
         self.assertIn('deploy/systemd/momentum-alpha-rebuild-trade-analytics.service', content)
+        self.assertIn('deploy/systemd/momentum-alpha-daily-review-report.service', content)
+        self.assertIn('deploy/systemd/momentum-alpha-daily-review-report.timer', content)
         self.assertIn('systemctl start momentum-alpha-rebuild-trade-analytics.service', content)
         self.assertIn('enable --now momentum-alpha-dashboard.service', content)
         self.assertIn('enable --now momentum-alpha-user-stream.service', content)
         self.assertIn('enable --now momentum-alpha.service', content)
+        self.assertIn('enable --now momentum-alpha-daily-review-report.timer', content)
 
     def test_logrotate_policy_rotates_project_logs(self) -> None:
         content = (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text()
@@ -97,6 +100,20 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "audit_report.sh").read_text()
         self.assertIn("audit-report", content)
         self.assertIn('RUNTIME_DB_FILE', content)
+
+    def test_daily_review_report_script_invokes_daily_review_report_command(self) -> None:
+        content = (ROOT / "scripts" / "run_daily_review_report.sh").read_text()
+        self.assertIn("daily-review-report", content)
+        self.assertIn("--runtime-db-file", content)
+        self.assertIn("--stop-budget-usdt", content)
+
+    def test_daily_review_systemd_units_declare_report_schedule(self) -> None:
+        service = (ROOT / "deploy" / "systemd" / "momentum-alpha-daily-review-report.service").read_text()
+        timer = (ROOT / "deploy" / "systemd" / "momentum-alpha-daily-review-report.timer").read_text()
+        self.assertIn("ExecStart=%h/momentum_alpha/scripts/run_daily_review_report.sh", service)
+        self.assertIn("daily-review-report", service)
+        self.assertIn("OnCalendar=*-*-* 08:30:00", timer)
+        self.assertIn("Timezone=Asia/Shanghai", timer)
 
     def test_env_example_contains_serverchan_settings(self) -> None:
         content = (ROOT / "deploy" / "env.example").read_text()
