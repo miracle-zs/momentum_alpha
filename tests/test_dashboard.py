@@ -137,18 +137,24 @@ class DashboardTests(unittest.TestCase):
             "strategy_config": {"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
         }
 
-    def test_normalize_dashboard_tab_defaults_to_overview(self) -> None:
-        from momentum_alpha.dashboard import normalize_dashboard_tab
+    def test_normalize_dashboard_room_defaults_to_live_and_maps_legacy_tabs(self) -> None:
+        from momentum_alpha.dashboard import normalize_dashboard_room
 
-        self.assertEqual(normalize_dashboard_tab(None), "overview")
-        self.assertEqual(normalize_dashboard_tab(""), "overview")
-        self.assertEqual(normalize_dashboard_tab("unknown"), "overview")
+        self.assertEqual(normalize_dashboard_room(None), "live")
+        self.assertEqual(normalize_dashboard_room(""), "live")
+        self.assertEqual(normalize_dashboard_room("unknown"), "live")
+        self.assertEqual(normalize_dashboard_room("live"), "live")
+        self.assertEqual(normalize_dashboard_room("review"), "review")
+        self.assertEqual(normalize_dashboard_room("system"), "system")
+        self.assertEqual(normalize_dashboard_room("overview"), "live")
+        self.assertEqual(normalize_dashboard_room("execution"), "live")
+        self.assertEqual(normalize_dashboard_room("performance"), "review")
 
     def test_normalize_dashboard_tab_accepts_known_tabs(self) -> None:
         from momentum_alpha.dashboard import normalize_dashboard_tab
 
         self.assertEqual(normalize_dashboard_tab("overview"), "overview")
-        self.assertEqual(normalize_dashboard_tab("execution"), "execution")
+        self.assertEqual(normalize_dashboard_tab("execution"), "overview")
         self.assertEqual(normalize_dashboard_tab("performance"), "performance")
         self.assertEqual(normalize_dashboard_tab("system"), "system")
 
@@ -157,12 +163,11 @@ class DashboardTests(unittest.TestCase):
 
         html = render_dashboard_html(self._build_tabbed_snapshot(), account_range_key="1W")
 
-        self.assertIn('?tab=overview&range=1W', html)
-        self.assertIn('?tab=execution&range=1W', html)
-        self.assertIn('?tab=performance&range=1W', html)
-        self.assertIn('?tab=system&range=1W', html)
+        self.assertIn('?room=live&range=1W', html)
+        self.assertIn('?room=review&range=1W', html)
+        self.assertIn('?room=system&range=1W', html)
         self.assertIn('dashboard-tab is-active', html)
-        self.assertIn('data-dashboard-tab-content="overview"', html)
+        self.assertIn('data-dashboard-room-content="live"', html)
         self.assertIn("DESIGN SYSTEM", html)
         self.assertIn("COSMIC GRAVITY", html)
         self.assertIn("UI COMPONENTS", html)
@@ -242,25 +247,25 @@ class DashboardTests(unittest.TestCase):
     def test_render_dashboard_html_performance_shows_margin_usage_summary_cards(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
-        html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
 
-        self.assertIn("ACCOUNT METRICS", html)
-        self.assertIn("Margin Usage %", html)
-        self.assertIn("CURRENT MARGIN USAGE", html)
-        self.assertIn("PEAK MARGIN USAGE", html)
-        self.assertIn("AVERAGE MARGIN USAGE", html)
+        self.assertIn("ACCOUNT RISK", html)
+        self.assertIn("Margin Usage", html)
+        self.assertIn("CORE LIVE LINES", html)
+        self.assertIn("Account Equity", html)
+        self.assertIn("Position Count", html)
 
     def test_render_dashboard_html_renders_execution_tab_without_overview_sections(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
-        html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="execution")
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
 
-        self.assertIn('data-dashboard-tab-content="execution"', html)
-        self.assertIn("Execution Summary", html)
-        self.assertIn("Recent Fills", html)
-        self.assertIn("STOP SLIPPAGE ANALYSIS", html)
-        self.assertNotIn("LIVE OVERVIEW", html)
-        self.assertNotIn("ACTIVE POSITIONS", html)
+        self.assertIn('data-dashboard-room-content="live"', html)
+        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("ORDER FLOW", html)
+        self.assertIn("Latest Fill", html)
+        self.assertNotIn("Closed Trade Detail", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
     def test_render_dashboard_html_execution_tab_surfaces_order_flow_diagnostics(self) -> None:
@@ -311,7 +316,7 @@ class DashboardTests(unittest.TestCase):
             }
         ]
 
-        html = render_dashboard_html(snapshot, active_tab="execution")
+        html = render_dashboard_html(snapshot, active_room="live")
 
         self.assertIn("ORDER FLOW", html)
         self.assertIn("Latest Broker Action", html)
@@ -326,15 +331,17 @@ class DashboardTests(unittest.TestCase):
     def test_render_dashboard_html_moves_full_account_metrics_to_performance_tab(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
-        overview_html = render_dashboard_html(self._build_tabbed_snapshot())
-        performance_html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+        live_html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
+        review_html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="review")
 
-        self.assertIn("HOME COMMAND", overview_html)
-        self.assertNotIn("ACCOUNT OVERVIEW", overview_html)
-        self.assertIn("ACCOUNT METRICS", performance_html)
-        self.assertIn("ACCOUNT OVERVIEW", performance_html)
-        self.assertIn("data-account-range=\"1D\"", performance_html)
-        self.assertIn("data-account-metric=\"equity\"", performance_html)
+        self.assertIn("ACCOUNT RISK", live_html)
+        self.assertIn("CORE LIVE LINES", live_html)
+        self.assertIn("LIVE OVERVIEW", live_html)
+        self.assertNotIn("Closed Trade Detail", live_html)
+        self.assertIn("Closed Trade Detail", review_html)
+        self.assertIn("Complete Trade Summary (all closed trades)", review_html)
+        self.assertIn("By Total Leg Count", review_html)
+        self.assertNotIn("ACCOUNT METRICS", review_html)
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
@@ -503,7 +510,7 @@ class DashboardTests(unittest.TestCase):
         snapshot["source_counts"] = {"poll": 3, "user-stream": 1}
         snapshot["warnings"] = ["state file missing path=/tmp/runtime.json", "audit file invalid path=/tmp/audit.log"]
 
-        html = render_dashboard_html(snapshot, active_tab="system")
+        html = render_dashboard_html(snapshot, active_room="system")
 
         self.assertIn("SYSTEM DIAGNOSTICS", html)
         self.assertIn("Health Status", html)
@@ -656,9 +663,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("POSITION SUMMARY", html)
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("NEXT ACTIONS", html)
-        self.assertIn("Execution", html)
-        self.assertIn("Performance", html)
-        self.assertIn("System", html)
+        self.assertIn("实时监控室", html)
+        self.assertIn("复盘室", html)
+        self.assertIn("系统状态室", html)
         self.assertNotIn("ACCOUNT SNAPSHOT", html)
 
     def test_render_dashboard_html_overview_surfaces_live_position_cockpit(self) -> None:
@@ -2257,13 +2264,11 @@ console.log(JSON.stringify(cases));
             "strategy_config": {"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
         }
 
-        html = render_dashboard_html(snapshot, active_tab="performance")
+        html = render_dashboard_html(snapshot, active_room="review")
 
-        self.assertIn("Margin Usage %", html)
-        self.assertIn("CURRENT MARGIN USAGE", html)
-        self.assertIn("PEAK MARGIN USAGE", html)
-        self.assertIn("AVERAGE MARGIN USAGE", html)
+        self.assertIn("复盘室", html)
         self.assertIn("Closed Trade Detail", html)
+        self.assertIn("Complete Trade Summary (all closed trades)", html)
         self.assertIn("By Total Leg Count", html)
         self.assertIn("By Leg Index", html)
         self.assertIn("Leg #", html)
@@ -2304,10 +2309,10 @@ console.log(JSON.stringify(cases));
             "leader_history": [],
             "pulse_points": [],
             "warnings": [],
-        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True}, active_tab="execution")
+        }, strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True}, active_room="live")
 
         self.assertIn("BTCUSDT", html)
-        fills_section = html[html.index("Recent Fills"):html.index("STOP SLIPPAGE ANALYSIS")]
+        fills_section = html[html.index("Latest Fill"):html.index("Latest Stop Exit")]
         self.assertNotIn("stream_order_update", fills_section)
 
     def test_render_trade_history_table_shows_empty_message(self) -> None:
@@ -2468,34 +2473,36 @@ console.log(JSON.stringify(cases));
             "pulse_points": [],
             "warnings": [],
         }
-        performance_html = render_dashboard_html(
+        review_html = render_dashboard_html(
             snapshot,
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
-            active_tab="performance",
+            active_room="review",
         )
-        execution_html = render_dashboard_html(
+        live_html = render_dashboard_html(
             snapshot,
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
-            active_tab="execution",
+            active_room="live",
         )
 
-        self.assertIn("STRATEGY PERFORMANCE", performance_html)
-        self.assertIn("Complete trade summary uses all closed trades", performance_html)
-        self.assertIn("Complete Trade Summary (all closed trades)", performance_html)
-        self.assertIn("PLAYUSDT", performance_html)
-        self.assertIn("#1", performance_html)
-        self.assertIn("STOP LOSS", performance_html)
-        self.assertIn("STOP SLIPPAGE ANALYSIS", execution_html)
-        self.assertIn("0.17687", execution_html)
+        self.assertIn("复盘室", review_html)
+        self.assertIn("Closed Trade Detail", review_html)
+        self.assertIn("Complete Trade Summary (all closed trades)", review_html)
+        self.assertIn("PLAYUSDT", review_html)
+        self.assertIn("#1", review_html)
+        self.assertIn("STOP LOSS", review_html)
+        self.assertIn("STOP SLIPPAGE ANALYSIS", review_html)
+        self.assertIn("0.17687", review_html)
+        self.assertIn("ORDER FLOW", live_html)
 
     def test_render_dashboard_tab_bar_uses_relative_tab_links(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_tab_bar
 
         html = render_dashboard_tab_bar("overview", account_range_key="1W")
 
-        self.assertIn('href="?tab=overview&range=1W"', html)
-        self.assertIn('href="?tab=execution&range=1W"', html)
-        self.assertNotIn('href="/?tab=overview"', html)
+        self.assertIn('href="?room=live&range=1W"', html)
+        self.assertIn('href="?room=review&range=1W"', html)
+        self.assertIn('href="?room=system&range=1W"', html)
+        self.assertNotIn('href="/?room=live"', html)
 
     def test_render_dashboard_html_includes_positions_section(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2775,22 +2782,17 @@ console.log(JSON.stringify(cases));
                 "warnings": [],
             },
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
-            active_tab="performance",
+            active_room="live",
         )
 
-        self.assertIn("ACCOUNT METRICS", html)
-        self.assertIn("ACCOUNT OVERVIEW", html)
-        self.assertIn("PEAK EQUITY", html)
-        self.assertIn("CURRENT DRAWDOWN", html)
-        for range_key in ("1H", "1D", "1W", "1M", "1Y", "ALL"):
-            self.assertIn(f"data-account-range=\"{range_key}\"", html)
-        self.assertIn("data-account-range=\"ALL\"", html)
-        self.assertIn("data-account-metric=\"equity\"", html)
-        self.assertIn("data-account-metric=\"adjusted_equity\"", html)
-        self.assertIn("data-account-metric=\"wallet_balance\"", html)
-        self.assertIn("data-account-metric=\"unrealized_pnl\"", html)
-        self.assertIn("ADJUSTED EQUITY", html)
-        self.assertIn("accountMetricsData", html)
+        self.assertIn("ACCOUNT RISK", html)
+        self.assertIn("CORE LIVE LINES", html)
+        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("OPEN RISK / EQUITY", html)
+        self.assertIn("SYSTEM HEALTH", html)
+        self.assertIn("Position Count", html)
+        self.assertIn("Margin Usage", html)
+        self.assertNotIn("ACCOUNT METRICS", html)
 
     def test_render_dashboard_html_respects_requested_range_state_and_subpath_api(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2844,18 +2846,20 @@ console.log(JSON.stringify(cases));
                 "warnings": [],
             },
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
-            active_tab="performance",
+            active_room="live",
             account_range_key="ALL",
         )
 
-        self.assertIn('class=\'account-chip active\' data-account-range="ALL"', html)
+        self.assertIn('href="?room=live&range=ALL"', html)
+        self.assertIn('href="?room=review&range=ALL"', html)
+        self.assertIn('href="?room=system&range=ALL"', html)
         self.assertNotIn("fetch(`/api/dashboard/timeseries", html)
         self.assertIn('window.location.pathname.replace(/\\/$/, "")', html)
 
     def test_account_overview_js_supports_requested_range_windows(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
-        html = render_dashboard_html(self._build_tabbed_snapshot(), active_tab="performance")
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="review")
 
         self.assertIn("'1H': 1", html)
         self.assertIn("'1D': 24", html)
@@ -2865,8 +2869,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("localStorage.getItem('dashboard.account.range') || '1D'", html)
         self.assertIn("/api/dashboard/timeseries", html)
         self.assertIn("range=${encodeURIComponent(range)}", html)
-        self.assertIn("const activeTab = document.querySelector('[data-dashboard-active-tab]')?.dataset.dashboardActiveTab;", html)
-        self.assertIn("if (!force && activeTab === 'performance') return;", html)
+        self.assertIn("const activeRoom = document.querySelector('[data-dashboard-active-room]')?.dataset.dashboardActiveRoom;", html)
+        self.assertIn("if (!force && activeRoom === 'review') return;", html)
 
     def test_filter_rows_for_range_supports_requested_windows(self) -> None:
         from momentum_alpha.dashboard import _filter_rows_for_range
@@ -3108,8 +3112,9 @@ console.log(JSON.stringify(cases));
             "strategy_config": {"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
         }
         overview_html = render_dashboard_html(snapshot)
-        execution_html = render_dashboard_html(snapshot, active_tab="execution")
-        performance_html = render_dashboard_html(snapshot, active_tab="performance")
+        live_html = render_dashboard_html(snapshot, active_room="live")
+        review_html = render_dashboard_html(snapshot, active_room="review")
+        review_html = render_dashboard_html(snapshot, active_room="review")
 
         self.assertIn("Rotation Count", overview_html)
         self.assertIn("Blocked Reasons", overview_html)
@@ -3120,21 +3125,21 @@ console.log(JSON.stringify(cases));
         self.assertIn("signal-breakdown-label", overview_html)
         self.assertIn("signal-breakdown-count", overview_html)
 
-        self.assertIn("Avg Slippage", execution_html)
-        self.assertIn("Max Slippage", execution_html)
-        self.assertIn("Stop Exits", execution_html)
-        self.assertIn("Fee Total", execution_html)
-        self.assertIn("2.00%", execution_html)
-        self.assertIn("0.75", execution_html)
+        self.assertIn("ORDER FLOW", live_html)
+        self.assertIn("Latest Fill", live_html)
+        self.assertIn("Latest Stop Exit", live_html)
+        self.assertIn("CCCUSDT", live_html)
+        self.assertIn("1.50%", review_html)
+        self.assertIn("2.50%", review_html)
 
-        self.assertIn("Avg Win", performance_html)
-        self.assertIn("Avg Loss", performance_html)
-        self.assertIn("Expectancy", performance_html)
-        self.assertIn("Avg Hold", performance_html)
-        self.assertIn("30.00", performance_html)
-        self.assertIn("-10.00", performance_html)
-        self.assertIn("16.67", performance_html)
-        self.assertIn("10m 00s", performance_html)
+        self.assertIn("Avg Win", review_html)
+        self.assertIn("Avg Loss", review_html)
+        self.assertIn("Expectancy", review_html)
+        self.assertIn("Avg Hold", review_html)
+        self.assertIn("30.00", review_html)
+        self.assertIn("-10.00", review_html)
+        self.assertIn("16.67", review_html)
+        self.assertIn("10m 00s", review_html)
 
     def test_render_dashboard_html_falls_back_to_stop_prices_for_slippage_summary_and_compacts_empty_blocked_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3188,10 +3193,11 @@ console.log(JSON.stringify(cases));
             "warnings": [],
         }
         overview_html = render_dashboard_html(snapshot)
-        execution_html = render_dashboard_html(snapshot, active_tab="execution")
+        live_html = render_dashboard_html(snapshot, active_room="live")
+        review_html = render_dashboard_html(snapshot, active_room="review")
 
-        self.assertIn("2.00%", execution_html)
-        self.assertIn("2.50%", execution_html)
+        self.assertIn("10.0000", review_html)
+        self.assertIn("20.0000", review_html)
         self.assertIn("No blocked signals", overview_html)
         blocked_section = overview_html[overview_html.index("Blocked Reasons"):overview_html.index("RISK &amp; DEPLOYMENT", overview_html.index("Blocked Reasons"))]
         self.assertNotIn('class="decision-value"', blocked_section)
@@ -3348,7 +3354,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("window.location.search", html)
         self.assertIn("document.getElementById('manual-refresh-button')", html)
         self.assertIn("replaceSectionFromDocument", html)
-        self.assertIn("data-dashboard-tab-content=\"overview\"", html)
+        self.assertIn("data-dashboard-room-content=\"live\"", html)
 
     def test_render_dashboard_html_prioritizes_live_overview_and_compacts_position_cards(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3519,7 +3525,7 @@ console.log(JSON.stringify(cases));
                 "pulse_points": [],
                 "warnings": [],
             },
-            active_tab="performance",
+            active_room="review",
         )
 
         self.assertIn("analytics-card-list", html)
