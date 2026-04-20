@@ -572,6 +572,8 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
         direction = str(_object_field(position, "side") or _object_field(position, "direction") or "LONG").upper()
         total_quantity = Decimal("0")
         weighted_sum = Decimal("0")
+        weighted_stop_sum = Decimal("0")
+        leg_stop_values_known = True
         leg_info: list[dict] = []
         valid_leg_opened_ats: list[str] = []
         if isinstance(legs, (list, tuple)) and legs:
@@ -580,8 +582,13 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
                     continue
                 qty = _parse_decimal(_object_field(leg, "quantity")) or Decimal("0")
                 entry = _parse_decimal(_object_field(leg, "entry_price")) or Decimal("0")
+                leg_stop = _parse_decimal(_object_field(leg, "stop_price"))
                 total_quantity += qty
                 weighted_sum += qty * entry
+                if leg_stop is None:
+                    leg_stop_values_known = False
+                else:
+                    weighted_stop_sum += qty * leg_stop
                 leg_opened_at = _object_field(leg, "opened_at")
                 if leg_opened_at is not None:
                     valid_leg_opened_ats.append(str(leg_opened_at))
@@ -657,17 +664,21 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
             notional_exposure = float(total_quantity * Decimal(str(latest_price)))
             if direction == "SHORT":
                 mtm_pnl = float((avg_entry - Decimal(str(latest_price))) * total_quantity)
-                if stop_price is not None and latest_price > 0:
-                    distance_to_stop_pct = float(((stop_price - Decimal(str(latest_price))) / Decimal(str(latest_price))) * Decimal("100"))
             else:
                 mtm_pnl = float((Decimal(str(latest_price)) - avg_entry) * total_quantity)
-                if stop_price is not None and latest_price > 0:
-                    distance_to_stop_pct = float(((Decimal(str(latest_price)) - stop_price) / Decimal(str(latest_price))) * Decimal("100"))
             entry_notional = total_quantity * avg_entry
             if entry_notional not in (None, Decimal("0")):
                 pnl_pct = float((Decimal(str(mtm_pnl)) / entry_notional) * Decimal("100"))
             if risk not in (None, Decimal("0")):
                 r_multiple = float(Decimal(str(mtm_pnl)) / risk)
+            effective_stop_price = stop_price
+            if leg_info and leg_stop_values_known and total_quantity > 0:
+                effective_stop_price = weighted_stop_sum / total_quantity
+            if effective_stop_price is not None and latest_price > 0:
+                if direction == "SHORT":
+                    distance_to_stop_pct = float(((effective_stop_price - Decimal(str(latest_price))) / Decimal(str(latest_price))) * Decimal("100"))
+                else:
+                    distance_to_stop_pct = float(((Decimal(str(latest_price)) - effective_stop_price) / Decimal(str(latest_price))) * Decimal("100"))
 
         details.append({
             "symbol": symbol,

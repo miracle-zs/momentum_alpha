@@ -1694,6 +1694,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(details[0]["entry_price"], "113.33")
         self.assertEqual(details[0]["risk"], "65.00")
         self.assertEqual(details[0]["risk_pct_of_equity"], "6.50")
+        self.assertAlmostEqual(details[0]["distance_to_stop_pct"], 29.49, places=2)
         self.assertAlmostEqual(details[0]["r_multiple"], 0.7692307692307693)
 
     def test_build_position_details_treats_nonpositive_stop_price_as_unavailable(self) -> None:
