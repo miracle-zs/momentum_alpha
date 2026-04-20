@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from momentum_alpha.execution import ExecutionPlan
 from momentum_alpha.orders import is_strategy_client_order_id
 
 logger = logging.getLogger(__name__)
+
+
+def _build_replacement_stop_client_order_id(symbol: str, *, now: datetime | None = None) -> str:
+    resolved_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    timestamp_token = resolved_now.strftime("%y%m%d%H%M%S") + f"{resolved_now.microsecond // 1000:03d}"
+    symbol_token = "".join(ch for ch in symbol.upper() if ch.isalnum())[-10:] or "UNKNOWN"
+    return f"ma_{timestamp_token}_{symbol_token}_r00s"
 
 
 @dataclass
@@ -57,6 +65,7 @@ class BinanceBroker:
                 "stopPrice": stop_price,
                 "workingType": "CONTRACT_PRICE",
                 "reduceOnly": "true",
+                "newClientOrderId": _build_replacement_stop_client_order_id(symbol),
             }
             if position_side is not None:
                 order_params["positionSide"] = position_side
