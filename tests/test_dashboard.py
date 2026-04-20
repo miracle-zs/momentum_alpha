@@ -168,14 +168,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('?room=system&range=1W', html)
         self.assertIn('dashboard-tab is-active', html)
         self.assertIn('data-dashboard-room-content="live"', html)
-        self.assertIn("DESIGN SYSTEM", html)
-        self.assertIn("COSMIC GRAVITY", html)
-        self.assertIn("UI COMPONENTS", html)
-        self.assertIn("Stardust Gold", html)
-        self.assertIn("Cosmic Black", html)
         self.assertIn("POSITION SUMMARY", html)
         self.assertIn("HOME COMMAND", html)
         self.assertIn("NEXT ACTIONS", html)
+        self.assertNotIn("DESIGN SYSTEM", html)
+        self.assertNotIn("COSMIC GRAVITY", html)
+        self.assertNotIn("UI COMPONENTS", html)
+        self.assertNotIn("Stardust Gold", html)
+        self.assertNotIn("Cosmic Black", html)
         self.assertNotIn("ACCOUNT OVERVIEW", html)
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
@@ -186,7 +186,6 @@ class DashboardTests(unittest.TestCase):
             _render_cosmic_component_gallery,
             _render_cosmic_data_display,
             _render_dashboard_base_styles,
-            _render_dashboard_cosmic_styles,
             _render_dashboard_responsive_styles,
             _render_cosmic_visual_elements,
             render_dashboard_styles,
@@ -209,7 +208,6 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("DATA DISPLAY", _render_cosmic_data_display())
         self.assertIn("VISUAL ELEMENTS", _render_cosmic_visual_elements())
         self.assertIn(".dashboard-tab", _render_dashboard_base_styles())
-        self.assertIn(".cosmic-identity-panel", _render_dashboard_cosmic_styles())
         self.assertIn("@media (max-width: 768px)", _render_dashboard_responsive_styles())
         self.assertIn(".cosmic-visual-tiles", render_dashboard_styles())
 
@@ -476,14 +474,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
-        self.assertIn("DESIGN SYSTEM", overview_html)
-        self.assertIn("COSMIC GRAVITY", overview_html)
-        self.assertIn("BLACK HOLE", overview_html)
         self.assertIn("POSITION SUMMARY", overview_html)
         self.assertIn("HOME COMMAND", overview_html)
         self.assertIn("LIVE OVERVIEW", overview_html)
         self.assertIn("LEADER ROTATION", overview_html)
         self.assertIn("SYSTEM HEALTH", overview_html)
+        self.assertNotIn("DESIGN SYSTEM", overview_html)
+        self.assertNotIn("COSMIC GRAVITY", overview_html)
+        self.assertNotIn("BLACK HOLE", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("RECENT EVENTS", overview_html)
         self.assertIn("tick_result", system_html)
@@ -638,16 +636,17 @@ class DashboardTests(unittest.TestCase):
             "TODAY NET PNL",
             "OPEN RISK / EQUITY",
             "SYSTEM HEALTH",
-            "DESIGN SYSTEM",
-            "UI COMPONENTS",
-            "COLOR",
-            "BUTTON",
-            "TAGS",
-            "CARDS",
             "POSITION SUMMARY",
             "LIVE OVERVIEW",
         ):
             self.assertIn(label, overview_html)
+
+        self.assertNotIn("DESIGN SYSTEM", overview_html)
+        self.assertNotIn("UI COMPONENTS", overview_html)
+        self.assertNotIn("COLOR", overview_html)
+        self.assertNotIn("BUTTON", overview_html)
+        self.assertNotIn("TAGS", overview_html)
+        self.assertNotIn("CARDS", overview_html)
 
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("STRATEGY PERFORMANCE", overview_html)

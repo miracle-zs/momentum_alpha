@@ -2879,7 +2879,6 @@ def _render_dashboard_responsive_styles() -> str:
 def render_dashboard_styles() -> str:
     return (
         _render_dashboard_base_styles()
-        + _render_dashboard_cosmic_styles()
         + _render_dashboard_component_styles()
         + _render_dashboard_responsive_styles()
     )
@@ -2899,7 +2898,6 @@ def render_dashboard_shell(
         "<body>"
         "<div class='app'>"
         "<div class='app-shell'>"
-        f"{render_cosmic_identity_panel()}"
         "<header class='header'>"
         "<div class='header-left'>"
         "<div class='logo'>M</div>"
