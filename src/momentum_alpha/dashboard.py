@@ -790,32 +790,6 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
     )
 
 
-def _render_round_trip_leg_digest(legs: list[dict]) -> str:
-    if not legs:
-        return "<div class='round-trip-leg-empty'>No leg detail available</div>"
-
-    pills = []
-    for leg in legs[:4]:
-        leg_index = escape(str(leg.get("leg_index") or "-"))
-        leg_type = escape(str(leg.get("leg_type") or "-"))
-        qty = escape(_format_quantity(leg.get("quantity")))
-        entry = escape(_format_price(leg.get("entry_price")))
-        stop = escape(_format_price(leg.get("stop_price_at_entry")))
-        pills.append(
-            (
-                "<span class='round-trip-leg-pill'>"
-                f"<b>#{leg_index}</b> {leg_type} "
-                f"<span class='round-trip-leg-pill-sep'>·</span> Qty {qty} "
-                f"<span class='round-trip-leg-pill-sep'>·</span> Entry {entry} "
-                f"<span class='round-trip-leg-pill-sep'>·</span> Stop {stop}"
-                "</span>"
-            )
-        )
-    if len(legs) > 4:
-        pills.append(f"<span class='round-trip-leg-pill'>+{len(legs) - 4} more legs</span>")
-    return f"<div class='round-trip-leg-digest'>{''.join(pills)}</div>"
-
-
 def render_trade_leg_count_aggregate_table(aggregates: list[dict]) -> str:
     if not aggregates:
         return "<div class='trade-history-empty'>No leg-count aggregates</div>"
@@ -1752,6 +1726,44 @@ def _build_live_core_lines_panel(account_points: list[dict]) -> str:
     )
 
 
+def _render_round_trip_leg_rows(legs: list[dict]) -> str:
+    if not legs:
+        return "<div class='round-trip-leg-empty'>No leg detail available</div>"
+    header = (
+        "<div class='round-trip-leg-row round-trip-leg-row-header'>"
+        "<span>Leg #</span>"
+        "<span>Type</span>"
+        "<span>Opened At</span>"
+        "<span>Qty</span>"
+        "<span>Entry</span>"
+        "<span>Stop At Entry</span>"
+        "<span>Leg Risk</span>"
+        "<span>Cum Risk</span>"
+        "<span>Gross PnL</span>"
+        "<span>Fee Share</span>"
+        "<span>Net Contribution</span>"
+        "</div>"
+    )
+    rows = ""
+    for leg in legs:
+        rows += (
+            "<div class='round-trip-leg-row'>"
+            f"<span>{escape(str(leg.get('leg_index') or '-'))}</span>"
+            f"<span>{escape(str(leg.get('leg_type') or '-'))}</span>"
+            f"<span>{escape(_format_time_only(leg.get('opened_at')))}</span>"
+            f"<span>{escape(_format_quantity(leg.get('quantity')))}</span>"
+            f"<span>{escape(_format_price(leg.get('entry_price')))}</span>"
+            f"<span>{escape(_format_price(leg.get('stop_price_at_entry')))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('leg_risk')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('cumulative_risk_after_leg')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('gross_pnl_contribution')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('fee_share')), signed=True))}</span>"
+            f"<span>{escape(_format_metric(_parse_numeric(leg.get('net_pnl_contribution')), signed=True))}</span>"
+            "</div>"
+        )
+    return f"<div class='round-trip-leg-table'>{header}{rows}</div>"
+
+
 def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
     symbol = escape(str(trip.get("symbol") or "-"))
     round_trip_id = escape(_format_round_trip_id_label(trip.get("round_trip_id")))
@@ -1767,7 +1779,7 @@ def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
     duration = _format_duration_seconds(_parse_numeric(trip.get("duration_seconds")))
     leg_count_display = escape(str(int(leg_count) if isinstance(leg_count, (int, float)) else leg_count))
     pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
-    leg_rows = _render_round_trip_leg_digest(list(payload.get("legs") or []))
+    leg_rows = _render_round_trip_leg_rows(list(payload.get("legs") or []))
 
     if mobile:
         return (
@@ -2063,7 +2075,7 @@ def render_dashboard_performance_tab(
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>复盘室</div>"
-        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Closed Trade Detail stays compact; leg analytics live in their own aggregates.</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Closed Trade Detail is the primary review surface; aggregates follow the ledger.</div>"
         "</div>"
         "<button type='button' class='section-toggle' data-section-toggle='review'>Collapse</button>"
         "</div>"
@@ -2741,10 +2753,10 @@ def _render_dashboard_component_styles() -> str:
     .round-trip-summary, .round-trip-row-header { grid-template-columns: 1.4fr 0.85fr 0.85fr 0.45fr 0.7fr 0.65fr 0.7fr 0.65fr; }
     .round-trip-summary { padding: 10px 0; }
     .round-trip-detail-body { padding: 0 0 12px 12px; }
-    .round-trip-leg-digest { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
-    .round-trip-leg-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,0.02); color: var(--fg-muted); font-size: 0.68rem; line-height: 1.4; }
-    .round-trip-leg-pill b { color: var(--fg); }
-    .round-trip-leg-pill-sep { color: var(--fg-muted); }
+    .round-trip-leg-table { overflow-x: auto; padding-top: 8px; }
+    .round-trip-leg-row { display: grid; grid-template-columns: 0.45fr 0.7fr 0.9fr 0.6fr 0.8fr 0.85fr 0.7fr 0.7fr 0.8fr 0.7fr 0.9fr; gap: 8px; min-width: 1080px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.7rem; align-items: center; }
+    .round-trip-leg-row:last-child { border-bottom: none; }
+    .round-trip-leg-row-header { color: var(--fg-muted); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
     .round-trip-leg-empty { color: var(--fg-muted); font-size: 0.74rem; padding: 8px 0 0 0; }
     .analytics-row:last-child { border-bottom: none; }
     .analytics-main { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
