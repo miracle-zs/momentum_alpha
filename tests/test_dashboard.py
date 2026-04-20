@@ -1656,6 +1656,46 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(details[0]["mtm_pnl"])
         self.assertIsNone(details[0]["distance_to_stop_pct"])
 
+    def test_build_position_details_sums_leg_risk_from_leg_stop_prices(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BTCUSDT": {
+                        "symbol": "BTCUSDT",
+                        "stop_price": "90",
+                        "latest_price": "130",
+                        "legs": [
+                            {
+                                "symbol": "BTCUSDT",
+                                "quantity": "1",
+                                "entry_price": "100",
+                                "stop_price": "95",
+                                "opened_at": "2026-04-15T09:15:00+00:00",
+                                "leg_type": "base",
+                            },
+                            {
+                                "symbol": "BTCUSDT",
+                                "quantity": "2",
+                                "entry_price": "120",
+                                "stop_price": "90",
+                                "opened_at": "2026-04-15T10:00:00+00:00",
+                                "leg_type": "add_on",
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+
+        self.assertEqual(details[0]["entry_price"], "113.33")
+        self.assertEqual(details[0]["risk"], "65.00")
+        self.assertEqual(details[0]["risk_pct_of_equity"], "6.50")
+        self.assertAlmostEqual(details[0]["r_multiple"], 0.7692307692307693)
+
     def test_build_position_details_treats_nonpositive_stop_price_as_unavailable(self) -> None:
         from momentum_alpha.dashboard import build_position_details
 
