@@ -995,7 +995,7 @@ class DashboardTests(unittest.TestCase):
             active_tab="system",
         )
 
-        self.assertIn("SYSTEM OPERATIONS", html)
+        self.assertIn("SYSTEM CONFIG", html)
         self.assertIn("Stop Budget", html)
         self.assertIn("25", html)
         self.assertIn("02:00-18:00 UTC", html)
@@ -2734,9 +2734,82 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("POSITION SUMMARY", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
-        self.assertIn("SYSTEM OPERATIONS", system_html)
+        self.assertLess(overview_html.index("ACCOUNT RISK"), overview_html.index("CORE LIVE LINES"))
+        self.assertLess(overview_html.index("CORE LIVE LINES"), overview_html.index("ACTIVE SIGNAL"))
+        self.assertLess(overview_html.index("ACTIVE SIGNAL"), overview_html.index("ACTIVE POSITIONS"))
+        self.assertLess(overview_html.index("ACTIVE POSITIONS"), overview_html.index("ORDER FLOW"))
+        self.assertLess(overview_html.index("ORDER FLOW"), overview_html.index("data-live-metrics-panel"))
+        self.assertIn("SYSTEM CONFIG", system_html)
         self.assertIn("Stop Budget", system_html)
         self.assertIn("10", system_html)
+        self.assertLess(system_html.index("SYSTEM DIAGNOSTICS"), system_html.index("SYSTEM CONFIG"))
+        self.assertLess(system_html.index("SYSTEM CONFIG"), system_html.index("SYSTEM HEALTH"))
+        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("EVENT SOURCES"))
+        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("RECENT EVENTS"))
+
+    def test_render_dashboard_review_summary_trade_count_matches_closed_trade_detail_scope(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = {
+            "health": {"overall_status": "OK", "items": []},
+            "runtime": {
+                "previous_leader_symbol": "PLAYUSDT",
+                "position_count": 0,
+                "order_status_count": 0,
+                "latest_position_snapshot": {"payload": {}},
+                "latest_account_snapshot": {"wallet_balance": "1000", "equity": "1000"},
+                "latest_signal_decision": {},
+            },
+            "recent_broker_orders": [],
+            "recent_trade_round_trips": [
+                {
+                    "round_trip_id": "PLAYUSDT:1",
+                    "symbol": "PLAYUSDT",
+                    "opened_at": "2026-04-15T20:48:00+00:00",
+                    "closed_at": "2026-04-15T21:18:19+00:00",
+                    "net_pnl": "-43.85",
+                    "exit_reason": "stop_loss",
+                },
+                {
+                    "round_trip_id": "AAAUSDT:1",
+                    "symbol": "AAAUSDT",
+                    "opened_at": "2026-04-13T20:48:00+00:00",
+                    "closed_at": "2026-04-13T21:18:19+00:00",
+                    "net_pnl": "12.00",
+                    "exit_reason": "signal_flip",
+                },
+            ],
+            "recent_stop_exit_summaries": [
+                {
+                    "timestamp": "2026-04-15T21:18:19+00:00",
+                    "symbol": "PLAYUSDT",
+                    "trigger_price": "0.17687",
+                    "average_exit_price": "0.16804",
+                    "slippage_pct": "4.99",
+                    "net_pnl": "-43.85",
+                }
+            ],
+            "recent_account_snapshots": [],
+            "recent_events": [],
+            "event_counts": {},
+            "source_counts": {},
+            "leader_history": [],
+            "pulse_points": [],
+            "warnings": [],
+        }
+
+        review_html = render_dashboard_html(
+            snapshot,
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": False, "submit_orders": True},
+            active_room="review",
+            account_range_key="1D",
+        )
+
+        self.assertIn("Closed Trade Detail", review_html)
+        self.assertIn("AAAUSDT", review_html)
+        self.assertIn("PLAYUSDT", review_html)
+        self.assertIn("<div class='review-summary-ribbon-label'>Closed Trades</div><div class='review-summary-ribbon-value'>2</div>", review_html)
+        self.assertNotIn("<div class='review-summary-ribbon-label'>Trade Count</div>", review_html)
 
     def test_render_dashboard_html_shows_risk_pct_when_equity_is_available(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

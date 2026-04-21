@@ -106,7 +106,6 @@ def render_dashboard_live_room(
         f"{account_risk_html}"
         f"{core_lines_html}"
         "</div>"
-        f"<div class='metrics-grid live-metrics-grid'>{top_metrics_html}</div>"
         "<div class='live-decision-grid'>"
         f"<div class='live-decision-main'>{hero_html}</div>"
         "<div class='live-decision-side'>"
@@ -120,6 +119,7 @@ def render_dashboard_live_room(
         f"{execution_flow_html}"
         f"{home_command_html}"
         "</div>"
+        f"<div class='metrics-grid live-metrics-grid' data-live-metrics-panel>{top_metrics_html}</div>"
         "</div>"
     )
 
@@ -320,16 +320,16 @@ def render_dashboard_system_room(
         "<div class='system-console-grid'>"
         "<div class='system-console-left'>"
         "<div class='chart-card system-console-card'>"
-        "<div class='section-header'>SYSTEM OPERATIONS</div>"
+        "<div class='section-header'>SYSTEM CONFIG</div>"
         f"{config_html}"
-        "</div>"
-        "<div class='chart-card system-console-card'>"
-        "<div class='section-header'>EVENT SOURCES</div>"
-        f"<div class='source-tags'>{source_html}</div>"
         "</div>"
         "<div class='chart-card system-console-card'>"
         "<div class='section-header'>SYSTEM HEALTH</div>"
         f"<div class='health-grid'>{health_items_html}</div>"
+        "</div>"
+        "<div class='chart-card system-console-card'>"
+        "<div class='section-header'>EVENT SOURCES</div>"
+        f"<div class='source-tags'>{source_html}</div>"
         "</div>"
         "</div>"
         "<div class='chart-card system-console-events'>"
@@ -454,6 +454,11 @@ def render_dashboard_body(
         position_details=position_details,
         range_key=account_range_key,
     )
+    review_metrics = build_trader_summary_metrics(
+        snapshot,
+        position_details=position_details,
+        range_key="ALL",
+    )
     account_risk_html = _build_live_account_risk_panel(
         trader_metrics=trader_metrics,
         account_range_stats=account_range_stats,
@@ -558,7 +563,7 @@ def render_dashboard_body(
             return "0.00%"
         return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
 
-    performance_win_rate = trader_metrics["performance"].get("win_rate")
+    performance_win_rate = review_metrics["performance"].get("win_rate")
     health_metric_state = "danger" if health_status != "OK" else ""
     blocked_reason_counts = trader_metrics["signals"].get("blocked_reason_counts", {})
     blocked_reason_summary = ", ".join(
@@ -636,13 +641,13 @@ def render_dashboard_body(
     )
     performance_summary_items = [
         ("Win Rate", _format_pct(performance_win_rate * 100) if performance_win_rate is not None else "n/a"),
-        ("Profit Factor", _format_metric(trader_metrics["performance"].get("profit_factor"))),
-        ("Expectancy", _format_metric(trader_metrics["performance"].get("expectancy"), signed=True)),
-        ("Avg Hold", _format_duration_seconds(trader_metrics["performance"].get("avg_hold_time_seconds"))),
-        ("Trade Count", str(trader_metrics["performance"].get("trade_count") or 0)),
-        ("Current Streak", str((trader_metrics["performance"].get("current_streak") or {}).get("label") or "n/a")),
-        ("Avg Win", _format_metric(trader_metrics["performance"].get("avg_win"))),
-        ("Avg Loss", _format_metric(trader_metrics["performance"].get("avg_loss"), signed=True)),
+        ("Profit Factor", _format_metric(review_metrics["performance"].get("profit_factor"))),
+        ("Expectancy", _format_metric(review_metrics["performance"].get("expectancy"), signed=True)),
+        ("Avg Hold", _format_duration_seconds(review_metrics["performance"].get("avg_hold_time_seconds"))),
+        ("Closed Trades", str(review_metrics["performance"].get("trade_count") or 0)),
+        ("Current Streak", str((review_metrics["performance"].get("current_streak") or {}).get("label") or "n/a")),
+        ("Avg Win", _format_metric(review_metrics["performance"].get("avg_win"))),
+        ("Avg Loss", _format_metric(review_metrics["performance"].get("avg_loss"), signed=True)),
     ]
     performance_summary_html = "".join(
         (
