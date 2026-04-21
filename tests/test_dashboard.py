@@ -1432,7 +1432,7 @@ class DashboardTests(unittest.TestCase):
             )
 
             with patch(
-                "momentum_alpha.dashboard.RuntimeStateStore.load",
+                "momentum_alpha.dashboard_data.RuntimeStateStore.load",
                 side_effect=Exception("database disk image is malformed"),
             ):
                 snapshot = load_dashboard_snapshot(
