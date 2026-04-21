@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from collections.abc import Mapping
 from urllib.parse import urlencode
 
 from .dashboard_common import _parse_numeric, normalize_account_range
@@ -32,13 +33,23 @@ def normalize_review_view(value: str | None) -> str:
     return view if view in REVIEW_VIEWS else "overview"
 
 
-def _build_dashboard_room_href(*, room: str, account_range_key: str, review_view: str | None = None) -> str:
+def _build_dashboard_room_href(
+    *,
+    room: str,
+    account_range_key: str,
+    review_view: str | None = None,
+    extra_query: Mapping[str, str | None] | None = None,
+) -> str:
     query = {
         "room": normalize_dashboard_room(room),
         "range": normalize_account_range(account_range_key),
     }
     if normalize_dashboard_room(room) == "review":
         query["review_view"] = normalize_review_view(review_view)
+    if extra_query:
+        for key, value in extra_query.items():
+            if value is not None and str(value):
+                query[key] = str(value)
     return f"?{urlencode(query)}"
 
 
@@ -192,4 +203,3 @@ def _daily_review_win_rate(values: list[Decimal]) -> Decimal | None:
         return None
     wins = sum(1 for value in values if value > 0)
     return (Decimal(wins) / Decimal(len(values))) * Decimal("100")
-

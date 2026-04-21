@@ -16,6 +16,9 @@ from momentum_alpha.dashboard_common import (
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.runtime_store import (
     RuntimeStateStore,
+    fetch_daily_review_report_by_date,
+    fetch_daily_review_report_dates,
+    fetch_daily_review_reports_summary,
     fetch_account_flows_since,
     fetch_account_snapshots_for_range,
     fetch_event_pulse_points,
@@ -316,6 +319,7 @@ def load_dashboard_snapshot(
     testnet: bool = False,
     submit_orders: bool = False,
     account_range_key: str = "1D",
+    report_date: str | None = None,
 ) -> dict:
     account_range_key = normalize_account_range(account_range_key)
     health_report = build_runtime_health_report(
@@ -352,6 +356,8 @@ def load_dashboard_snapshot(
     recent_position_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
     daily_review_report: dict | None = None
+    daily_review_report_dates: list[str] = []
+    daily_review_history_summary: dict | None = None
 
     if runtime_db_file.exists():
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
@@ -372,7 +378,15 @@ def load_dashboard_snapshot(
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
-        daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
+        daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
+        daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
+        if report_date is not None:
+            daily_review_report = fetch_daily_review_report_by_date(path=runtime_db_file, report_date=report_date)
+            if daily_review_report is None:
+                warnings.append(f"daily review report missing for report_date={report_date}")
+                daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
+        else:
+            daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
@@ -398,6 +412,22 @@ def load_dashboard_snapshot(
         latest_position_snapshot=latest_position_snapshot,
         latest_signal_decision=latest_signal_decision,
     )
+
+    if daily_review_report is not None:
+        daily_review_report = {
+            **daily_review_report,
+            "requested_report_date": report_date,
+            "selected_report_date": daily_review_report.get("report_date"),
+            "available_report_dates": daily_review_report_dates,
+            "history_summary": daily_review_history_summary or {
+                "report_count": 0,
+                "trade_count": 0,
+                "actual_total_pnl": "0",
+                "counterfactual_total_pnl": "0",
+                "filter_impact": "0",
+                "replayed_add_on_count": 0,
+            },
+        }
 
     return {
         "health": {

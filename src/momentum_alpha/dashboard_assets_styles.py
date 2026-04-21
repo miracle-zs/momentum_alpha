@@ -432,6 +432,34 @@ def _render_dashboard_component_styles() -> str:
     .trade-row { display: grid; grid-template-columns: 80px 120px 60px 80px 100px 80px 80px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
     .trade-row:last-child { border-bottom: none; }
     .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .review-analysis-shell { display: flex; flex-direction: column; gap: 16px; }
+    .review-summary-strip { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: linear-gradient(180deg, rgba(245,210,138,0.05), rgba(0,0,0,0.16)); }
+    .review-summary-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+    .review-summary-kicker { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .review-summary-copy { color: var(--fg-muted); font-size: 0.78rem; max-width: 520px; text-align: right; }
+    .review-summary-grid { display: block; }
+    .review-analysis-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr); gap: 16px; align-items: start; }
+    .review-analysis-main { min-height: 100%; }
+    .review-analysis-sidebar { display: flex; flex-direction: column; gap: 16px; }
+    .review-analysis-card { display: flex; flex-direction: column; gap: 10px; }
+    .review-section-label { font-size: 0.68rem; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+    .live-control-frame { display: flex; flex-direction: column; gap: 16px; }
+    .live-control-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px; }
+    .live-metrics-grid { margin-bottom: 0; }
+    .live-decision-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr); gap: 16px; align-items: start; }
+    .live-decision-main { min-width: 0; }
+    .live-decision-side { display: flex; flex-direction: column; gap: 16px; }
+    .live-card-shell { margin-bottom: 0; }
+    .live-ops-grid { display: grid; grid-template-columns: 1fr 0.95fr; gap: 16px; align-items: start; }
+    .system-analysis-shell { display: flex; flex-direction: column; gap: 16px; }
+    .system-summary-strip { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: linear-gradient(180deg, rgba(138,210,255,0.06), rgba(0,0,0,0.16)); }
+    .system-summary-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
+    .system-summary-kicker { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .system-summary-copy { color: var(--fg-muted); font-size: 0.78rem; max-width: 520px; text-align: right; }
+    .system-console-grid { display: grid; grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+    .system-console-left { display: flex; flex-direction: column; gap: 16px; }
+    .system-console-card { display: flex; flex-direction: column; gap: 10px; }
+    .system-console-events { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
     .table-scroll { overflow-x: auto; }
     .desktop-only { display: block; }
     .mobile-only { display: none; }
@@ -458,6 +486,25 @@ def _render_dashboard_component_styles() -> str:
     .analytics-row:last-child { border-bottom: none; }
     .analytics-main { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .daily-review-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+    .daily-review-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.18); }
+    .daily-review-toolbar-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .daily-review-toolbar-note { max-width: 340px; color: var(--fg-muted); font-size: 0.76rem; line-height: 1.45; text-align: right; }
+    .daily-review-date-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .daily-review-date-label { color: var(--fg-muted); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    .daily-review-date-select { min-width: 160px; padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(245,210,138,0.24); background: rgba(0,0,0,0.22); color: var(--fg); font-size: 0.74rem; font-weight: 700; outline: none; }
+    .daily-review-date-select:focus { border-color: rgba(245,210,138,0.46); box-shadow: 0 0 0 3px rgba(245,210,138,0.08); }
+    .daily-review-nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .daily-review-nav-link, .daily-review-nav-current { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 12px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
+    .daily-review-nav-link { color: var(--accent); border: 1px solid rgba(245,210,138,0.28); background: rgba(245,210,138,0.06); text-decoration: none; transition: border-color 0.2s, background 0.2s, color 0.2s; }
+    .daily-review-nav-link:hover { color: var(--fg); border-color: rgba(245,210,138,0.48); background: rgba(245,210,138,0.12); }
+    .daily-review-nav-link-disabled { color: var(--fg-muted); border-color: var(--border); background: rgba(255,255,255,0.03); }
+    .daily-review-nav-current { color: var(--fg); border: 1px solid var(--border-accent); background: rgba(0,212,255,0.07); }
+    .daily-review-nav-link-latest { color: var(--success); border-color: rgba(0,255,136,0.22); background: rgba(0,255,136,0.06); }
+    .daily-review-history-summary { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid rgba(138,210,255,0.18); border-radius: 8px; background: rgba(138,210,255,0.04); }
+    .daily-review-history-summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .daily-review-history-title { font-size: 0.92rem; font-weight: 800; color: var(--accent-strong); }
+    .daily-review-history-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .daily-review-history-kpi { min-height: 76px; background: rgba(0,0,0,0.16); border-color: rgba(138,210,255,0.14); }
     .daily-review-headline { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.22); }
     .daily-review-headline.positive { border-color: rgba(0,255,136,0.26); background: rgba(0,255,136,0.06); }
     .daily-review-headline.negative { border-color: rgba(255,68,102,0.28); background: rgba(255,68,102,0.06); }
@@ -554,10 +601,22 @@ def _render_dashboard_responsive_styles() -> str:
       .charts-row { grid-template-columns: 1fr; }
       .decision-row { grid-template-columns: 1fr; }
       .bottom-row { grid-template-columns: 1fr; }
+      .live-control-grid { grid-template-columns: 1fr; }
+      .live-decision-grid { grid-template-columns: 1fr; }
+      .live-ops-grid { grid-template-columns: 1fr; }
+      .system-console-grid { grid-template-columns: 1fr; }
+      .review-analysis-grid { grid-template-columns: 1fr; }
+      .review-summary-head { flex-direction: column; align-items: flex-start; }
+      .review-summary-copy { max-width: none; text-align: left; }
+      .system-summary-head { flex-direction: column; align-items: flex-start; }
+      .system-summary-copy { max-width: none; text-align: left; }
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
       .execution-flow-grid { grid-template-columns: repeat(2, 1fr); }
       .daily-review-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .daily-review-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .daily-review-toolbar { flex-direction: column; align-items: stretch; }
+      .daily-review-toolbar-note { max-width: none; text-align: left; }
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 768px) {
@@ -577,8 +636,14 @@ def _render_dashboard_responsive_styles() -> str:
       .positions-grid { grid-template-columns: 1fr; }
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }
+      .live-control-grid,
+      .live-decision-grid,
+      .live-ops-grid,
+      .system-console-grid { grid-template-columns: 1fr; }
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
       .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
+      .daily-review-history-grid { grid-template-columns: 1fr 1fr; }
+      .daily-review-date-form { align-items: flex-start; }
       .daily-review-grid { min-width: 920px; grid-template-columns: minmax(112px, 1fr) minmax(82px, 0.7fr) minmax(112px, 1fr) minmax(78px, 0.72fr) minmax(78px, 0.72fr) minmax(96px, 0.82fr) minmax(60px, 0.52fr) minmax(64px, 0.52fr); }
       .daily-review-row { font-size: 0.68rem; }
       .account-overview-grid { grid-template-columns: 1fr; }

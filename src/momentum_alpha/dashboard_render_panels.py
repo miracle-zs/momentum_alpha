@@ -665,6 +665,81 @@ def render_daily_review_panel(report: dict | None) -> str:
             "</section>"
         )
 
+    selected_report_date = str(report.get("selected_report_date") or report.get("report_date") or "n/a")
+    available_report_dates = [str(item) for item in (report.get("available_report_dates") or []) if item]
+    selected_index = available_report_dates.index(selected_report_date) if selected_report_date in available_report_dates else -1
+    previous_report_date = available_report_dates[selected_index - 1] if selected_index > 0 else None
+    next_report_date = available_report_dates[selected_index + 1] if selected_index >= 0 and selected_index < len(available_report_dates) - 1 else None
+    latest_report_date = available_report_dates[-1] if available_report_dates else selected_report_date
+    history_summary = report.get("history_summary") or {}
+    history_total_actual = _parse_decimal(history_summary.get("actual_total_pnl"))
+    history_total_replay = _parse_decimal(history_summary.get("counterfactual_total_pnl"))
+    history_filter_impact = _daily_review_impact(
+        actual=history_summary.get("actual_total_pnl"),
+        replay=history_summary.get("counterfactual_total_pnl"),
+    )
+    history_summary_items = [
+        ("Total Reports", str(history_summary.get("report_count", "n/a"))),
+        ("Total Trades", str(history_summary.get("trade_count", "n/a"))),
+        ("Cumulative Actual PnL", _format_decimal_metric(history_total_actual, signed=True)),
+        ("Cumulative Replay PnL", _format_decimal_metric(history_total_replay, signed=True)),
+        ("Cumulative Filter Impact", _format_decimal_metric(history_filter_impact, signed=True)),
+        ("Historical Replayed Add-Ons", str(history_summary.get("replayed_add_on_count", "n/a"))),
+    ]
+    history_summary_html = "".join(
+        (
+            "<div class='daily-review-kpi daily-review-history-kpi'>"
+            f"<div class='decision-label'>{escape(label)}</div>"
+            f"<div class='decision-value'>{escape(value)}</div>"
+            "</div>"
+        )
+        for label, value in history_summary_items
+    )
+    date_options = "".join(
+        (
+            "<option "
+            f"value='{escape(date)}'"
+            f"{' selected' if date == selected_report_date else ''}>"
+            f"{escape(date)}"
+            "</option>"
+        )
+        for date in available_report_dates
+    )
+    navigation_items = []
+    if previous_report_date is None:
+        navigation_items.append("<span class='daily-review-nav-link daily-review-nav-link-disabled'>Prev</span>")
+    else:
+        navigation_items.append(
+            (
+                "<a class='daily-review-nav-link' "
+                f"href='{escape(_build_dashboard_room_href(room='review', account_range_key='1D', review_view='daily', extra_query={'report_date': previous_report_date}))}'>"
+                "Prev"
+                "</a>"
+            )
+        )
+    navigation_items.append(
+        f"<span class='daily-review-nav-current'>{escape(selected_report_date)}</span>"
+    )
+    if next_report_date is None:
+        navigation_items.append("<span class='daily-review-nav-link daily-review-nav-link-disabled'>Next</span>")
+    else:
+        navigation_items.append(
+            (
+                "<a class='daily-review-nav-link' "
+                f"href='{escape(_build_dashboard_room_href(room='review', account_range_key='1D', review_view='daily', extra_query={'report_date': next_report_date}))}'>"
+                "Next"
+                "</a>"
+            )
+        )
+    navigation_items.append(
+        (
+            "<a class='daily-review-nav-link daily-review-nav-link-latest' "
+            f"href='{escape(_build_dashboard_room_href(room='review', account_range_key='1D', review_view='daily'))}'>"
+            f"Latest {escape(latest_report_date)}"
+            "</a>"
+        )
+    )
+
     rows = []
     rows_data = sorted(
         report.get("payload", {}).get("rows", []) or [],
@@ -780,6 +855,24 @@ def render_daily_review_panel(report: dict | None) -> str:
     )
     return (
         "<section class='chart-card daily-review-panel'>"
+        "<div class='daily-review-toolbar'>"
+        "<div class='daily-review-toolbar-left'>"
+        "<div class='daily-review-eyebrow'>HISTORY</div>"
+        "<form class='daily-review-date-form' method='get' action='?room=review&range=1D&review_view=daily'>"
+        "<label class='daily-review-date-label' for='daily-review-date-select'>Jump to date</label>"
+        f"<select id='daily-review-date-select' name='report_date' class='daily-review-date-select' onchange='this.form.submit()'>{date_options}</select>"
+        "</form>"
+        f"<div class='daily-review-nav'>{''.join(navigation_items)}</div>"
+        "</div>"
+        "<div class='daily-review-toolbar-note'>Historical Filter Impact is aggregated across every stored daily review.</div>"
+        "</div>"
+        "<div class='daily-review-history-summary'>"
+        "<div class='daily-review-history-summary-head'>"
+        "<div class='daily-review-eyebrow'>HISTORICAL SUMMARY</div>"
+        "<div class='daily-review-history-title'>Cumulative Filter Impact</div>"
+        "</div>"
+        f"<div class='daily-review-kpi-grid daily-review-history-grid'>{history_summary_html}</div>"
+        "</div>"
         f"<div class='daily-review-headline {impact_state}'>"
         "<div>"
         "<div class='daily-review-eyebrow'>每日复盘</div>"

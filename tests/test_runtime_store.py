@@ -320,6 +320,8 @@ class RuntimeStoreTests(unittest.TestCase):
     def test_daily_review_report_round_trips_through_sqlite(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,
+            fetch_daily_review_report_by_date,
+            fetch_daily_review_reports_summary,
             fetch_latest_daily_review_report,
             insert_daily_review_report,
         )
@@ -363,6 +365,113 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(report["status"], "ok")
             self.assertEqual(report["trade_count"], 2)
             self.assertEqual(report["payload"]["rows"][0]["symbol"], "BTCUSDT")
+
+            historical_report = fetch_daily_review_report_by_date(path=db_path, report_date="2026-04-21")
+            summary = fetch_daily_review_reports_summary(path=db_path)
+
+            self.assertEqual(historical_report["report_date"], "2026-04-21")
+            self.assertEqual(historical_report["payload"]["rows"][0]["symbol"], "BTCUSDT")
+            self.assertEqual(summary["report_count"], 1)
+            self.assertEqual(summary["trade_count"], 2)
+            self.assertEqual(summary["actual_total_pnl"], "12.50")
+            self.assertEqual(summary["counterfactual_total_pnl"], "18.25")
+            self.assertEqual(summary["filter_impact"], "-5.75")
+
+    def test_fetch_daily_review_report_by_date_returns_matching_history_row(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_daily_review_report_by_date,
+            insert_daily_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_daily_review_report(
+                path=db_path,
+                report_date="2026-04-20",
+                window_start="2026-04-19T08:30:00+08:00",
+                window_end="2026-04-20T08:30:00+08:00",
+                generated_at="2026-04-20T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="1.00",
+                counterfactual_total_pnl="2.00",
+                pnl_delta="1.00",
+                replayed_add_on_count=1,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": [{"symbol": "OLD"}]},
+            )
+            insert_daily_review_report(
+                path=db_path,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="3.00",
+                counterfactual_total_pnl="4.00",
+                pnl_delta="1.00",
+                replayed_add_on_count=1,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": [{"symbol": "NEW"}]},
+            )
+
+            report = fetch_daily_review_report_by_date(path=db_path, report_date="2026-04-20")
+
+            self.assertEqual(report["report_date"], "2026-04-20")
+            self.assertEqual(report["payload"]["rows"][0]["symbol"], "OLD")
+
+    def test_fetch_daily_review_reports_summary_sums_all_reports(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_daily_review_reports_summary,
+            insert_daily_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            fixtures = [
+                ("2026-04-19", "2.00", "3.00", 1, 1),
+                ("2026-04-20", "-1.50", "-0.50", 2, 2),
+                ("2026-04-21", "10.00", "14.25", 3, 3),
+            ]
+            for idx, (report_date, actual_total_pnl, counterfactual_total_pnl, trade_count, replayed_add_on_count) in enumerate(fixtures):
+                insert_daily_review_report(
+                    path=db_path,
+                    report_date=report_date,
+                    window_start=f"2026-04-{18 + idx}T08:30:00+08:00",
+                    window_end=f"2026-04-{19 + idx}T08:30:00+08:00",
+                    generated_at=f"2026-04-{19 + idx}T08:30:01+08:00",
+                    status="ok",
+                    trade_count=trade_count,
+                    actual_total_pnl=actual_total_pnl,
+                    counterfactual_total_pnl=counterfactual_total_pnl,
+                    pnl_delta=str(float(counterfactual_total_pnl) - float(actual_total_pnl)),
+                    replayed_add_on_count=replayed_add_on_count,
+                    stop_budget_usdt="10",
+                    entry_start_hour_utc=1,
+                    entry_end_hour_utc=23,
+                    warnings=[],
+                    payload={"rows": []},
+                )
+
+            summary = fetch_daily_review_reports_summary(path=db_path)
+
+            self.assertEqual(summary["report_count"], 3)
+            self.assertEqual(summary["trade_count"], 6)
+            self.assertEqual(summary["replayed_add_on_count"], 6)
+            self.assertEqual(summary["actual_total_pnl"], "10.50")
+            self.assertEqual(summary["counterfactual_total_pnl"], "16.75")
+            self.assertEqual(summary["filter_impact"], "-6.25")
 
     def test_fetch_account_snapshots_for_range_keeps_latest_point_per_bucket(self) -> None:
         from momentum_alpha.runtime_store import fetch_account_snapshots_for_range, insert_account_snapshot

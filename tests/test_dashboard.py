@@ -257,6 +257,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("ACCOUNT RISK", html)
         self.assertIn("Margin Usage", html)
         self.assertIn("CORE LIVE LINES", html)
+        self.assertIn("实时监控室", html)
+        self.assertIn("live-control-grid", html)
         self.assertIn("Account Equity", html)
         self.assertIn("Position Count", html)
 
@@ -344,7 +346,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("LIVE OVERVIEW", live_html)
         self.assertNotIn("Closed Trade Detail", live_html)
         self.assertIn("Closed Trade Detail", review_html)
-        self.assertIn("Complete Trade Summary (all closed trades)", review_html)
+        self.assertIn("TRADE REVIEW SUMMARY", review_html)
+        self.assertIn("High-level read on closed-trade quality before drilling into the ledger.", review_html)
         self.assertIn("By Total Leg Count", review_html)
         self.assertNotIn("Report Date", review_html)
         self.assertNotIn("ACCOUNT METRICS", review_html)
@@ -391,11 +394,25 @@ class DashboardTests(unittest.TestCase):
                     }
                 ]
             },
+            "history_summary": {
+                "report_count": 2,
+                "trade_count": 40,
+                "actual_total_pnl": "-400.00",
+                "counterfactual_total_pnl": "-510.00",
+                "filter_impact": "110.00",
+                "replayed_add_on_count": 18,
+            },
+            "available_report_dates": ["2026-04-20", "2026-04-21"],
         }
 
         html = render_dashboard_html(snapshot, active_room="review", review_view="daily")
 
         self.assertIn("每日复盘", html)
+        self.assertIn("Cumulative Filter Impact", html)
+        self.assertIn("Total Reports", html)
+        self.assertIn("Jump to date", html)
+        self.assertIn("<option value='2026-04-20'", html)
+        self.assertIn("<option value='2026-04-21' selected>", html)
         self.assertIn("Report Date", html)
         self.assertIn("Filter helped by 104.13", html)
         self.assertIn("Filter Impact", html)
@@ -415,6 +432,61 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("COUNTERFACTUAL PNL", html)
         self.assertNotIn("Closed Trade Detail", html)
         self.assertLess(html.index("DRAGUSDT"), html.index("GUNUSDT"))
+
+    def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_daily_review_report
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=runtime_db_file)
+            insert_daily_review_report(
+                path=runtime_db_file,
+                report_date="2026-04-20",
+                window_start="2026-04-19T08:30:00+08:00",
+                window_end="2026-04-20T08:30:00+08:00",
+                generated_at="2026-04-20T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="1.00",
+                counterfactual_total_pnl="2.00",
+                pnl_delta="1.00",
+                replayed_add_on_count=1,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": [{"symbol": "OLD"}]},
+            )
+            insert_daily_review_report(
+                path=runtime_db_file,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="3.00",
+                counterfactual_total_pnl="4.00",
+                pnl_delta="1.00",
+                replayed_add_on_count=1,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": [{"symbol": "NEW"}]},
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                runtime_db_file=runtime_db_file,
+                report_date="2026-04-20",
+            )
+
+        self.assertEqual(snapshot["daily_review_report"]["report_date"], "2026-04-20")
+        self.assertEqual(snapshot["daily_review_report"]["payload"]["rows"][0]["symbol"], "OLD")
+        self.assertEqual(snapshot["daily_review_report"]["history_summary"]["report_count"], 2)
+        self.assertEqual(snapshot["daily_review_report"]["available_report_dates"], ["2026-04-20", "2026-04-21"])
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
@@ -930,6 +1002,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Yes", html)
         self.assertIn("Submit Orders", html)
         self.assertIn("No", html)
+        self.assertIn("SYSTEM DIAGNOSTICS", html)
+        self.assertIn("EVENT SOURCES", html)
+        self.assertIn("RECENT EVENTS", html)
+        self.assertIn("system-console-grid", html)
 
     def test_render_dashboard_html_top_cards_fall_back_to_runtime_latest_account_snapshot(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -2376,7 +2452,7 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("复盘室", html)
         self.assertIn("Closed Trade Detail", html)
-        self.assertIn("Complete Trade Summary (all closed trades)", html)
+        self.assertIn("TRADE REVIEW SUMMARY", html)
         self.assertIn("By Total Leg Count", html)
         self.assertIn("By Leg Index", html)
         self.assertIn("Leg #", html)
@@ -2594,12 +2670,14 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("复盘室", review_html)
         self.assertIn("Closed Trade Detail", review_html)
-        self.assertIn("Complete Trade Summary (all closed trades)", review_html)
+        self.assertIn("TRADE REVIEW SUMMARY", review_html)
         self.assertIn("PLAYUSDT", review_html)
         self.assertIn("#1", review_html)
         self.assertIn("STOP LOSS", review_html)
-        self.assertIn("STOP SLIPPAGE ANALYSIS", review_html)
+        self.assertIn("Stop Slippage Analysis", review_html)
         self.assertIn("0.17687", review_html)
+        self.assertLess(review_html.index("TRADE REVIEW SUMMARY"), review_html.index("Closed Trade Detail"))
+        self.assertLess(review_html.index("Closed Trade Detail"), review_html.index("By Total Leg Count"))
         self.assertIn("ORDER FLOW", live_html)
 
     def test_render_dashboard_tab_bar_uses_relative_tab_links(self) -> None:
@@ -3553,6 +3631,11 @@ console.log(JSON.stringify(cases));
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("Distance", html)
         self.assertIn("Notional", html)
+        self.assertIn("live-control-grid", html)
+        self.assertIn("live-decision-grid", html)
+        self.assertIn("live-ops-grid", html)
+        self.assertIn("live-decision-grid", html)
+        self.assertIn("live-ops-grid", html)
 
     def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

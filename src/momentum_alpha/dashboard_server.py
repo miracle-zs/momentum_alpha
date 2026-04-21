@@ -43,6 +43,7 @@ def run_dashboard_server(
             active_room = normalize_dashboard_room(query_params.get("room", [query_params.get("tab", [None])[0]])[0])
             review_view = normalize_review_view(query_params.get("review_view", [None])[0])
             account_range_key = normalize_account_range(query_params.get("range", [None])[0])
+            report_date = query_params.get("report_date", [None])[0]
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
                 runtime_db_file=runtime_db_file,
@@ -52,6 +53,7 @@ def run_dashboard_server(
                 testnet=testnet,
                 submit_orders=submit_orders,
                 account_range_key=account_range_key,
+                report_date=report_date,
             )
             if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
                 if parsed_url.path == "/api/dashboard/summary":
