@@ -5,6 +5,12 @@ This directory stores visual reference material for dashboard redesign work.
 ## Files
 
 - `cosmic-gravity-ui-reference.jpeg`: the cosmic-black, black-gold dashboard reference used for the current frontend redesign.
+- `lightcore-prism-ui-reference.jpg`: a bright prism-style UI design system reference for possible light-mode or alternate visual exploration.
+
+## Notes
+
+- `cosmic-gravity-design-notes.md`: notes for the Cosmic Gravity dark dashboard direction.
+- `lightcore-prism-design-notes.md`: notes for the Lightcore Prism bright UI direction.
 
 ## Usage
 
