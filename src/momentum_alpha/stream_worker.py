@@ -58,6 +58,8 @@ def run_user_stream(
     stream_client_factory=None,
     reconnect_sleep_fn=None,
     runtime_db_path=None,
+    rebuild_trade_analytics_fn=None,
+    scheduler_factory=None,
 ) -> int:
     return _run_user_stream_impl(
         client=client,
@@ -82,4 +84,6 @@ def run_user_stream(
         record_position_snapshot_fn=_record_position_snapshot,
         save_user_stream_strategy_state_fn=_save_user_stream_strategy_state,
         prune_processed_event_ids_fn=_prune_processed_event_ids,
+        rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
+        scheduler_factory=scheduler_factory,
     )

@@ -8,7 +8,7 @@ from pathlib import Path
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.models import StrategyState
 from momentum_alpha.reconciliation import restore_state
-from momentum_alpha.runtime_store import RuntimeStateStore
+from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.telemetry import _record_broker_orders, _record_position_snapshot
@@ -29,6 +29,7 @@ from .stream_worker_core import (
     _save_user_stream_strategy_state,
     build_user_stream_event_handler,
 )
+from .stream_worker_rebuild_scheduler import DebouncedRebuildScheduler
 
 
 def _build_initial_user_stream_state(
@@ -80,6 +81,8 @@ def run_user_stream(
     record_position_snapshot_fn=None,
     save_user_stream_strategy_state_fn=None,
     prune_processed_event_ids_fn=None,
+    rebuild_trade_analytics_fn=None,
+    scheduler_factory=None,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
@@ -98,6 +101,8 @@ def run_user_stream(
     record_position_snapshot_fn = record_position_snapshot_fn or _record_position_snapshot
     save_user_stream_strategy_state_fn = save_user_stream_strategy_state_fn or _save_user_stream_strategy_state
     prune_processed_event_ids_fn = prune_processed_event_ids_fn or _prune_processed_event_ids
+    rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
+    scheduler_factory = scheduler_factory or DebouncedRebuildScheduler
 
     audit_recorder = (
         AuditRecorder(runtime_db_path=runtime_db_path, source="user-stream", error_logger=logger)
@@ -109,6 +114,14 @@ def run_user_stream(
     stored_state = runtime_state_store.load() if runtime_state_store is not None else None
     current_now = now_provider()
     context = _build_initial_user_stream_state(stored_state, current_now)
+    scheduler = None
+    if runtime_db_path is not None:
+        scheduler = scheduler_factory(
+            debounce_seconds=30,
+            now_provider=now_provider,
+            rebuild_fn=lambda: rebuild_trade_analytics_fn(path=runtime_db_path),
+            logger=logger,
+        )
 
     def _prewarm_state() -> None:
         fetch_position_risk = getattr(client, "fetch_position_risk", None)
@@ -196,38 +209,43 @@ def run_user_stream(
         record_broker_orders_fn=record_broker_orders_fn,
         record_position_snapshot_fn=record_position_snapshot_fn,
         save_user_stream_strategy_state_fn=save_user_stream_strategy_state_fn,
+        on_trade_fill_persisted_fn=scheduler.notify if scheduler is not None else None,
         prune_processed_event_ids_fn=prune_processed_event_ids_fn,
     )
 
     reconnect_attempt = 0
-    while True:
-        _prewarm_state()
-        if audit_recorder is not None:
-            audit_recorder.record(
-                event_type="user_stream_worker_start",
-                now=now_provider(),
-                payload={
-                    "testnet": testnet,
-                    "position_count": len(context.state.positions),
-                    "tracked_order_status_count": len(context.order_statuses),
-                    "reconnect_attempt": reconnect_attempt,
-                },
-            )
-            _record_position_snapshot(
-                audit_recorder=audit_recorder,
-                now=now_provider(),
-                leader_symbol=context.state.previous_leader_symbol,
-                position_count=len(context.state.positions),
-                order_status_count=len(context.order_statuses),
-                payload={"event_type": "user_stream_worker_start", "testnet": testnet},
-            )
-        stream_client = stream_client_factory(rest_client=client, testnet=testnet)
-        try:
-            listen_key = stream_client.run_forever(on_event=event_handler)
-            logger(f"listen_key={listen_key}")
-            return 0
-        except Exception as exc:
-            reconnect_attempt += 1
-            sleep_seconds = min(reconnect_attempt, 5)
-            logger(f"stream-error attempt={reconnect_attempt} sleep={sleep_seconds}s error={exc}")
-            reconnect_sleep_fn(sleep_seconds)
+    try:
+        while True:
+            _prewarm_state()
+            if audit_recorder is not None:
+                audit_recorder.record(
+                    event_type="user_stream_worker_start",
+                    now=now_provider(),
+                    payload={
+                        "testnet": testnet,
+                        "position_count": len(context.state.positions),
+                        "tracked_order_status_count": len(context.order_statuses),
+                        "reconnect_attempt": reconnect_attempt,
+                    },
+                )
+                _record_position_snapshot(
+                    audit_recorder=audit_recorder,
+                    now=now_provider(),
+                    leader_symbol=context.state.previous_leader_symbol,
+                    position_count=len(context.state.positions),
+                    order_status_count=len(context.order_statuses),
+                    payload={"event_type": "user_stream_worker_start", "testnet": testnet},
+                )
+            stream_client = stream_client_factory(rest_client=client, testnet=testnet)
+            try:
+                listen_key = stream_client.run_forever(on_event=event_handler)
+                logger(f"listen_key={listen_key}")
+                return 0
+            except Exception as exc:
+                reconnect_attempt += 1
+                sleep_seconds = min(reconnect_attempt, 5)
+                logger(f"stream-error attempt={reconnect_attempt} sleep={sleep_seconds}s error={exc}")
+                reconnect_sleep_fn(sleep_seconds)
+    finally:
+        if scheduler is not None:
+            scheduler.close()

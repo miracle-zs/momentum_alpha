@@ -105,6 +105,7 @@ def build_user_stream_event_handler(
     record_broker_orders_fn: Callable[..., None] = _record_broker_orders,
     record_position_snapshot_fn: Callable[..., None] = _record_position_snapshot,
     save_user_stream_strategy_state_fn: Callable[..., None] = _save_user_stream_strategy_state,
+    on_trade_fill_persisted_fn: Callable[[], None] | None = None,
     prune_processed_event_ids_fn: Callable[
         [dict[str, str] | None, datetime],
         dict[str, str],
@@ -169,6 +170,8 @@ def build_user_stream_event_handler(
                     commission_asset=trade_fill.get("commission_asset"),
                     payload=event.payload,
                 )
+                if on_trade_fill_persisted_fn is not None:
+                    on_trade_fill_persisted_fn()
             except Exception as exc:
                 logger(
                     "trade-fill-insert-error "
