@@ -20,6 +20,14 @@ if str(SRC) not in sys.path:
 
 
 class MainTests(unittest.TestCase):
+    def test_main_module_exports_cli_and_worker_entrypoints(self) -> None:
+        from momentum_alpha import main
+
+        self.assertTrue(callable(main.cli_main))
+        self.assertTrue(callable(main.run_once_live))
+        self.assertTrue(callable(main.run_forever))
+        self.assertTrue(callable(main.run_user_stream))
+
     def test_build_runtime_from_snapshot_dicts(self) -> None:
         from momentum_alpha.main import build_runtime_from_snapshots
 
