@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import dashboard_assets as _dashboard_assets
 from . import dashboard_common as _dashboard_common
 from . import dashboard_data as _dashboard_data
 from . import dashboard_render as _dashboard_render
+from . import dashboard_view_model as _dashboard_view_model
+from .dashboard_assets import (
+    render_dashboard_head,
+    render_dashboard_scripts,
+    render_dashboard_styles,
+)
 from .dashboard_common import (
     ACCOUNT_RANGE_WINDOWS,
     _compute_margin_usage_pct,
@@ -27,8 +34,6 @@ from .dashboard_render import (
     DISPLAY_TIMEZONE_NAME,
     LEGACY_DASHBOARD_TAB_TO_ROOM,
     REVIEW_VIEWS,
-    build_position_details,
-    build_trader_summary_metrics,
     format_timestamp_for_display,
     normalize_dashboard_room,
     normalize_dashboard_tab,
@@ -37,16 +42,13 @@ from .dashboard_render import (
     render_cosmic_identity_panel,
     render_dashboard_body,
     render_dashboard_document,
-    render_dashboard_head,
     render_dashboard_html,
     render_dashboard_live_room,
     render_dashboard_overview_tab,
     render_dashboard_performance_tab,
     render_dashboard_review_room,
     render_dashboard_room_nav,
-    render_dashboard_scripts,
     render_dashboard_shell,
-    render_dashboard_styles,
     render_dashboard_system_room,
     render_dashboard_system_tab,
     render_dashboard_tab_bar,
@@ -56,10 +58,14 @@ from .dashboard_render import (
     render_trade_leg_count_aggregate_table,
     render_trade_leg_index_aggregate_table,
 )
+from .dashboard_view_model import (
+    build_position_details,
+    build_trader_summary_metrics,
+)
 
 
 def __getattr__(name: str):
-    for module in (_dashboard_render, _dashboard_data, _dashboard_common):
+    for module in (_dashboard_render, _dashboard_assets, _dashboard_view_model, _dashboard_data, _dashboard_common):
         try:
             return getattr(module, name)
         except AttributeError:
