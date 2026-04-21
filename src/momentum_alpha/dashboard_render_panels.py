@@ -824,16 +824,16 @@ def render_daily_review_panel(report: dict | None) -> str:
     worst_filter_drag = min(negative_impacts) if negative_impacts else Decimal("0")
     kpi_items = [
         ("Report Date", str(report.get("report_date", "n/a"))),
-        ("Trades", str(report.get("trade_count", "n/a"))),
         ("Actual PnL", _format_decimal_metric(actual_total, signed=True)),
-        ("Replay PnL", _format_decimal_metric(replay_total, signed=True)),
         ("Filter Impact", _format_decimal_metric(total_impact, signed=True)),
-        ("Replayed Add-Ons", str(report.get("replayed_add_on_count", "n/a"))),
         ("Actual Win Rate", _format_decimal_metric(actual_win_rate, suffix="%")),
-        ("Replay Win Rate", _format_decimal_metric(replay_win_rate, suffix="%")),
         ("Affected Trades", str(affected_trade_count)),
-        ("Avg Impact / Trade", _format_decimal_metric(avg_impact, signed=True)),
         ("Best Filter Save", _format_decimal_metric(best_filter_save, signed=True)),
+        ("Trades", str(report.get("trade_count", "n/a"))),
+        ("Replay PnL", _format_decimal_metric(replay_total, signed=True)),
+        ("Replayed Add-Ons", str(report.get("replayed_add_on_count", "n/a"))),
+        ("Replay Win Rate", _format_decimal_metric(replay_win_rate, suffix="%")),
+        ("Avg Impact / Trade", _format_decimal_metric(avg_impact, signed=True)),
         ("Worst Filter Drag", _format_decimal_metric(worst_filter_drag, signed=True)),
     ]
     kpi_html = "".join(
