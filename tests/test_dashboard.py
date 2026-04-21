@@ -352,23 +352,35 @@ class DashboardTests(unittest.TestCase):
             "window_end": "2026-04-21T08:30:00+08:00",
             "generated_at": "2026-04-21T08:30:01+08:00",
             "status": "ok",
-            "trade_count": 2,
-            "actual_total_pnl": "12.50",
-            "counterfactual_total_pnl": "18.25",
-            "pnl_delta": "5.75",
-            "replayed_add_on_count": 3,
+            "trade_count": 32,
+            "actual_total_pnl": "-361.44281378",
+            "counterfactual_total_pnl": "-465.5742479936075988210691072",
+            "pnl_delta": "-104.1314342136075988210691072",
+            "replayed_add_on_count": 16,
             "warnings": [],
             "payload": {
                 "rows": [
                     {
-                        "symbol": "BTCUSDT",
-                        "opened_at": "2026-04-20T09:00:00+08:00",
-                        "closed_at": "2026-04-20T12:00:00+08:00",
-                        "actual_net_pnl": "5.00",
-                        "counterfactual_net_pnl": "7.50",
-                        "pnl_delta": "2.50",
-                        "leg_count": 2,
-                        "replayed_add_on_count": 1,
+                        "symbol": "GUNUSDT",
+                        "opened_at": "2026-04-20T01:26:00.938000+00:00",
+                        "closed_at": "2026-04-20T02:07:03.453000+00:00",
+                        "actual_net_pnl": "-18.18275397",
+                        "counterfactual_net_pnl": "-18.18275397",
+                        "pnl_delta": "0E-8",
+                        "leg_count": 1,
+                        "replayed_add_on_count": 0,
+                        "warnings": [],
+                    },
+                    {
+                        "symbol": "DRAGUSDT",
+                        "opened_at": "2026-04-20T03:00:00+00:00",
+                        "closed_at": "2026-04-20T04:00:00+00:00",
+                        "actual_net_pnl": "10.00",
+                        "counterfactual_net_pnl": "15.25",
+                        "pnl_delta": "5.25",
+                        "leg_count": 1,
+                        "replayed_add_on_count": 2,
+                        "warnings": ["missing_replay_inputs"],
                     }
                 ]
             },
@@ -378,10 +390,22 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("每日复盘", html)
         self.assertIn("Report Date", html)
+        self.assertIn("Filter helped by 104.13", html)
+        self.assertIn("Filter Impact", html)
+        self.assertIn("Actual Win Rate", html)
+        self.assertIn("Replay Win Rate", html)
+        self.assertIn("Affected Trades", html)
+        self.assertIn("Best Filter Save", html)
         self.assertIn("CLOSED AT", html)
+        self.assertIn("STATUS", html)
+        self.assertIn("04-20 10:07", html)
+        self.assertIn("04-20 09:26", html)
+        self.assertIn("WARN", html)
+        self.assertIn("daily-review-grid", html)
         self.assertIn("2026-04-21", html)
-        self.assertIn("12.50", html)
-        self.assertIn("18.25", html)
+        self.assertIn("-361.44", html)
+        self.assertIn("-465.57", html)
+        self.assertNotIn("COUNTERFACTUAL PNL", html)
         self.assertNotIn("Closed Trade Detail", html)
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:

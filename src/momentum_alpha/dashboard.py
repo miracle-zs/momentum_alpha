@@ -144,6 +144,16 @@ def _format_datetime_compact(timestamp: str | None) -> str:
         return str(timestamp)
 
 
+def _format_datetime_review(timestamp: str | None) -> str:
+    if not timestamp:
+        return "n/a"
+    try:
+        parsed = datetime.fromisoformat(timestamp)
+    except ValueError:
+        return str(timestamp)
+    return parsed.astimezone(DISPLAY_TIMEZONE).strftime("%m-%d %H:%M")
+
+
 def _format_round_trip_exit_reason(exit_reason: str | None) -> str:
     if not exit_reason:
         return "n/a"
@@ -1380,6 +1390,31 @@ def _format_pct_value(value: object | None, *, signed: bool = False) -> str:
     return f"{numeric:,.2f}%"
 
 
+def _format_decimal_metric(value: Decimal | object | None, *, signed: bool = False, suffix: str = "") -> str:
+    decimal_value = value if isinstance(value, Decimal) else _parse_decimal(value)
+    if decimal_value is None:
+        return "n/a"
+    if signed and decimal_value == 0:
+        return f"0.00{suffix}"
+    prefix = "+" if signed and decimal_value > 0 else ""
+    return f"{prefix}{decimal_value:,.2f}{suffix}"
+
+
+def _daily_review_impact(*, actual: object | None, replay: object | None) -> Decimal | None:
+    actual_value = _parse_decimal(actual)
+    replay_value = _parse_decimal(replay)
+    if actual_value is None or replay_value is None:
+        return None
+    return actual_value - replay_value
+
+
+def _daily_review_win_rate(values: list[Decimal]) -> Decimal | None:
+    if not values:
+        return None
+    wins = sum(1 for value in values if value > 0)
+    return (Decimal(wins) / Decimal(len(values))) * Decimal("100")
+
+
 def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str, show_grid: bool = True) -> str:
     values = [point.get(value_key) for point in points if isinstance(point.get(value_key), (int, float))]
     if not values:
@@ -2094,39 +2129,119 @@ def render_daily_review_panel(report: dict | None) -> str:
 
     rows = []
     rows_data = report.get("payload", {}).get("rows", []) or []
+    actual_total = _parse_decimal(report.get("actual_total_pnl"))
+    replay_total = _parse_decimal(report.get("counterfactual_total_pnl"))
+    total_impact = _daily_review_impact(
+        actual=report.get("actual_total_pnl"),
+        replay=report.get("counterfactual_total_pnl"),
+    )
+    total_impact_abs = abs(total_impact) if total_impact is not None else None
+    if total_impact is None:
+        impact_state = ""
+        impact_headline = "Filter impact unavailable"
+        impact_support = "Daily report is missing actual or replay PnL."
+    elif total_impact > 0:
+        impact_state = "positive"
+        impact_headline = f"Filter helped by {_format_decimal_metric(total_impact_abs)}"
+        impact_support = "Actual strategy outperformed the unconditional hourly add-on replay."
+    elif total_impact < 0:
+        impact_state = "negative"
+        impact_headline = f"Filter dragged by {_format_decimal_metric(total_impact_abs)}"
+        impact_support = "The unconditional hourly add-on replay outperformed the actual strategy."
+    else:
+        impact_state = "neutral"
+        impact_headline = "Filter impact flat"
+        impact_support = "Actual and replay PnL matched for this report."
+
+    actual_values: list[Decimal] = []
+    replay_values: list[Decimal] = []
+    row_impacts: list[Decimal] = []
+    affected_trade_count = 0
     for row in rows_data:
+        actual_value = _parse_decimal(row.get("actual_net_pnl"))
+        replay_value = _parse_decimal(row.get("counterfactual_net_pnl"))
+        if actual_value is not None:
+            actual_values.append(actual_value)
+        if replay_value is not None:
+            replay_values.append(replay_value)
+        row_impact = _daily_review_impact(
+            actual=row.get("actual_net_pnl"),
+            replay=row.get("counterfactual_net_pnl"),
+        )
+        if row_impact is not None:
+            row_impacts.append(row_impact)
+        replayed_add_on_count = int(_parse_numeric(row.get("replayed_add_on_count")) or 0)
+        if replayed_add_on_count > 0 or (row_impact is not None and row_impact != 0):
+            affected_trade_count += 1
         warnings_text = ", ".join(str(item) for item in (row.get("warnings") or [])) or "n/a"
+        status_label = "WARN" if warnings_text != "n/a" else "OK"
+        status_class = "warn" if status_label == "WARN" else "ok"
+        impact_class = ""
+        if row_impact is not None and row_impact > 0:
+            impact_class = "daily-review-impact-positive"
+        elif row_impact is not None and row_impact < 0:
+            impact_class = "daily-review-impact-negative"
         rows.append(
-            "<div class='analytics-row daily-review-row'>"
-            f"<span>{escape(str(row.get('closed_at', 'n/a')))}</span>"
+            "<div class='analytics-row daily-review-row daily-review-grid'>"
+            f"<span title='{escape(str(row.get('closed_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('closed_at')))}</span>"
             f"<span class='analytics-main'><b>{escape(str(row.get('symbol', 'n/a')))}</b></span>"
-            f"<span>{escape(str(row.get('opened_at', 'n/a')))}</span>"
-            f"<span>{escape(str(row.get('actual_net_pnl', 'n/a')))}</span>"
-            f"<span>{escape(str(row.get('counterfactual_net_pnl', 'n/a')))}</span>"
-            f"<span>{escape(str(row.get('pnl_delta', 'n/a')))}</span>"
-            f"<span>{escape(str(row.get('replayed_add_on_count', 'n/a')))}</span>"
-            f"<span>{escape(warnings_text)}</span>"
+            f"<span title='{escape(str(row.get('opened_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('opened_at')))}</span>"
+            f"<span>{escape(_format_decimal_metric(actual_value, signed=True))}</span>"
+            f"<span>{escape(_format_decimal_metric(replay_value, signed=True))}</span>"
+            f"<span class='{impact_class}'>{escape(_format_decimal_metric(row_impact, signed=True))}</span>"
+            f"<span>{escape(str(replayed_add_on_count))}</span>"
+            f"<span><span class='daily-review-status daily-review-status-{status_class}' title='{escape(warnings_text)}'>{status_label}</span></span>"
             "</div>"
         )
+    actual_win_rate = _daily_review_win_rate(actual_values)
+    replay_win_rate = _daily_review_win_rate(replay_values)
+    trade_count = _parse_decimal(report.get("trade_count")) or Decimal(len(rows_data) or 0)
+    avg_impact = total_impact / trade_count if total_impact is not None and trade_count else None
+    positive_impacts = [impact for impact in row_impacts if impact > 0]
+    negative_impacts = [impact for impact in row_impacts if impact < 0]
+    best_filter_save = max(positive_impacts) if positive_impacts else Decimal("0")
+    worst_filter_drag = min(negative_impacts) if negative_impacts else Decimal("0")
+    kpi_items = [
+        ("Report Date", str(report.get("report_date", "n/a"))),
+        ("Trades", str(report.get("trade_count", "n/a"))),
+        ("Actual PnL", _format_decimal_metric(actual_total, signed=True)),
+        ("Replay PnL", _format_decimal_metric(replay_total, signed=True)),
+        ("Filter Impact", _format_decimal_metric(total_impact, signed=True)),
+        ("Replayed Add-Ons", str(report.get("replayed_add_on_count", "n/a"))),
+        ("Actual Win Rate", _format_decimal_metric(actual_win_rate, suffix="%")),
+        ("Replay Win Rate", _format_decimal_metric(replay_win_rate, suffix="%")),
+        ("Affected Trades", str(affected_trade_count)),
+        ("Avg Impact / Trade", _format_decimal_metric(avg_impact, signed=True)),
+        ("Best Filter Save", _format_decimal_metric(best_filter_save, signed=True)),
+        ("Worst Filter Drag", _format_decimal_metric(worst_filter_drag, signed=True)),
+    ]
+    kpi_html = "".join(
+        (
+            "<div class='daily-review-kpi'>"
+            f"<div class='decision-label'>{escape(label)}</div>"
+            f"<div class='decision-value'>{escape(value)}</div>"
+            "</div>"
+        )
+        for label, value in kpi_items
+    )
     rows_html = (
         "<div class='analytics-table daily-review-table'>"
-        "<div class='analytics-row analytics-row-header daily-review-row-header'>"
-        "<span>CLOSED AT</span><span class='analytics-main'>SYMBOL</span><span>OPENED AT</span><span>ACTUAL PNL</span><span>COUNTERFACTUAL PNL</span><span>DELTA</span><span>ADD-ONS</span><span>WARNINGS</span>"
+        "<div class='analytics-row analytics-row-header daily-review-row-header daily-review-grid'>"
+        "<span>CLOSED AT</span><span class='analytics-main'>SYMBOL</span><span>OPENED AT</span><span>ACTUAL</span><span>REPLAY</span><span>FILTER IMPACT</span><span>ADD-ONS</span><span>STATUS</span>"
         "</div>"
         f"{''.join(rows) if rows else '<div class=\"trade-history-empty\">No trade rows</div>'}"
         "</div>"
     )
     return (
         "<section class='chart-card daily-review-panel'>"
-        "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>每日复盘</div>"
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Report Date</div><div class='decision-value'>{escape(str(report.get('report_date', 'n/a')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Trades</div><div class='decision-value'>{escape(str(report.get('trade_count', 'n/a')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Actual PnL</div><div class='decision-value'>{escape(str(report.get('actual_total_pnl', 'n/a')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Counterfactual PnL</div><div class='decision-value'>{escape(str(report.get('counterfactual_total_pnl', 'n/a')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Delta</div><div class='decision-value'>{escape(str(report.get('pnl_delta', 'n/a')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Replayed Add-Ons</div><div class='decision-value'>{escape(str(report.get('replayed_add_on_count', 'n/a')))}</div></div>"
+        f"<div class='daily-review-headline {impact_state}'>"
+        "<div>"
+        "<div class='daily-review-eyebrow'>每日复盘</div>"
+        f"<div class='daily-review-title'>{escape(impact_headline)}</div>"
+        f"<div class='daily-review-support'>{escape(impact_support)}</div>"
         "</div>"
+        "</div>"
+        f"<div class='daily-review-kpi-grid'>{kpi_html}</div>"
         f"{rows_html}"
         "</section>"
     )
@@ -2877,6 +2992,24 @@ def _render_dashboard_component_styles() -> str:
     .round-trip-leg-empty { color: var(--fg-muted); font-size: 0.74rem; padding: 8px 0 0 0; }
     .analytics-row:last-child { border-bottom: none; }
     .analytics-main { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .daily-review-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+    .daily-review-headline { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.22); }
+    .daily-review-headline.positive { border-color: rgba(0,255,136,0.26); background: rgba(0,255,136,0.06); }
+    .daily-review-headline.negative { border-color: rgba(255,68,102,0.28); background: rgba(255,68,102,0.06); }
+    .daily-review-eyebrow { font-size: 0.68rem; color: var(--accent); letter-spacing: 0; text-transform: uppercase; margin-bottom: 6px; }
+    .daily-review-title { font-size: 1.12rem; font-weight: 800; }
+    .daily-review-support { margin-top: 4px; color: var(--fg-muted); font-size: 0.78rem; }
+    .daily-review-kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .daily-review-kpi { min-height: 82px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); overflow: hidden; }
+    .daily-review-table { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; }
+    .daily-review-grid { display: grid; grid-template-columns: minmax(126px, 1fr) minmax(88px, 0.7fr) minmax(126px, 1fr) minmax(88px, 0.75fr) minmax(88px, 0.75fr) minmax(108px, 0.85fr) minmax(68px, 0.52fr) minmax(70px, 0.52fr); min-width: 1040px; }
+    .daily-review-row { gap: 10px; padding: 10px 0; font-size: 0.74rem; }
+    .daily-review-row-header { position: sticky; top: 0; z-index: 1; background: rgba(7,9,14,0.98); padding-top: 12px; }
+    .daily-review-impact-positive { color: var(--success); font-weight: 700; }
+    .daily-review-impact-negative { color: var(--danger); font-weight: 700; }
+    .daily-review-status { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; padding: 3px 8px; border-radius: 999px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0; }
+    .daily-review-status-ok { color: var(--success); background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.18); }
+    .daily-review-status-warn { color: var(--warning); background: rgba(255,184,0,0.08); border: 1px solid rgba(255,184,0,0.24); }
     .trade-time { color: var(--fg-muted); }
     .trade-symbol { color: var(--accent); font-weight: 500; }
     .side-buy { color: var(--success); }
@@ -2960,6 +3093,7 @@ def _render_dashboard_responsive_styles() -> str:
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
       .execution-flow-grid { grid-template-columns: repeat(2, 1fr); }
+      .daily-review-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 768px) {
@@ -2980,6 +3114,9 @@ def _render_dashboard_responsive_styles() -> str:
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
+      .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
+      .daily-review-grid { min-width: 920px; grid-template-columns: minmax(112px, 1fr) minmax(82px, 0.7fr) minmax(112px, 1fr) minmax(78px, 0.72fr) minmax(78px, 0.72fr) minmax(96px, 0.82fr) minmax(60px, 0.52fr) minmax(64px, 0.52fr); }
+      .daily-review-row { font-size: 0.68rem; }
       .account-overview-grid { grid-template-columns: 1fr; }
       .account-snapshot-grid { grid-template-columns: 1fr; }
       .execution-flow-grid { grid-template-columns: 1fr; }
