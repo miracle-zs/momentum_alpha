@@ -825,11 +825,11 @@ def render_daily_review_panel(report: dict | None) -> str:
     kpi_items = [
         ("Report Date", str(report.get("report_date", "n/a"))),
         ("Actual PnL", _format_decimal_metric(actual_total, signed=True)),
-        ("Filter Impact", _format_decimal_metric(total_impact, signed=True)),
+        ("Trades", str(report.get("trade_count", "n/a"))),
         ("Actual Win Rate", _format_decimal_metric(actual_win_rate, suffix="%")),
         ("Affected Trades", str(affected_trade_count)),
         ("Best Filter Save", _format_decimal_metric(best_filter_save, signed=True)),
-        ("Trades", str(report.get("trade_count", "n/a"))),
+        ("Filter Impact", _format_decimal_metric(total_impact, signed=True)),
         ("Replay PnL", _format_decimal_metric(replay_total, signed=True)),
         ("Replayed Add-Ons", str(report.get("replayed_add_on_count", "n/a"))),
         ("Replay Win Rate", _format_decimal_metric(replay_win_rate, suffix="%")),
