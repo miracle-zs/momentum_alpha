@@ -195,18 +195,21 @@ def render_dashboard_performance_tab(
         "</div>"
         "<div class='dashboard-section section-body review-analysis-shell'>"
         "<div class='review-summary-strip'>"
-        "<div class='review-summary-head'>"
+        "<div class='review-summary-ribbon'>"
+        "<div class='review-summary-copy-block'>"
         "<div class='section-header review-summary-kicker'>TRADE REVIEW SUMMARY</div>"
         "<div class='review-summary-copy'>High-level read on closed-trade quality before drilling into the ledger.</div>"
         "</div>"
-        f"<div class='review-summary-grid'>{performance_summary_html}</div>"
+        f"<div class='review-summary-ribbon-items'>{performance_summary_html}</div>"
         "</div>"
-        "<div class='review-analysis-grid'>"
+        "</div>"
+        "<div class='review-analysis-main-row'>"
         "<div class='chart-card review-analysis-main'>"
         "<div class='review-section-label'>Closed Trade Detail</div>"
         f"<div class='table-scroll'>{round_trip_detail_html}</div>"
         "</div>"
-        "<div class='review-analysis-sidebar'>"
+        "</div>"
+        "<div class='review-analysis-evidence-grid'>"
         "<div class='chart-card review-analysis-card'>"
         "<div class='review-section-label'>By Total Leg Count</div>"
         f"<div class='table-scroll'>{leg_count_aggregate_html}</div>"
@@ -631,17 +634,24 @@ def render_dashboard_body(
         f"<div class='decision-item'><div class='decision-label'>Fee Total</div><div class='decision-value'>{escape(_format_metric(trader_metrics['execution'].get('fee_total')))}</div></div>"
         "</div>"
     )
-    performance_summary_html = (
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Win Rate</div><div class='decision-value'>{escape(_format_pct(performance_win_rate * 100) if performance_win_rate is not None else 'n/a')}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Profit Factor</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('profit_factor')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Win</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_win')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Loss</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('avg_loss'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Expectancy</div><div class='decision-value'>{escape(_format_metric(trader_metrics['performance'].get('expectancy'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Hold</div><div class='decision-value'>{escape(_format_duration_seconds(trader_metrics['performance'].get('avg_hold_time_seconds')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Current Streak</div><div class='decision-value'>{escape(str((trader_metrics['performance'].get('current_streak') or {}).get('label') or 'n/a'))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Trade Count</div><div class='decision-value'>{escape(str(trader_metrics['performance'].get('trade_count') or 0))}</div></div>"
-        "</div>"
+    performance_summary_items = [
+        ("Win Rate", _format_pct(performance_win_rate * 100) if performance_win_rate is not None else "n/a"),
+        ("Profit Factor", _format_metric(trader_metrics["performance"].get("profit_factor"))),
+        ("Expectancy", _format_metric(trader_metrics["performance"].get("expectancy"), signed=True)),
+        ("Avg Hold", _format_duration_seconds(trader_metrics["performance"].get("avg_hold_time_seconds"))),
+        ("Trade Count", str(trader_metrics["performance"].get("trade_count") or 0)),
+        ("Current Streak", str((trader_metrics["performance"].get("current_streak") or {}).get("label") or "n/a")),
+        ("Avg Win", _format_metric(trader_metrics["performance"].get("avg_win"))),
+        ("Avg Loss", _format_metric(trader_metrics["performance"].get("avg_loss"), signed=True)),
+    ]
+    performance_summary_html = "".join(
+        (
+            "<div class='review-summary-ribbon-item'>"
+            f"<div class='review-summary-ribbon-label'>{escape(label)}</div>"
+            f"<div class='review-summary-ribbon-value'>{escape(value)}</div>"
+            "</div>"
+        )
+        for label, value in performance_summary_items
     )
     risk_overview_html = (
         "<div class='decision-grid decision-grid-stack'>"
