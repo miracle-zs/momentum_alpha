@@ -1920,7 +1920,7 @@ class MainTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             with patch(
-                "momentum_alpha.main.extract_trade_fill",
+                "momentum_alpha.stream_worker.extract_trade_fill",
                 return_value={
                     "symbol": "ETHUSDT",
                     "order_id": "123",
@@ -1939,7 +1939,7 @@ class MainTests(unittest.TestCase):
                     "commission_asset": "USDT",
                 },
             ):
-                with patch("momentum_alpha.main.insert_trade_fill", side_effect=lambda **kwargs: None):
+                with patch("momentum_alpha.stream_worker.insert_trade_fill", side_effect=lambda **kwargs: None):
                     with patch("momentum_alpha.main.rebuild_trade_analytics", side_effect=lambda **kwargs: rebuild_calls.append(kwargs)):
                         exit_code = run_user_stream(
                             client=FakeClient(),
@@ -2039,7 +2039,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_account_flow", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_account_flow", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,
@@ -2091,7 +2091,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_trade_fill", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_trade_fill", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,
@@ -2133,7 +2133,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_algo_order", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_algo_order", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,
