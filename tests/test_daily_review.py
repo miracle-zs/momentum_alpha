@@ -99,6 +99,62 @@ class DailyReviewTests(unittest.TestCase):
         self.assertGreater(Decimal(report.counterfactual_total_pnl), Decimal(report.actual_total_pnl))
         self.assertEqual(report.replayed_add_on_count, 1)
 
+    def test_build_daily_review_report_sorts_rows_by_closed_at_descending(self) -> None:
+        from momentum_alpha.daily_review import build_daily_review_report
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_trade_round_trip
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="AAAUSDT:1",
+                symbol="AAAUSDT",
+                opened_at=datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc),
+                closed_at=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="1",
+                total_exit_quantity="1",
+                weighted_avg_entry_price="100",
+                weighted_avg_exit_price="110",
+                realized_pnl="10.00",
+                commission="0.00",
+                net_pnl="10.00",
+                exit_reason="take_profit",
+                duration_seconds=3600,
+                payload={"legs": []},
+            )
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="BBBUSD:1",
+                symbol="BBBUSD",
+                opened_at=datetime(2026, 4, 20, 11, 0, tzinfo=timezone.utc),
+                closed_at=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="1",
+                total_exit_quantity="1",
+                weighted_avg_entry_price="200",
+                weighted_avg_exit_price="190",
+                realized_pnl="-10.00",
+                commission="0.00",
+                net_pnl="-10.00",
+                exit_reason="stop_loss",
+                duration_seconds=3600,
+                payload={"legs": []},
+            )
+
+            report = build_daily_review_report(
+                path=db_path,
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                stop_budget_usdt=Decimal("10"),
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+            )
+
+        self.assertEqual([row.round_trip_id for row in report.rows], ["BBBUSD:1", "AAAUSDT:1"])
+
     def test_build_daily_review_report_warns_when_replay_inputs_are_missing(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report
         from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision, insert_trade_round_trip
@@ -149,4 +205,3 @@ class DailyReviewTests(unittest.TestCase):
             )
 
         self.assertTrue(report.warnings)
-

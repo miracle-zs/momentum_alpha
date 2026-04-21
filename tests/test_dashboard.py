@@ -339,9 +339,10 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Closed Trade Detail", review_html)
         self.assertIn("Complete Trade Summary (all closed trades)", review_html)
         self.assertIn("By Total Leg Count", review_html)
+        self.assertNotIn("Report Date", review_html)
         self.assertNotIn("ACCOUNT METRICS", review_html)
 
-    def test_render_dashboard_html_shows_daily_review_block_in_review_room(self) -> None:
+    def test_render_dashboard_html_shows_daily_review_block_in_daily_review_view(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
         snapshot = self._build_tabbed_snapshot()
@@ -373,16 +374,15 @@ class DashboardTests(unittest.TestCase):
             },
         }
 
-        html = render_dashboard_html(snapshot, active_room="review")
+        html = render_dashboard_html(snapshot, active_room="review", review_view="daily")
 
         self.assertIn("每日复盘", html)
+        self.assertIn("Report Date", html)
+        self.assertIn("CLOSED AT", html)
         self.assertIn("2026-04-21", html)
         self.assertIn("12.50", html)
         self.assertIn("18.25", html)
-        self.assertLess(
-            html.index("每日复盘"),
-            html.index("<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Closed Trade Detail</div>"),
-        )
+        self.assertNotIn("Closed Trade Detail", html)
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
@@ -2576,7 +2576,7 @@ console.log(JSON.stringify(cases));
         html = render_dashboard_tab_bar("overview", account_range_key="1W")
 
         self.assertIn('href="?room=live&range=1W"', html)
-        self.assertIn('href="?room=review&range=1W"', html)
+        self.assertIn('href="?room=review&range=1W&review_view=overview"', html)
         self.assertIn('href="?room=system&range=1W"', html)
         self.assertNotIn('href="/?room=live"', html)
 
@@ -2927,7 +2927,7 @@ console.log(JSON.stringify(cases));
         )
 
         self.assertIn('href="?room=live&range=ALL"', html)
-        self.assertIn('href="?room=review&range=ALL"', html)
+        self.assertIn('href="?room=review&range=ALL&review_view=overview"', html)
         self.assertIn('href="?room=system&range=ALL"', html)
         self.assertNotIn("fetch(`/api/dashboard/timeseries", html)
         self.assertIn('window.location.pathname.replace(/\\/$/, "")', html)

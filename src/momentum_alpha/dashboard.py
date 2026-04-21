@@ -39,6 +39,7 @@ LEGACY_DASHBOARD_TAB_TO_ROOM = {
     "performance": "review",
     "system": "system",
 }
+REVIEW_VIEWS = ("overview", "daily")
 ACCOUNT_RANGE_WINDOWS = {
     "1H": timedelta(hours=1),
     "1D": timedelta(days=1),
@@ -60,8 +61,19 @@ def normalize_dashboard_room(value: str | None) -> str:
     return LEGACY_DASHBOARD_TAB_TO_ROOM.get(room, "live")
 
 
-def _build_dashboard_room_href(*, room: str, account_range_key: str) -> str:
-    return f"?{urlencode({'room': normalize_dashboard_room(room), 'range': normalize_account_range(account_range_key)})}"
+def normalize_review_view(value: str | None) -> str:
+    view = (value or "").strip().lower()
+    return view if view in REVIEW_VIEWS else "overview"
+
+
+def _build_dashboard_room_href(*, room: str, account_range_key: str, review_view: str | None = None) -> str:
+    query = {
+        "room": normalize_dashboard_room(room),
+        "range": normalize_account_range(account_range_key),
+    }
+    if normalize_dashboard_room(room) == "review":
+        query["review_view"] = normalize_review_view(review_view)
+    return f"?{urlencode(query)}"
 
 
 def _build_dashboard_tab_href(*, tab: str, account_range_key: str) -> str:
@@ -1963,8 +1975,14 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
     return f"{venue} {order_mode}", state
 
 
-def render_dashboard_room_nav(active_room: str, *, account_range_key: str = "1D") -> str:
+def render_dashboard_room_nav(
+    active_room: str,
+    *,
+    account_range_key: str = "1D",
+    review_view: str = "overview",
+) -> str:
     active_room = normalize_dashboard_room(active_room)
+    review_view = normalize_review_view(review_view)
     labels = {
         "live": "实时监控室",
         "review": "复盘室",
@@ -1973,7 +1991,7 @@ def render_dashboard_room_nav(active_room: str, *, account_range_key: str = "1D"
     links = "".join(
         (
             f'<a class="dashboard-tab{" is-active" if room == active_room else ""}" '
-            f'data-dashboard-room="{room}" href="{_build_dashboard_room_href(room=room, account_range_key=account_range_key)}">{escape(labels[room])}</a>'
+            f'data-dashboard-room="{room}" href="{_build_dashboard_room_href(room=room, account_range_key=account_range_key, review_view=review_view)}">{escape(labels[room])}</a>'
         )
         for room in DASHBOARD_ROOMS
     )
@@ -2075,17 +2093,29 @@ def render_daily_review_panel(report: dict | None) -> str:
         )
 
     rows = []
-    for row in report.get("payload", {}).get("rows", []):
+    rows_data = report.get("payload", {}).get("rows", []) or []
+    for row in rows_data:
+        warnings_text = ", ".join(str(item) for item in (row.get("warnings") or [])) or "n/a"
         rows.append(
-            "<div class='analytics-row'>"
+            "<div class='analytics-row daily-review-row'>"
+            f"<span>{escape(str(row.get('closed_at', 'n/a')))}</span>"
             f"<span class='analytics-main'><b>{escape(str(row.get('symbol', 'n/a')))}</b></span>"
             f"<span>{escape(str(row.get('opened_at', 'n/a')))}</span>"
             f"<span>{escape(str(row.get('actual_net_pnl', 'n/a')))}</span>"
             f"<span>{escape(str(row.get('counterfactual_net_pnl', 'n/a')))}</span>"
             f"<span>{escape(str(row.get('pnl_delta', 'n/a')))}</span>"
+            f"<span>{escape(str(row.get('replayed_add_on_count', 'n/a')))}</span>"
+            f"<span>{escape(warnings_text)}</span>"
             "</div>"
         )
-    rows_html = "".join(rows) if rows else "<div class='trade-history-empty'>No trade rows</div>"
+    rows_html = (
+        "<div class='analytics-table daily-review-table'>"
+        "<div class='analytics-row analytics-row-header daily-review-row-header'>"
+        "<span>CLOSED AT</span><span class='analytics-main'>SYMBOL</span><span>OPENED AT</span><span>ACTUAL PNL</span><span>COUNTERFACTUAL PNL</span><span>DELTA</span><span>ADD-ONS</span><span>WARNINGS</span>"
+        "</div>"
+        f"{''.join(rows) if rows else '<div class=\"trade-history-empty\">No trade rows</div>'}"
+        "</div>"
+    )
     return (
         "<section class='chart-card daily-review-panel'>"
         "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>每日复盘</div>"
@@ -2097,14 +2127,13 @@ def render_daily_review_panel(report: dict | None) -> str:
         f"<div class='decision-item'><div class='decision-label'>Delta</div><div class='decision-value'>{escape(str(report.get('pnl_delta', 'n/a')))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Replayed Add-Ons</div><div class='decision-value'>{escape(str(report.get('replayed_add_on_count', 'n/a')))}</div></div>"
         "</div>"
-        f"<div class='analytics-table'>{rows_html}</div>"
+        f"{rows_html}"
         "</section>"
     )
 
 
 def render_dashboard_performance_tab(
     *,
-    daily_review_html: str,
     performance_summary_html: str,
     round_trip_detail_html: str,
     leg_count_aggregate_html: str,
@@ -2122,7 +2151,6 @@ def render_dashboard_performance_tab(
         "<button type='button' class='section-toggle' data-section-toggle='review'>Collapse</button>"
         "</div>"
         "<div class='dashboard-section section-body'>"
-        f"{daily_review_html}"
         "<div class='analytics-grid'>"
         "<div class='chart-card'>"
         "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>Complete Trade Summary (all closed trades)</div>"
@@ -2151,23 +2179,67 @@ def render_dashboard_performance_tab(
     )
 
 
+def render_dashboard_review_tabs(active_review_view: str, *, account_range_key: str = "1D") -> str:
+    active_review_view = normalize_review_view(active_review_view)
+    labels = {
+        "overview": "总体复盘",
+        "daily": "每日复盘",
+    }
+    links = "".join(
+        (
+            f'<a class="dashboard-tab{" is-active" if view == active_review_view else ""}" '
+            f'data-dashboard-review-view="{view}" href="{_build_dashboard_room_href(room="review", account_range_key=account_range_key, review_view=view)}">{escape(labels[view])}</a>'
+        )
+        for view in REVIEW_VIEWS
+    )
+    return (
+        '<nav class="dashboard-tabs review-tabs" data-dashboard-section="review-tabs" aria-label="Review views">'
+        f"{links}"
+        "</nav>"
+    )
+
+
+def render_daily_review_room(*, daily_review_html: str) -> str:
+    return (
+        '<div class="dashboard-tab-panel" data-dashboard-review-view-content="daily">'
+        "<section class='section-frame' data-collapsible-section='review-daily'>"
+        "<div class='section-topbar'>"
+        "<div>"
+        "<div class='section-header'>每日复盘</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>UTC+8 08:30 to UTC+8 08:30 trading window.</div>"
+        "</div>"
+        "<button type='button' class='section-toggle' data-section-toggle='review-daily'>Collapse</button>"
+        "</div>"
+        "<div class='dashboard-section section-body'>"
+        f"{daily_review_html}"
+        "</div>"
+        "</section>"
+        "</div>"
+    )
+
+
 def render_dashboard_review_room(
     *,
-    daily_review_html: str,
+    active_review_view: str,
     performance_summary_html: str,
     round_trip_detail_html: str,
     leg_count_aggregate_html: str,
     leg_index_aggregate_html: str,
     stop_slippage_html: str,
+    daily_review_html: str,
 ) -> str:
-    return render_dashboard_performance_tab(
-        daily_review_html=daily_review_html,
-        performance_summary_html=performance_summary_html,
-        round_trip_detail_html=round_trip_detail_html,
-        leg_count_aggregate_html=leg_count_aggregate_html,
-        leg_index_aggregate_html=leg_index_aggregate_html,
-        stop_slippage_html=stop_slippage_html,
-    )
+    active_review_view = normalize_review_view(active_review_view)
+    if active_review_view == "daily":
+        body_html = render_daily_review_room(daily_review_html=daily_review_html)
+    else:
+        body_html = render_dashboard_performance_tab(
+            performance_summary_html=performance_summary_html,
+            round_trip_detail_html=round_trip_detail_html,
+            leg_count_aggregate_html=leg_count_aggregate_html,
+            leg_index_aggregate_html=leg_index_aggregate_html,
+            stop_slippage_html=stop_slippage_html,
+        )
+    return f"{render_dashboard_review_tabs(active_review_view)}{body_html}"
 
 
 def render_dashboard_system_room(
@@ -3793,13 +3865,14 @@ def render_dashboard_document(
     strategy_config: dict | None = None,
     active_room: str | None = None,
     active_tab: str | None = None,
+    review_view: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
     return (
         "<!doctype html>\n"
         '<html lang="zh-CN">\n'
         f"{render_dashboard_head()}\n"
-        f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_room=active_room, active_tab=active_tab, account_range_key=account_range_key)}"
+        f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_room=active_room, active_tab=active_tab, review_view=review_view, account_range_key=account_range_key)}"
         f"{render_dashboard_scripts()}"
     )
 
@@ -3809,9 +3882,11 @@ def render_dashboard_body(
     strategy_config: dict | None = None,
     active_room: str | None = None,
     active_tab: str | None = None,
+    review_view: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
     active_room = normalize_dashboard_room(active_room if active_room is not None else active_tab)
+    review_view = normalize_review_view(review_view)
     account_range_key = normalize_account_range(account_range_key)
     timeseries = build_dashboard_timeseries_payload(snapshot)
     runtime = snapshot["runtime"]
@@ -4102,7 +4177,11 @@ def render_dashboard_body(
         "</div>"
         "</section>"
     )
-    room_nav_html = render_dashboard_room_nav(active_room, account_range_key=account_range_key)
+    room_nav_html = render_dashboard_room_nav(
+        active_room,
+        account_range_key=account_range_key,
+        review_view=review_view,
+    )
     daily_review_html = render_daily_review_panel(snapshot.get("daily_review_report"))
     room_content_html = {
         "live": render_dashboard_live_room(
@@ -4115,6 +4194,7 @@ def render_dashboard_body(
             execution_flow_html=execution_flow_html,
         ),
         "review": render_dashboard_review_room(
+            active_review_view=review_view if active_room == "review" else "overview",
             daily_review_html=daily_review_html,
             performance_summary_html=performance_summary_html,
             round_trip_detail_html=closed_trades_html,
@@ -4155,15 +4235,17 @@ def render_dashboard_html(
     strategy_config: dict | None = None,
     active_room: str | None = None,
     active_tab: str | None = None,
+    review_view: str | None = None,
     account_range_key: str = "1D",
 ) -> str:
     return render_dashboard_document(
         snapshot,
         strategy_config=strategy_config,
-            active_room=active_room,
-            active_tab=active_tab,
-            account_range_key=account_range_key,
-        )
+        active_room=active_room,
+        active_tab=active_tab,
+        review_view=review_view,
+        account_range_key=account_range_key,
+    )
 
 
 def run_dashboard_server(
@@ -4188,6 +4270,7 @@ def run_dashboard_server(
             parsed_url = urlparse(self.path)
             query_params = parse_qs(parsed_url.query)
             active_room = normalize_dashboard_room(query_params.get("room", [query_params.get("tab", [None])[0]])[0])
+            review_view = normalize_review_view(query_params.get("review_view", [None])[0])
             account_range_key = normalize_account_range(query_params.get("range", [None])[0])
             snapshot = load_dashboard_snapshot(
                 now=now_provider().astimezone(),
@@ -4219,6 +4302,7 @@ def run_dashboard_server(
                 body = render_dashboard_html(
                     snapshot,
                     active_room=active_room,
+                    review_view=review_view,
                     account_range_key=account_range_key,
                 ).encode("utf-8")
                 self.send_response(200)

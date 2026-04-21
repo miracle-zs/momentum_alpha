@@ -125,7 +125,14 @@ def _build_daily_review_rows(
     signal_decisions: list[dict],
     stop_budget_usdt: Decimal,
 ) -> tuple[list[DailyReviewTradeRow], list[str]]:
-    sorted_trades = sorted(trade_round_trips, key=lambda row: row.get("opened_at") or "")
+    sorted_trades = sorted(
+        trade_round_trips,
+        key=lambda row: (
+            row.get("closed_at") or "",
+            row.get("round_trip_id") or "",
+        ),
+        reverse=True,
+    )
     sorted_signals = sorted(
         [decision for decision in signal_decisions if decision.get("decision_type") == "add_on_skipped"],
         key=lambda row: row.get("timestamp") or "",
