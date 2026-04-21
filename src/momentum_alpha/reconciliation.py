@@ -97,3 +97,24 @@ def build_missing_stop_reconciliation_plan(
             continue
         replacements.append((symbol, target_stop_price))
     return replacements
+
+
+def build_stale_stop_reconciliation_plan(
+    *,
+    state: StrategyState,
+    market: dict[str, MarketSnapshot],
+) -> list[tuple[str, Decimal]]:
+    replacements: list[tuple[str, Decimal]] = []
+    for symbol, position in sorted(state.positions.items()):
+        if position.stop_price <= Decimal("0"):
+            continue
+        snapshot = market.get(symbol)
+        if snapshot is None or not snapshot.has_previous_hour_candle:
+            continue
+        target_stop_price = snapshot.previous_hour_low
+        if target_stop_price <= position.stop_price:
+            continue
+        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
+            continue
+        replacements.append((symbol, target_stop_price))
+    return replacements

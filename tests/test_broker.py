@@ -141,6 +141,114 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.new_algo_order_calls[1]["positionSide"], "LONG")
         self.assertEqual(len(broker.client.send_calls), 2)
 
+    def test_broker_creates_replacement_stop_before_canceling_old_stop(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.call_order = []
+
+            def fetch_open_algo_orders(self, **params):
+                self.call_order.append(("fetch", params["symbol"]))
+                return [
+                    {
+                        "symbol": params["symbol"],
+                        "orderType": "STOP_MARKET",
+                        "algoId": 11,
+                        "clientAlgoId": "ma_240101120000_BTCUSDT_b01s",
+                    }
+                ]
+
+            def cancel_algo_order(self, **params):
+                self.call_order.append(("cancel", params["client_algo_id"]))
+                return {"status": "CANCELED"}
+
+            def new_algo_order(self, **params):
+                self.call_order.append(("new", params["symbol"]))
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                self.call_order.append(("send", request.body))
+                return {"status": "NEW", "symbol": "BTCUSDT"}
+
+        broker = BinanceBroker(client=FakeClient())
+        responses = broker.replace_stop_orders(replacements=[("BTCUSDT", "0.010", "61000.0")])
+
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(
+            broker.client.call_order,
+            [
+                ("fetch", "BTCUSDT"),
+                ("new", "BTCUSDT"),
+                ("send", "symbol=BTCUSDT"),
+                ("cancel", "ma_240101120000_BTCUSDT_b01s"),
+            ],
+        )
+
+    def test_broker_keeps_old_stop_and_continues_when_replacement_creation_fails(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.cancel_algo_calls = []
+                self.new_algo_order_calls = []
+
+            def fetch_open_algo_orders(self, **params):
+                symbol = params["symbol"]
+                return [
+                    {
+                        "symbol": symbol,
+                        "orderType": "STOP_MARKET",
+                        "algoId": 11 if symbol == "BTCUSDT" else 21,
+                        "clientAlgoId": f"ma_240101120000_{symbol}_b01s",
+                    }
+                ]
+
+            def cancel_algo_order(self, **params):
+                self.cancel_algo_calls.append(params)
+                return {"status": "CANCELED"}
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                if "symbol=BTCUSDT" in request.body:
+                    raise RuntimeError("Order would immediately trigger")
+                return {"status": "NEW", "symbol": "ETHUSDT"}
+
+        broker = BinanceBroker(client=FakeClient())
+        responses = broker.replace_stop_orders(
+            replacements=[("BTCUSDT", "0.010", "61000.0"), ("ETHUSDT", "0.500", "3000.0")]
+        )
+
+        self.assertEqual(responses, [{"status": "NEW", "symbol": "ETHUSDT"}])
+        self.assertEqual([call["symbol"] for call in broker.client.new_algo_order_calls], ["BTCUSDT", "ETHUSDT"])
+        self.assertEqual([call["client_algo_id"] for call in broker.client.cancel_algo_calls], ["ma_240101120000_ETHUSDT_b01s"])
+        self.assertEqual(
+            broker.last_stop_replacement_failures,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "quantity": "0.010",
+                    "stop_price": "61000.0",
+                    "message": "Order would immediately trigger",
+                }
+            ],
+        )
+
     def test_broker_skips_stop_order_when_entry_order_fails(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker

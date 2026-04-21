@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from momentum_alpha.execution import ExecutionPlan
@@ -20,6 +20,7 @@ def _build_replacement_stop_client_order_id(symbol: str, *, now: datetime | None
 @dataclass
 class BinanceBroker:
     client: object
+    last_stop_replacement_failures: list[dict[str, str]] = field(default_factory=list, init=False)
 
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
@@ -42,6 +43,7 @@ class BinanceBroker:
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
         responses: list[dict] = []
+        self.last_stop_replacement_failures = []
         for replacement in replacements:
             if len(replacement) == 3:
                 symbol, quantity, stop_price = replacement
@@ -49,14 +51,12 @@ class BinanceBroker:
             else:
                 symbol, quantity, stop_price, position_side = replacement
             open_orders = self.client.fetch_open_algo_orders(symbol=symbol)
+            strategy_stop_orders = []
             for order in open_orders:
                 order_type = order.get("type") or order.get("orderType")
                 client_algo_id = order.get("clientAlgoId")
                 if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_algo_id):
-                    self.client.cancel_algo_order(
-                        algo_id=order.get("algoId"),
-                        client_algo_id=client_algo_id,
-                    )
+                    strategy_stop_orders.append(order)
             order_params = {
                 "symbol": symbol,
                 "side": "SELL",
@@ -69,7 +69,28 @@ class BinanceBroker:
             }
             if position_side is not None:
                 order_params["positionSide"] = position_side
-            responses.append(
-                self.client.send(self.client.new_algo_order(**order_params))
-            )
+            try:
+                responses.append(
+                    self.client.send(self.client.new_algo_order(**order_params))
+                )
+            except Exception as exc:
+                logger.error(f"replacement stop order failed for {symbol}: {exc}")
+                self.last_stop_replacement_failures.append(
+                    {
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "stop_price": stop_price,
+                        "message": str(exc),
+                    }
+                )
+                continue
+            for order in strategy_stop_orders:
+                client_algo_id = order.get("clientAlgoId")
+                try:
+                    self.client.cancel_algo_order(
+                        algo_id=order.get("algoId"),
+                        client_algo_id=client_algo_id,
+                    )
+                except Exception as exc:
+                    logger.error(f"old stop cancellation failed for {symbol}: {exc}")
         return responses

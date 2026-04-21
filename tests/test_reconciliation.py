@@ -191,3 +191,83 @@ class ReconciliationTests(unittest.TestCase):
 
         plan = build_missing_stop_reconciliation_plan(state=state, market=market)
         self.assertEqual(plan, [("BTCUSDT", Decimal("61000"))])
+
+    def test_build_stale_stop_reconciliation_plan_retries_stop_below_previous_hour_low(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.reconciliation import build_stale_stop_reconciliation_plan
+
+        state = StrategyState(
+            current_day=datetime(2026, 4, 15, tzinfo=timezone.utc).date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("60900"),
+                    legs=(
+                        PositionLeg(
+                            symbol="BTCUSDT",
+                            quantity=Decimal("0.010"),
+                            entry_price=Decimal("61100"),
+                            stop_price=Decimal("60900"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                )
+            },
+        )
+        market = {
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("60000"),
+                latest_price=Decimal("61200"),
+                previous_hour_low=Decimal("61000"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            )
+        }
+
+        plan = build_stale_stop_reconciliation_plan(state=state, market=market)
+        self.assertEqual(plan, [("BTCUSDT", Decimal("61000"))])
+
+    def test_build_stale_stop_reconciliation_plan_skips_immediate_trigger_target(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.reconciliation import build_stale_stop_reconciliation_plan
+
+        state = StrategyState(
+            current_day=datetime(2026, 4, 15, tzinfo=timezone.utc).date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("60900"),
+                    legs=(
+                        PositionLeg(
+                            symbol="BTCUSDT",
+                            quantity=Decimal("0.010"),
+                            entry_price=Decimal("61100"),
+                            stop_price=Decimal("60900"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                )
+            },
+        )
+        market = {
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("60000"),
+                latest_price=Decimal("60950"),
+                previous_hour_low=Decimal("61000"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            )
+        }
+
+        plan = build_stale_stop_reconciliation_plan(state=state, market=market)
+        self.assertEqual(plan, [])

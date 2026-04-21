@@ -20,6 +20,7 @@ from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.models import StrategyState
 from momentum_alpha.reconciliation import (
     build_missing_stop_reconciliation_plan,
+    build_stale_stop_reconciliation_plan,
     build_stop_reconciliation_plan,
     restore_state,
 )
@@ -872,6 +873,7 @@ def run_once_live(
     )
     stop_replacements: list[tuple[str, Decimal]] = []
     stop_replacement_responses: list[dict] = []
+    stop_replacement_failures: list[dict] = []
     if restore_positions and initial_state is not None:
         stop_replacements = build_stop_reconciliation_plan(
             state=initial_state,
@@ -882,7 +884,13 @@ def run_once_live(
             state=initial_state,
             market=runtime_market,
         )
+        stale_stop_replacements = build_stale_stop_reconciliation_plan(
+            state=initial_state,
+            market=runtime_market,
+        )
         merged_replacements = {symbol: stop_price for symbol, stop_price in stop_replacements}
+        for symbol, stop_price in stale_stop_replacements:
+            merged_replacements.setdefault(symbol, stop_price)
         for symbol, stop_price in missing_stop_replacements:
             merged_replacements.setdefault(symbol, stop_price)
         stop_replacements = sorted(merged_replacements.items())
@@ -906,6 +914,7 @@ def run_once_live(
                         if symbol in initial_state.positions
                     ]
                 )
+                stop_replacement_failures = list(getattr(broker, "last_stop_replacement_failures", []) or [])
             except Exception as exc:
                 print(f"stop replacement failed: {exc}")
     broker_responses: list[dict] = []
@@ -950,6 +959,7 @@ def run_once_live(
                 "next_previous_leader_symbol": result.runtime_result.next_state.previous_leader_symbol,
                 "broker_response_count": len(result.broker_responses),
                 "stop_replacement_count": len(stop_replacements),
+                "stop_replacement_failure_count": len(stop_replacement_failures),
             },
         )
         position_count = len(result.runtime_result.next_state.positions)
@@ -1097,6 +1107,12 @@ def run_once_live(
                 event_type="stop_replacements",
                 now=now,
                 payload={"replacements": [(symbol, str(stop_price)) for symbol, stop_price in stop_replacements]},
+            )
+        if stop_replacement_failures:
+            audit_recorder.record(
+                event_type="stop_replacement_failures",
+                now=now,
+                payload={"failures": stop_replacement_failures},
             )
     return RunOnceResult(
         runtime_result=result.runtime_result,
