@@ -13,6 +13,15 @@ if str(SRC) not in sys.path:
 
 
 class RuntimeStoreTests(unittest.TestCase):
+    def test_runtime_store_module_exports_public_store_functions(self) -> None:
+        from momentum_alpha import runtime_store
+
+        self.assertTrue(callable(runtime_store.bootstrap_runtime_db))
+        self.assertTrue(callable(runtime_store.insert_audit_event))
+        self.assertTrue(callable(runtime_store.fetch_recent_audit_events))
+        self.assertTrue(callable(runtime_store.rebuild_trade_analytics))
+        self.assertTrue(hasattr(runtime_store, "RuntimeStateStore"))
+
     def test_bootstrap_and_insert_audit_event(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

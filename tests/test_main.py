@@ -20,6 +20,14 @@ if str(SRC) not in sys.path:
 
 
 class MainTests(unittest.TestCase):
+    def test_main_module_exports_cli_and_worker_entrypoints(self) -> None:
+        from momentum_alpha import main
+
+        self.assertTrue(callable(main.cli_main))
+        self.assertTrue(callable(main.run_once_live))
+        self.assertTrue(callable(main.run_forever))
+        self.assertTrue(callable(main.run_user_stream))
+
     def test_build_runtime_from_snapshot_dicts(self) -> None:
         from momentum_alpha.main import build_runtime_from_snapshots
 
@@ -336,7 +344,7 @@ class MainTests(unittest.TestCase):
         fake_connection = FakeConnection()
         runtime_db_path = Path("/tmp/runtime.db")
 
-        with patch("momentum_alpha.main.sqlite3.connect", return_value=fake_connection):
+        with patch("momentum_alpha.cli.sqlite3.connect", return_value=fake_connection):
             with patch.object(Path, "exists", return_value=True):
                 exists = _account_flow_exists(
                     runtime_db_path=runtime_db_path,
@@ -1613,8 +1621,8 @@ class MainTests(unittest.TestCase):
             warnings = ()
             rows = ()
 
-        with patch("momentum_alpha.main.build_daily_review_report", return_value=FakeReport()), patch(
-            "momentum_alpha.main.insert_daily_review_report",
+        with patch("momentum_alpha.cli.build_daily_review_report", return_value=FakeReport()), patch(
+            "momentum_alpha.cli.insert_daily_review_report",
             side_effect=lambda **kwargs: calls.append(kwargs),
         ):
             out = StringIO()
@@ -1912,7 +1920,7 @@ class MainTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
             with patch(
-                "momentum_alpha.main.extract_trade_fill",
+                "momentum_alpha.stream_worker.extract_trade_fill",
                 return_value={
                     "symbol": "ETHUSDT",
                     "order_id": "123",
@@ -1931,7 +1939,7 @@ class MainTests(unittest.TestCase):
                     "commission_asset": "USDT",
                 },
             ):
-                with patch("momentum_alpha.main.insert_trade_fill", side_effect=lambda **kwargs: None):
+                with patch("momentum_alpha.stream_worker.insert_trade_fill", side_effect=lambda **kwargs: None):
                     with patch("momentum_alpha.main.rebuild_trade_analytics", side_effect=lambda **kwargs: rebuild_calls.append(kwargs)):
                         exit_code = run_user_stream(
                             client=FakeClient(),
@@ -2031,7 +2039,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_account_flow", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_account_flow", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,
@@ -2083,7 +2091,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_trade_fill", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_trade_fill", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,
@@ -2125,7 +2133,7 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.main.insert_algo_order", side_effect=RuntimeError("db write failed")):
+            with patch("momentum_alpha.stream_worker.insert_algo_order", side_effect=RuntimeError("db write failed")):
                 exit_code = run_user_stream(
                     client=FakeClient(),
                     testnet=False,

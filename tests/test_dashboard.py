@@ -18,6 +18,13 @@ if str(SRC) not in sys.path:
 
 
 class DashboardTests(unittest.TestCase):
+    def test_dashboard_module_exports_public_entrypoints(self) -> None:
+        from momentum_alpha import dashboard
+
+        self.assertTrue(callable(dashboard.load_dashboard_snapshot))
+        self.assertTrue(callable(dashboard.render_dashboard_html))
+        self.assertTrue(callable(dashboard.run_dashboard_server))
+
     def _build_tabbed_snapshot(self) -> dict:
         return {
             "health": {"overall_status": "OK", "items": [{"name": "poll", "status": "OK", "message": "fresh"}]},
@@ -1425,7 +1432,7 @@ class DashboardTests(unittest.TestCase):
             )
 
             with patch(
-                "momentum_alpha.dashboard.RuntimeStateStore.load",
+                "momentum_alpha.dashboard_data.RuntimeStateStore.load",
                 side_effect=Exception("database disk image is malformed"),
             ):
                 snapshot = load_dashboard_snapshot(
