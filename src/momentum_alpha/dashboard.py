@@ -2128,7 +2128,15 @@ def render_daily_review_panel(report: dict | None) -> str:
         )
 
     rows = []
-    rows_data = report.get("payload", {}).get("rows", []) or []
+    rows_data = sorted(
+        report.get("payload", {}).get("rows", []) or [],
+        key=lambda row: (
+            row.get("closed_at") or "",
+            row.get("round_trip_id") or "",
+            row.get("symbol") or "",
+        ),
+        reverse=True,
+    )
     actual_total = _parse_decimal(report.get("actual_total_pnl"))
     replay_total = _parse_decimal(report.get("counterfactual_total_pnl"))
     total_impact = _daily_review_impact(

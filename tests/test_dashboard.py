@@ -407,6 +407,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("-465.57", html)
         self.assertNotIn("COUNTERFACTUAL PNL", html)
         self.assertNotIn("Closed Trade Detail", html)
+        self.assertLess(html.index("DRAGUSDT"), html.index("GUNUSDT"))
 
     def test_format_timestamp_for_display_uses_utc_plus_8(self) -> None:
         from momentum_alpha.dashboard import format_timestamp_for_display
