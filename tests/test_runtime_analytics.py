@@ -12,6 +12,20 @@ if str(SRC) not in sys.path:
 
 
 class RuntimeAnalyticsTests(unittest.TestCase):
+    def test_runtime_analytics_split_modules_export_key_entrypoints(self) -> None:
+        from momentum_alpha import (
+            runtime_analytics_common,
+            runtime_analytics_legs,
+            runtime_analytics_rebuild,
+            runtime_analytics_stops,
+        )
+
+        self.assertTrue(callable(runtime_analytics_common._text_to_decimal))
+        self.assertTrue(callable(runtime_analytics_common._text_to_optional_decimal))
+        self.assertTrue(callable(runtime_analytics_legs._build_trade_round_trip_leg_payload))
+        self.assertTrue(callable(runtime_analytics_stops._resolve_stop_trigger_price_for_exit))
+        self.assertTrue(callable(runtime_analytics_rebuild.rebuild_trade_analytics))
+
     def test_runtime_analytics_module_rebuilds_trade_round_trip_rows(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,
