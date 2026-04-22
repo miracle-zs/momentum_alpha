@@ -168,6 +168,7 @@ def load_dashboard_snapshot(
         }
 
     return {
+        "runtime_db_file": str(runtime_db_file),
         "health": {
             "overall_status": health_report.overall_status,
             "items": [

@@ -76,7 +76,7 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.items[1].name, "poll_events")
             self.assertEqual(report.items[1].status, "FAIL")
 
-    def test_build_health_report_marks_stale_user_stream_events_fail(self) -> None:
+    def test_build_health_report_marks_stale_user_stream_events_warn(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
@@ -108,6 +108,7 @@ class HealthTests(unittest.TestCase):
                 max_user_stream_event_age_seconds=1800 - 1,
             )
 
-            self.assertEqual(report.overall_status, "FAIL")
+            self.assertEqual(report.overall_status, "WARN")
             self.assertEqual(report.items[2].name, "user_stream_events")
-            self.assertEqual(report.items[2].status, "FAIL")
+            self.assertEqual(report.items[2].status, "WARN")
+            self.assertIn("inactive", report.items[2].message)

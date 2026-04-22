@@ -1,8 +1,15 @@
 import io
+import sys
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 
 class ServerChanTests(unittest.TestCase):
@@ -141,7 +148,7 @@ class ServerChanTests(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
             health_path = Path(tmpdir) / "health.txt"
-            health_path.write_text("overall=FAIL\nruntime_db status=FAIL missing path=/tmp/runtime.db\n", encoding="utf-8")
+            health_path.write_text("overall=FAIL\nruntime_db status=FAIL missing runtime_db\n", encoding="utf-8")
             stdout = io.StringIO()
             exit_code = cli_main(
                 argv=[

@@ -47,6 +47,108 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
     return f"{venue} {order_mode}", state
 
 
+_RECENT_SIGNAL_ACTION_TYPES = {"base_entry", "add_on", "add_on_skipped", "stop_update"}
+_RECENT_AUDIT_ACTION_TYPES = {
+    "tick_result",
+    "broker_submit",
+    "broker_replace",
+    "user_stream_event",
+    "account_flow_insert_error",
+    "poll_error",
+}
+
+
+def _build_recent_action_detail(event_type: str, payload: dict, *, source: str | None = None) -> str:
+    parts: list[str] = []
+    source_label = str(source or "").strip()
+    if source_label:
+        parts.append(source_label)
+    if event_type == "tick_result":
+        base_entries = payload.get("base_entry_symbols") or []
+        add_on_entries = payload.get("add_on_symbols") or []
+        updated_stops = payload.get("updated_stop_symbols") or []
+        if base_entries:
+            parts.append(f"base={','.join(map(str, base_entries[:3]))}{'…' if len(base_entries) > 3 else ''}")
+        if add_on_entries:
+            parts.append(f"add-on={','.join(map(str, add_on_entries[:3]))}{'…' if len(add_on_entries) > 3 else ''}")
+        if updated_stops:
+            parts.append(f"stop={','.join(map(str, updated_stops[:3]))}{'…' if len(updated_stops) > 3 else ''}")
+        broker_response_count = payload.get("broker_response_count")
+        if broker_response_count is not None:
+            parts.append(f"broker={broker_response_count}")
+        return " · ".join(parts) if parts else "poll cycle summary"
+    if event_type in {"broker_submit", "broker_replace"}:
+        responses = payload.get("responses")
+        if isinstance(responses, list):
+            parts.append(f"responses={len(responses)}")
+        return " · ".join(parts) if parts else "broker action"
+    if event_type == "user_stream_event":
+        symbol = payload.get("symbol")
+        status = payload.get("order_status") or payload.get("execution_type") or payload.get("event_type")
+        if symbol:
+            parts.append(str(symbol))
+        if status:
+            parts.append(str(status))
+        return " · ".join(parts) if parts else "user stream event"
+    if event_type == "account_flow_insert_error":
+        error = payload.get("error") or payload.get("message")
+        if error:
+            parts.append(str(error))
+        return " · ".join(parts) if parts else "account flow error"
+    if event_type == "poll_error":
+        error = payload.get("error") or payload.get("message")
+        if error:
+            parts.append(str(error))
+        return " · ".join(parts) if parts else "poll error"
+    symbol = payload.get("symbol")
+    stop_price = payload.get("stop_price")
+    blocked_reason = payload.get("blocked_reason")
+    if symbol:
+        parts.append(str(symbol))
+    if stop_price is not None:
+        parts.append(f"stop={stop_price}")
+    if blocked_reason:
+        parts.append(str(blocked_reason))
+    return " · ".join(parts) if parts else "action"
+
+
+def _build_recent_action_events_html(*, recent_signal_decisions: list[dict], recent_events: list[dict]) -> str:
+    action_events: list[dict] = []
+    for decision in recent_signal_decisions:
+        decision_type = str(decision.get("decision_type") or "")
+        if decision_type not in _RECENT_SIGNAL_ACTION_TYPES:
+            continue
+        payload = decision.get("payload") or {}
+        action_events.append(
+            {
+                "timestamp": decision.get("timestamp"),
+                "event_type": decision_type,
+                "detail": _build_recent_action_detail(decision_type, payload, source=decision.get("source")),
+            }
+        )
+    for event in recent_events:
+        event_type = str(event.get("event_type") or "")
+        if event_type not in _RECENT_AUDIT_ACTION_TYPES:
+            continue
+        payload = event.get("payload") or {}
+        action_events.append(
+            {
+                "timestamp": event.get("timestamp"),
+                "event_type": event_type,
+                "detail": _build_recent_action_detail(event_type, payload, source=event.get("source")),
+            }
+        )
+    action_events.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    rendered_events = action_events[:12]
+    return "".join(
+        f"<div class='event-item'>"
+        f"<span class='event-type'>{escape(str(event['event_type']))}</span>"
+        f"<span class='event-time'>{escape(format_timestamp_for_display(event['timestamp']))}</span>"
+        f"<span class='event-detail'>{escape(str(event['detail']) if event.get('detail') else '-')}</span></div>"
+        for event in rendered_events
+    ) or "<div class='event-item empty'>No recent action events</div>"
+
+
 def normalize_dashboard_tab(value: str | None) -> str:
     room = normalize_dashboard_room(value)
     return {"live": "overview", "review": "performance", "system": "system"}[room]
@@ -291,9 +393,9 @@ def render_dashboard_system_room(
     diagnostics_html: str,
     warning_list_html: str,
     config_html: str,
-    source_html: str,
     health_items_html: str,
     recent_events_html: str,
+    runtime_db_path_display: str,
 ) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-room-content="system">'
@@ -308,6 +410,9 @@ def render_dashboard_system_room(
         "<div class='section-header system-summary-kicker'>SYSTEM DIAGNOSTICS</div>"
         "<div class='system-summary-copy'>Watch runtime freshness, warnings, and config state before inspecting the event stream.</div>"
         "</div>"
+        "<div class='system-summary-path'>"
+        f"Runtime DB: {escape(str(runtime_db_path_display or 'n/a'))}"
+        "</div>"
         f"{diagnostics_html}"
         f"{warning_list_html}"
         "</div>"
@@ -321,13 +426,10 @@ def render_dashboard_system_room(
         "<div class='section-header'>SYSTEM HEALTH</div>"
         f"<div class='health-grid'>{health_items_html}</div>"
         "</div>"
-        "<div class='chart-card system-console-card'>"
-        "<div class='section-header'>EVENT SOURCES</div>"
-        f"<div class='source-tags'>{source_html}</div>"
-        "</div>"
         "</div>"
         "<div class='chart-card system-console-events'>"
         "<div class='section-header'>RECENT EVENTS</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Actions only. Poll heartbeats are filtered out.</div>"
         f"<div class='event-list' style='max-height:320px;overflow-y:auto;'>{recent_events_html}</div>"
         "</div>"
         "</div>"
@@ -341,17 +443,17 @@ def render_dashboard_system_tab(
     diagnostics_html: str,
     warning_list_html: str,
     config_html: str,
-    source_html: str,
     health_items_html: str,
     recent_events_html: str,
+    runtime_db_path_display: str,
 ) -> str:
     return render_dashboard_system_room(
         diagnostics_html=diagnostics_html,
         warning_list_html=warning_list_html,
         config_html=config_html,
-        source_html=source_html,
         health_items_html=health_items_html,
         recent_events_html=recent_events_html,
+        runtime_db_path_display=runtime_db_path_display,
     )
 
 
@@ -441,6 +543,7 @@ def render_dashboard_body(
     leader_history = list(reversed(snapshot.get("leader_history", [])))
     timeline_chart = _render_timeline_svg(events=leader_history)
     health_status = snapshot["health"]["overall_status"]
+    recent_events = snapshot.get("recent_events") or []
     equity_value = latest_account_snapshot.get("equity")
     position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
     trader_metrics = build_trader_summary_metrics(
@@ -466,6 +569,8 @@ def render_dashboard_body(
         account_range_key=account_range_key,
     )
     trade_fills = snapshot.get("recent_trade_fills") or []
+    recent_signal_decisions = snapshot.get("recent_signal_decisions") or []
+    recent_events = snapshot.get("recent_events") or []
     recent_broker_orders = snapshot.get("recent_broker_orders") or []
     recent_algo_orders = snapshot.get("recent_algo_orders") or []
     recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
@@ -489,13 +594,18 @@ def render_dashboard_body(
         f"<div class='config-row'><span class='config-label'>Submit Orders</span><span class='{'config-value-true' if config.get('submit_orders') else 'config-value-false'}'>{'Yes' if config.get('submit_orders') else 'No'}</span></div>"
         f"</div>"
     )
+    runtime_db_path_display = snapshot.get("runtime_db_file") or "n/a"
+    recent_events_html = _build_recent_action_events_html(
+        recent_signal_decisions=recent_signal_decisions,
+        recent_events=recent_events,
+    )
     latest_update_display = max(
         [
             timestamp
             for timestamp in (
                 runtime.get("latest_tick_result_timestamp"),
                 latest_signal.get("timestamp"),
-                (snapshot.get("recent_events") or [{}])[0].get("timestamp") if snapshot.get("recent_events") else None,
+                recent_events[0].get("timestamp") if recent_events else None,
             )
             if timestamp
         ],
@@ -509,25 +619,7 @@ def render_dashboard_body(
         f"<span class='health-msg'>{escape(item['message'])}</span></div>"
         for item in snapshot["health"]["items"]
     )
-    recent_events_html = "".join(
-        f"<div class='event-item'>"
-        f"<span class='event-type'>{escape(e['event_type'])}</span>"
-        f"<span class='event-time'>{escape(format_timestamp_for_display(e['timestamp']))}</span>"
-        f"<span class='event-source'>{escape(str(e.get('source') or '-'))}</span></div>"
-        for e in snapshot["recent_events"][:12]
-    ) or "<div class='event-item empty'>No recent events</div>"
-    source_counts = snapshot.get("source_counts", {})
-    source_html = "".join(
-        f"<div class='source-tag'><span>{escape(src)}</span><b>{cnt}</b></div>"
-        for src, cnt in sorted(source_counts.items())[:4]
-    ) or "<div class='source-tag empty'>No sources</div>"
     warnings = snapshot.get("warnings", [])
-    primary_source, primary_source_count = max(
-        source_counts.items(),
-        key=lambda item: (item[1], item[0]),
-        default=("n/a", 0),
-    )
-    primary_source_label = primary_source if primary_source_count <= 0 else f"{primary_source} · {primary_source_count}"
     diagnostics_html = (
         "<div class='dashboard-section system-diagnostics-panel section-body'>"
         "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
@@ -535,7 +627,6 @@ def render_dashboard_body(
         f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Primary Source</div><div class='decision-value'>{escape(primary_source_label)}</div></div>"
         "</div>"
         "</div>"
     )
@@ -740,9 +831,9 @@ def render_dashboard_body(
             diagnostics_html=diagnostics_html,
             warning_list_html=warning_list_html,
             config_html=config_html,
-            source_html=source_html,
             health_items_html=health_items_html,
             recent_events_html=recent_events_html,
+            runtime_db_path_display=runtime_db_path_display,
         ),
     }[active_room]
 

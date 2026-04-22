@@ -28,7 +28,7 @@ class RuntimeHealthReport:
 
 def _check_runtime_db_freshness(*, path: Path, now: datetime, max_age_seconds: int) -> HealthCheckItem:
     if not path.exists():
-        return HealthCheckItem(name="runtime_db", status="FAIL", message=f"missing path={path}")
+        return HealthCheckItem(name="runtime_db", status="FAIL", message="missing runtime_db")
     try:
         connection = sqlite3.connect(path)
         try:
@@ -38,18 +38,18 @@ def _check_runtime_db_freshness(*, path: Path, now: datetime, max_age_seconds: i
         finally:
             connection.close()
     except sqlite3.Error as exc:
-        return HealthCheckItem(name="runtime_db", status="FAIL", message=f"invalid path={path} error={exc}")
+        return HealthCheckItem(name="runtime_db", status="FAIL", message=f"invalid runtime_db error={exc}")
     if row is None or not row[0]:
-        return HealthCheckItem(name="runtime_db", status="WARN", message=f"empty path={path}")
+        return HealthCheckItem(name="runtime_db", status="WARN", message="empty runtime_db")
     latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
         return HealthCheckItem(
             name="runtime_db",
             status="FAIL",
-            message=f"stale path={path} age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
+            message=f"stale age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
         )
-    return HealthCheckItem(name="runtime_db", status="OK", message=f"fresh path={path} age_seconds={age_seconds}")
+    return HealthCheckItem(name="runtime_db", status="OK", message=f"fresh age_seconds={age_seconds}")
 
 
 def _check_strategy_state_freshness(*, path: Path, now: datetime, max_age_seconds: int) -> HealthCheckItem:
@@ -100,6 +100,7 @@ def _check_audit_event_freshness(
     now: datetime,
     max_age_seconds: int,
     event_types: tuple[str, ...],
+    stale_status: str = "FAIL",
 ) -> HealthCheckItem:
     if not path.exists():
         return HealthCheckItem(name=name, status="FAIL", message=f"missing path={path}")
@@ -126,10 +127,12 @@ def _check_audit_event_freshness(
     latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
+        status = stale_status if stale_status in {"FAIL", "WARN"} else "FAIL"
+        stale_label = "stale" if status == "FAIL" else "inactive"
         return HealthCheckItem(
             name=name,
-            status="FAIL",
-            message=f"stale age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
+            status=status,
+            message=f"{stale_label} age_seconds={age_seconds} max_age_seconds={max_age_seconds}",
         )
     return HealthCheckItem(name=name, status="OK", message=f"fresh age_seconds={age_seconds}")
 
@@ -158,6 +161,7 @@ def build_runtime_health_report(
             now=now,
             max_age_seconds=max_user_stream_event_age_seconds,
             event_types=("user_stream_worker_start", "user_stream_event"),
+            stale_status="WARN",
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
     ]

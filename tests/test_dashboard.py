@@ -70,6 +70,7 @@ class DashboardTests(unittest.TestCase):
                     "payload": {"blocked_reason": "risk_limit"},
                 },
             },
+            "runtime_db_file": "/tmp/runtime.db",
             "recent_account_snapshots": [
                 {
                     "timestamp": "2026-04-17T00:00:00+00:00",
@@ -638,6 +639,7 @@ class DashboardTests(unittest.TestCase):
                     "source": "poll",
                 }
             ],
+            "runtime_db_file": "/tmp/runtime.db",
             "event_counts": {"poll_tick": 12, "tick_result": 12, "user_stream_event": 3},
             "source_counts": {"poll": 24, "user-stream": 3},
             "leader_history": [{"timestamp": "2026-04-15T06:59:01+00:00", "symbol": "INUSDT"}],
@@ -665,9 +667,10 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("BLACK HOLE", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("RECENT EVENTS", overview_html)
-        self.assertIn("tick_result", system_html)
-        self.assertIn("RECENT EVENTS", system_html)
+        self.assertIn("Runtime DB: /tmp/runtime.db", system_html)
         self.assertIn("2026-04-15 14:59:01", system_html)
+        self.assertIn("RECENT EVENTS", system_html)
+        self.assertIn("tick_result", system_html)
 
     def test_render_dashboard_html_system_tab_surfaces_operational_diagnostics(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -698,8 +701,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2026-04-17 09:05:00", html)
         self.assertIn("Warning Count", html)
         self.assertIn(">2<", html)
-        self.assertIn("Primary Source", html)
-        self.assertIn("poll · 3", html)
+        self.assertIn("Runtime DB: /tmp/runtime.db", html)
+        self.assertNotIn("Primary Source", html)
+        self.assertNotIn("poll · 3", html)
         self.assertIn("ACTIVE WARNINGS", html)
         self.assertIn("state file missing path=/tmp/runtime.json", html)
 
@@ -1003,7 +1007,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Submit Orders", html)
         self.assertIn("No", html)
         self.assertIn("SYSTEM DIAGNOSTICS", html)
-        self.assertIn("EVENT SOURCES", html)
+        self.assertNotIn("EVENT SOURCES", html)
+        self.assertNotIn("Primary Source", html)
         self.assertIn("RECENT EVENTS", html)
         self.assertIn("system-console-grid", html)
 
@@ -2746,8 +2751,9 @@ console.log(JSON.stringify(cases));
         self.assertIn("10", system_html)
         self.assertLess(system_html.index("SYSTEM DIAGNOSTICS"), system_html.index("SYSTEM CONFIG"))
         self.assertLess(system_html.index("SYSTEM CONFIG"), system_html.index("SYSTEM HEALTH"))
-        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("EVENT SOURCES"))
-        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("RECENT EVENTS"))
+        self.assertNotIn("EVENT SOURCES", system_html)
+        self.assertNotIn("Primary Source", system_html)
+        self.assertIn("RECENT EVENTS", system_html)
 
     def test_render_dashboard_review_summary_trade_count_matches_closed_trade_detail_scope(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
