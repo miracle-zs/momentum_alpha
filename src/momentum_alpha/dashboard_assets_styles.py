@@ -560,11 +560,7 @@ def _render_dashboard_component_styles() -> str:
     .live-core-lines-band {
       background: linear-gradient(180deg, rgba(245,210,138,0.08), rgba(0,0,0,0.2));
     }
-    .live-core-lines-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 16px;
-    }
+    .live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .live-core-line-card {
       min-height: 248px;
     }
@@ -741,7 +737,6 @@ def _render_dashboard_responsive_styles() -> str:
       .decision-row { grid-template-columns: 1fr; }
       .bottom-row { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .live-core-lines-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .live-decision-grid { grid-template-columns: 1fr; }
       .system-console-grid { grid-template-columns: 1fr; }
       .review-analysis-evidence-grid { grid-template-columns: 1fr; }

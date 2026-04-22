@@ -3064,6 +3064,22 @@ console.log(JSON.stringify(cases));
         self.assertLess(html.index("OPEN RISK / EQUITY"), html.index("Today Net PnL"))
         self.assertLess(html.index("Position Count"), html.index("Peak Risk"))
 
+    def test_render_dashboard_html_uses_two_column_live_core_lines_grid(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
+
+        self.assertIn("CORE LIVE LINES", html)
+        self.assertIn("live-core-lines-grid", html)
+        self.assertIn("Position Count", html)
+        self.assertIn("Peak Risk", html)
+        self.assertLess(html.index("Position Count"), html.index("Peak Risk"))
+        self.assertIn(
+            ".live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }",
+            html,
+        )
+        self.assertIn(".live-core-lines-grid { grid-template-columns: 1fr; }", html)
+
     def test_render_dashboard_html_respects_requested_range_state_and_subpath_api(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
