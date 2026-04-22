@@ -86,6 +86,7 @@ def load_dashboard_snapshot(
     recent_trade_round_trips: list[dict] = []
     recent_stop_exit_summaries: list[dict] = []
     recent_position_snapshots: list[dict] = []
+    recent_position_risk_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
     daily_review_report: dict | None = None
     daily_review_report_dates: list[str] = []
@@ -109,6 +110,11 @@ def load_dashboard_snapshot(
         )
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
+        recent_position_risk_snapshots = fetch_recent_position_snapshots(
+            path=runtime_db_file,
+            limit=8,
+            require_positions=True,
+        )
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
         daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
         daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
@@ -195,6 +201,7 @@ def load_dashboard_snapshot(
         "recent_trade_round_trips": recent_trade_round_trips,
         "recent_stop_exit_summaries": recent_stop_exit_summaries,
         "recent_position_snapshots": recent_position_snapshots,
+        "recent_position_risk_snapshots": recent_position_risk_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
         "daily_review_report": daily_review_report,
         "recent_events": recent_events,

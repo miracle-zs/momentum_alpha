@@ -8,12 +8,13 @@ from momentum_alpha.runtime_schema import _connect
 from .runtime_reads_common import _ACCOUNT_RANGE_DENSITY, _as_utc_iso, _json_loads
 
 
-def fetch_recent_position_snapshots(*, path: Path, limit: int = 20) -> list[dict]:
+def fetch_recent_position_snapshots(*, path: Path, limit: int = 20, require_positions: bool = False) -> list[dict]:
     if not path.exists():
         return []
+    where_clause = "WHERE json_type(payload_json, '$.positions') IS NOT NULL" if require_positions else ""
     with _connect(path) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT
                 timestamp,
                 source,
@@ -26,10 +27,11 @@ def fetch_recent_position_snapshots(*, path: Path, limit: int = 20) -> list[dict
                 execute_stop_replacements,
                 payload_json
             FROM position_snapshots
+            {where_clause}
             ORDER BY timestamp DESC, id DESC
-            LIMIT ?
+            LIMIT :limit
             """,
-            (limit,),
+            {"limit": limit},
         ).fetchall()
     return [
         {

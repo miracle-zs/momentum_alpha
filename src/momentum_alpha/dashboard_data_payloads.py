@@ -62,9 +62,22 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
                 "leader_symbol": row.get("leader_symbol"),
             }
         )
+    position_risk_snapshots = snapshot.get("recent_position_risk_snapshots") or snapshot.get("recent_position_snapshots", [])
+    position_risk_points = build_position_risk_series(position_risk_snapshots)
+    runtime = snapshot.get("runtime") or {}
+    if runtime and int(runtime.get("position_count") or 0) == 0:
+        # Preserve the historical series, but make the current flat state explicit.
+        latest_position_snapshot = runtime.get("latest_position_snapshot") or {}
+        zero_timestamp = (
+            latest_position_snapshot.get("timestamp")
+            or (account_points[-1]["timestamp"] if account_points else None)
+            or (position_risk_points[-1]["timestamp"] if position_risk_points else None)
+        )
+        if zero_timestamp is not None and (not position_risk_points or position_risk_points[-1].get("peak_risk") != 0.0):
+            position_risk_points.append({"timestamp": zero_timestamp, "peak_risk": 0.0})
     return {
         "account": account_points,
-        "position_risk": build_position_risk_series(snapshot.get("recent_position_snapshots", [])),
+        "position_risk": position_risk_points,
         "pulse_points": snapshot.get("pulse_points", []),
         "leader_history": list(reversed(snapshot.get("leader_history", []))),
     }

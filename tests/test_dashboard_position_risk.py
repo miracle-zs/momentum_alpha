@@ -4,6 +4,8 @@ import sys
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from datetime import datetime, timezone
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,6 +89,64 @@ class DashboardPositionRiskTests(unittest.TestCase):
         payload = build_dashboard_timeseries_payload(snapshot)
 
         self.assertEqual(payload["position_risk"], [{"timestamp": "2026-04-15T08:48:00+00:00", "peak_risk": 10.0}])
+
+    def test_load_dashboard_snapshot_includes_position_risk_when_poll_rows_do_not_have_positions(self) -> None:
+        from momentum_alpha.dashboard import build_dashboard_timeseries_payload, load_dashboard_snapshot
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_position_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=runtime_db_file)
+
+            for minute in range(2, 10):
+                insert_position_snapshot(
+                    path=runtime_db_file,
+                    timestamp=datetime(2026, 4, 21, 9, minute, tzinfo=timezone.utc),
+                    source="poll",
+                    leader_symbol="DENTUSDT",
+                    position_count=0,
+                    order_status_count=0,
+                    symbol_count=537,
+                    payload={
+                        "event_type": "poll_tick",
+                        "market_context": {"leader_symbol": "DENTUSDT"},
+                    },
+                )
+
+            insert_position_snapshot(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 21, 8, 25, tzinfo=timezone.utc),
+                source="user-stream",
+                leader_symbol="RAVEUSDT",
+                position_count=1,
+                order_status_count=11,
+                symbol_count=1,
+                payload={
+                    "event_type": "ACCOUNT_UPDATE",
+                    "positions": {
+                        "RAVEUSDT": {
+                            "side": "LONG",
+                            "legs": [
+                                {"quantity": "1", "entry_price": "100", "stop_price": "90"},
+                            ],
+                        }
+                    },
+                },
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=datetime(2026, 4, 21, 9, 15, tzinfo=timezone.utc),
+                runtime_db_file=runtime_db_file,
+            )
+            payload = build_dashboard_timeseries_payload(snapshot)
+
+        self.assertEqual(
+            payload["position_risk"],
+            [
+                {"timestamp": "2026-04-21T08:25:00+00:00", "peak_risk": 10.0},
+                {"timestamp": "2026-04-21T09:09:00+00:00", "peak_risk": 0.0},
+            ],
+        )
 
     def test_build_position_details_uses_shared_risk_math(self) -> None:
         from momentum_alpha.dashboard_view_model import build_position_details
