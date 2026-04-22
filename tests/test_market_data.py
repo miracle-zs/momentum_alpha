@@ -14,6 +14,21 @@ if str(SRC) not in sys.path:
 
 
 class MarketDataTests(unittest.TestCase):
+    def test_market_data_split_modules_export_key_entrypoints(self) -> None:
+        from momentum_alpha import (
+            market_data_cache,
+            market_data_klines,
+            market_data_snapshots,
+            market_data_symbols,
+            market_data_windows,
+        )
+
+        self.assertTrue(callable(market_data_symbols._resolve_symbols))
+        self.assertTrue(callable(market_data_windows._utc_midnight_window_ms))
+        self.assertTrue(callable(market_data_klines._fetch_daily_open_klines))
+        self.assertTrue(callable(market_data_snapshots._build_live_snapshots))
+        self.assertTrue(callable(market_data_cache.LiveMarketDataCache))
+
     def test_utc_midnight_window_targets_first_utc_minute(self) -> None:
         from momentum_alpha.market_data import utc_midnight_window_ms
 
