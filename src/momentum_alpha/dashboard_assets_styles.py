@@ -595,7 +595,7 @@ def _render_dashboard_component_styles() -> str:
     .system-summary-strip .decision-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .system-health-path { margin: 2px 0 10px; padding: 8px 12px; border: 1px solid rgba(245,210,138,0.18); border-radius: var(--radius-sm); background: rgba(245,210,138,0.06); color: var(--accent); font-size: 0.72rem; font-family: 'JetBrains Mono', 'SF Mono', monospace; word-break: break-all; }
     .system-health-panel { display: flex; flex-direction: column; gap: 10px; }
-    .system-console-grid { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+    .system-console-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: 16px; align-items: stretch; }
     .system-console-card { display: flex; flex-direction: column; gap: 10px; }
     .system-console-events { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
     .table-scroll { overflow-x: auto; }
