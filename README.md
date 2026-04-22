@@ -93,6 +93,14 @@ python3 -m momentum_alpha.main user-stream --testnet
 
 For real deployment, `poll` and `user-stream` should run as separate long-lived processes. `poll` is responsible for minute/hour strategy evaluation and order placement; `user-stream` is responsible for account/order state convergence.
 
+## Architecture
+
+The public entrypoint stays `momentum_alpha.main`, while CLI parsing and command dispatch live behind `momentum_alpha.cli`.
+
+- `poll` and `user-stream` remain separate long-running processes.
+- The dashboard stays server-rendered, with focused `dashboard_render_*`, `dashboard_data.py`, `dashboard_view_model.py`, and `dashboard_assets_*` modules.
+- Runtime persistence stays SQLite-backed through `runtime_store.py` compatibility exports plus focused `runtime_reads_*`, `runtime_writes_*`, and `runtime_analytics_*` modules.
+
 ## Deployment
 
 Use the provided wrappers and systemd units as a starting point:

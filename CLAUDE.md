@@ -88,17 +88,32 @@ Market Snapshots → Strategy Evaluation → Execution Plan → Broker → Binan
 - `broker.py`: Thin wrapper for order submission
 - `binance_client.py`: REST API client (no external HTTP dependencies)
 - `user_stream.py`: WebSocket client for real-time account/order updates
+- `user_stream_events.py` plus `user_stream_event_*`: Binance user-data event parsing, idempotency, extractors, and position helpers
 - `exchange_info.py`: Parses Binance exchange info for symbol filters
+- `market_data.py` plus `market_data_*`: live symbol resolution, kline windows, cache, and snapshot assembly
 
 **Persistence**:
 - `strategy_state_codec.py`: strategy state serialization for SQLite persistence
-- `runtime_store.py`: SQLite-based telemetry and runtime state persistence (signal decisions, broker orders, position/account snapshots)
+- `runtime_store.py`: SQLite-based telemetry and runtime state persistence facade
+- `runtime_reads_*`: focused query modules for runtime history and dashboard lookups
+- `runtime_writes_*`: focused write modules for telemetry, events, history, and snapshots
+- `runtime_analytics_*`: trade analytics rebuild helpers and stop/leg derivation
 
-**Infrastructure**:
-- `main.py`: CLI entry point, orchestrates all components
-- `scheduler.py`: Minute-based polling loop
-- `reconciliation.py`: Position restoration from Binance API state
-- `dashboard.py`: HTTP monitoring server
+**Dashboard**:
+- `dashboard.py`: public read-only monitoring entrypoint
+- `dashboard_data.py`: dashboard data shaping and aggregates
+- `dashboard_view_model.py`: dashboard view-model assembly
+- `dashboard_render_*`: server-rendered HTML composition
+- `dashboard_assets_*`: CSS, head, and script asset bundles
+- `dashboard_server.py`: HTTP monitoring server
+
+**CLI / Workers**:
+- `main.py`: compatibility entrypoint and process dispatcher
+- `cli.py` plus `cli_*`: CLI entrypoint, parser, command handlers, environment helpers, and backfill tools
+- `poll_worker.py`, `poll_worker_core.py`, `poll_worker_loop.py`: polling process orchestration
+- `stream_worker.py`, `stream_worker_core.py`, `stream_worker_loop.py`: user-stream worker orchestration
+- `scheduler.py`: minute-based polling loop
+- `reconciliation.py`: position restoration from Binance API state
 
 ### Two-Process Deployment Model
 
