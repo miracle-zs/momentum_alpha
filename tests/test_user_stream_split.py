@@ -11,8 +11,22 @@ if str(SRC) not in sys.path:
 
 class UserStreamSplitTests(unittest.TestCase):
     def test_user_stream_split_modules_export_key_entrypoints(self) -> None:
-        from momentum_alpha import user_stream_client, user_stream_events, user_stream_state
+        from momentum_alpha import (
+            user_stream_account_positions,
+            user_stream_event_extractors,
+            user_stream_event_ids,
+            user_stream_event_model,
+            user_stream_event_parser,
+            user_stream_client,
+            user_stream_events,
+            user_stream_state,
+        )
 
+        self.assertTrue(callable(user_stream_event_model.UserStreamEvent))
+        self.assertTrue(callable(user_stream_event_parser.parse_user_stream_event))
+        self.assertTrue(callable(user_stream_event_extractors.extract_trade_fill))
+        self.assertTrue(callable(user_stream_event_ids.user_stream_event_id))
+        self.assertTrue(callable(user_stream_account_positions.extract_positive_account_positions))
         self.assertTrue(callable(user_stream_events.parse_user_stream_event))
         self.assertTrue(callable(user_stream_state.apply_user_stream_event_to_state))
         self.assertTrue(callable(user_stream_client.BinanceUserStreamClient))
