@@ -667,10 +667,10 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("BLACK HOLE", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("RECENT EVENTS", overview_html)
-        self.assertIn("Runtime DB: /tmp/runtime.db", system_html)
         self.assertIn("2026-04-15 14:59:01", system_html)
+        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("Runtime DB: /tmp/runtime.db"))
         self.assertIn("RECENT EVENTS", system_html)
-        self.assertIn("tick_result", system_html)
+        self.assertIn("No recent action events", system_html)
 
     def test_render_dashboard_html_system_tab_surfaces_operational_diagnostics(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -701,7 +701,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("2026-04-17 09:05:00", html)
         self.assertIn("Warning Count", html)
         self.assertIn(">2<", html)
-        self.assertIn("Runtime DB: /tmp/runtime.db", html)
+        self.assertLess(html.index("SYSTEM HEALTH"), html.index("Runtime DB: /tmp/runtime.db"))
         self.assertNotIn("Primary Source", html)
         self.assertNotIn("poll · 3", html)
         self.assertIn("ACTIVE WARNINGS", html)
@@ -2750,7 +2750,9 @@ console.log(JSON.stringify(cases));
         self.assertIn("Stop Budget", system_html)
         self.assertIn("10", system_html)
         self.assertLess(system_html.index("SYSTEM DIAGNOSTICS"), system_html.index("SYSTEM CONFIG"))
-        self.assertLess(system_html.index("SYSTEM CONFIG"), system_html.index("SYSTEM HEALTH"))
+        self.assertLess(system_html.index("SYSTEM DIAGNOSTICS"), system_html.index("SYSTEM HEALTH"))
+        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("SYSTEM CONFIG"))
+        self.assertLess(system_html.index("SYSTEM HEALTH"), system_html.index("RECENT EVENTS"))
         self.assertNotIn("EVENT SOURCES", system_html)
         self.assertNotIn("Primary Source", system_html)
         self.assertIn("RECENT EVENTS", system_html)

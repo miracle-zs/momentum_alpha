@@ -592,9 +592,10 @@ def _render_dashboard_component_styles() -> str:
     .system-summary-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 12px; }
     .system-summary-kicker { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
     .system-summary-copy { color: var(--fg-muted); font-size: 0.78rem; max-width: 520px; text-align: right; }
-    .system-summary-path { margin-bottom: 12px; padding: 8px 12px; border: 1px solid rgba(245,210,138,0.18); border-radius: var(--radius-sm); background: rgba(245,210,138,0.06); color: var(--accent); font-size: 0.72rem; font-family: 'JetBrains Mono', 'SF Mono', monospace; word-break: break-all; }
-    .system-console-grid { display: grid; grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
-    .system-console-left { display: flex; flex-direction: column; gap: 16px; }
+    .system-summary-strip .decision-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .system-health-path { margin: 2px 0 10px; padding: 8px 12px; border: 1px solid rgba(245,210,138,0.18); border-radius: var(--radius-sm); background: rgba(245,210,138,0.06); color: var(--accent); font-size: 0.72rem; font-family: 'JetBrains Mono', 'SF Mono', monospace; word-break: break-all; }
+    .system-health-panel { display: flex; flex-direction: column; gap: 10px; }
+    .system-console-grid { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
     .system-console-card { display: flex; flex-direction: column; gap: 10px; }
     .system-console-events { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
     .table-scroll { overflow-x: auto; }
@@ -748,7 +749,8 @@ def _render_dashboard_responsive_styles() -> str:
       .review-summary-ribbon-items { width: 100%; }
       .system-summary-head { flex-direction: column; align-items: flex-start; }
       .system-summary-copy { max-width: none; text-align: left; }
-      .system-summary-path { width: 100%; }
+      .system-summary-strip .decision-grid { grid-template-columns: 1fr; }
+      .system-health-path { width: 100%; }
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
       .execution-flow-grid { grid-template-columns: repeat(2, 1fr); }

@@ -49,7 +49,6 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
 
 _RECENT_SIGNAL_ACTION_TYPES = {"base_entry", "add_on", "add_on_skipped", "stop_update"}
 _RECENT_AUDIT_ACTION_TYPES = {
-    "tick_result",
     "broker_submit",
     "broker_replace",
     "user_stream_event",
@@ -63,20 +62,6 @@ def _build_recent_action_detail(event_type: str, payload: dict, *, source: str |
     source_label = str(source or "").strip()
     if source_label:
         parts.append(source_label)
-    if event_type == "tick_result":
-        base_entries = payload.get("base_entry_symbols") or []
-        add_on_entries = payload.get("add_on_symbols") or []
-        updated_stops = payload.get("updated_stop_symbols") or []
-        if base_entries:
-            parts.append(f"base={','.join(map(str, base_entries[:3]))}{'…' if len(base_entries) > 3 else ''}")
-        if add_on_entries:
-            parts.append(f"add-on={','.join(map(str, add_on_entries[:3]))}{'…' if len(add_on_entries) > 3 else ''}")
-        if updated_stops:
-            parts.append(f"stop={','.join(map(str, updated_stops[:3]))}{'…' if len(updated_stops) > 3 else ''}")
-        broker_response_count = payload.get("broker_response_count")
-        if broker_response_count is not None:
-            parts.append(f"broker={broker_response_count}")
-        return " · ".join(parts) if parts else "poll cycle summary"
     if event_type in {"broker_submit", "broker_replace"}:
         responses = payload.get("responses")
         if isinstance(responses, list):
@@ -410,22 +395,20 @@ def render_dashboard_system_room(
         "<div class='section-header system-summary-kicker'>SYSTEM DIAGNOSTICS</div>"
         "<div class='system-summary-copy'>Watch runtime freshness, warnings, and config state before inspecting the event stream.</div>"
         "</div>"
-        "<div class='system-summary-path'>"
-        f"Runtime DB: {escape(str(runtime_db_path_display or 'n/a'))}"
-        "</div>"
         f"{diagnostics_html}"
         f"{warning_list_html}"
         "</div>"
+        "<div class='chart-card system-health-panel'>"
+        "<div class='section-header'>SYSTEM HEALTH</div>"
+        "<div class='system-health-path'>"
+        f"Runtime DB: {escape(str(runtime_db_path_display or 'n/a'))}"
+        "</div>"
+        f"<div class='health-grid'>{health_items_html}</div>"
+        "</div>"
         "<div class='system-console-grid'>"
-        "<div class='system-console-left'>"
         "<div class='chart-card system-console-card'>"
         "<div class='section-header'>SYSTEM CONFIG</div>"
         f"{config_html}"
-        "</div>"
-        "<div class='chart-card system-console-card'>"
-        "<div class='section-header'>SYSTEM HEALTH</div>"
-        f"<div class='health-grid'>{health_items_html}</div>"
-        "</div>"
         "</div>"
         "<div class='chart-card system-console-events'>"
         "<div class='section-header'>RECENT EVENTS</div>"
