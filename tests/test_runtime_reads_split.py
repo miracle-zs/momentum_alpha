@@ -13,6 +13,10 @@ class RuntimeReadsSplitTests(unittest.TestCase):
     def test_runtime_reads_split_modules_export_key_entrypoints(self) -> None:
         from momentum_alpha import (
             runtime_reads_common,
+            runtime_reads_events_audit,
+            runtime_reads_events_decisions,
+            runtime_reads_events_flows,
+            runtime_reads_events_orders,
             runtime_reads_events,
             runtime_reads_history,
             runtime_reads_history_overview,
@@ -23,6 +27,11 @@ class RuntimeReadsSplitTests(unittest.TestCase):
 
         self.assertTrue(callable(runtime_reads_events.fetch_recent_audit_events))
         self.assertTrue(callable(runtime_reads_events.fetch_recent_signal_decisions))
+        self.assertTrue(callable(runtime_reads_events_audit.fetch_notification_status))
+        self.assertTrue(callable(runtime_reads_events_audit.fetch_audit_event_counts))
+        self.assertTrue(callable(runtime_reads_events_decisions.fetch_signal_decisions_for_window))
+        self.assertTrue(callable(runtime_reads_events_orders.fetch_recent_trade_fills))
+        self.assertTrue(callable(runtime_reads_events_flows.fetch_account_flows_since))
         self.assertTrue(callable(runtime_reads_history.fetch_recent_trade_round_trips))
         self.assertTrue(callable(runtime_reads_history.fetch_account_snapshots_for_range))
         self.assertTrue(callable(runtime_reads_history_trades.fetch_recent_stop_exit_summaries))
