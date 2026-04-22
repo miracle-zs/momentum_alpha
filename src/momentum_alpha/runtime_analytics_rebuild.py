@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -14,6 +15,60 @@ from .runtime_analytics_stops import (
     _extract_stop_trigger_price_from_signal_decision,
     _resolve_stop_trigger_price_for_exit,
 )
+
+
+def _snapshot_position_risk(position: object) -> Decimal | None:
+    if not isinstance(position, Mapping):
+        return None
+    legs = position.get("legs") or []
+    if not isinstance(legs, (list, tuple)) or not legs:
+        return None
+    stop_price = _text_to_optional_decimal(position.get("stop_price"))
+    if stop_price is not None and stop_price <= Decimal("0"):
+        stop_price = None
+    direction = str(position.get("side") or position.get("direction") or "LONG").upper()
+    total_risk = Decimal("0")
+    known = False
+    for leg in legs:
+        if not isinstance(leg, Mapping):
+            continue
+        qty = _text_to_decimal(leg.get("quantity"))
+        entry = _text_to_optional_decimal(leg.get("entry_price"))
+        leg_stop = _text_to_optional_decimal(leg.get("stop_price"))
+        if leg_stop is None:
+            leg_stop = stop_price
+        if qty is None or entry is None or leg_stop is None:
+            return None
+        known = True
+        if direction == "SHORT":
+            total_risk += qty * (leg_stop - entry)
+        else:
+            total_risk += qty * (entry - leg_stop)
+    return total_risk if known else None
+
+
+def _snapshot_peak_cumulative_risk(
+    *,
+    snapshot_rows: list[tuple[str, str | None]],
+    symbol: str,
+    opened_at: datetime,
+    closed_at: datetime,
+) -> Decimal | None:
+    peak_risk: Decimal | None = None
+    for timestamp_text, payload_json in snapshot_rows:
+        snapshot_time = datetime.fromisoformat(timestamp_text)
+        if snapshot_time < opened_at or snapshot_time > closed_at:
+            continue
+        payload = _json_loads(payload_json or "{}")
+        positions = payload.get("positions") or {}
+        if not isinstance(positions, Mapping):
+            continue
+        risk = _snapshot_position_risk(positions.get(symbol))
+        if risk is None:
+            continue
+        if peak_risk is None or risk > peak_risk:
+            peak_risk = risk
+    return peak_risk
 
 
 def rebuild_trade_analytics(*, path: Path) -> None:
@@ -59,6 +114,13 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             """
             SELECT timestamp, symbol, order_type, client_order_id, price, payload_json
             FROM broker_orders
+            ORDER BY timestamp ASC, id ASC
+            """
+        ).fetchall()
+        snapshot_rows = connection.execute(
+            """
+            SELECT timestamp, payload_json
+            FROM position_snapshots
             ORDER BY timestamp ASC, id ASC
             """
         ).fetchall()
@@ -219,6 +281,14 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
                 signal_stop_price_candidates=signal_stop_price_by_symbol.get(symbol, []),
             )
+            snapshot_peak_cumulative_risk = _snapshot_peak_cumulative_risk(
+                snapshot_rows=snapshot_rows,
+                symbol=symbol,
+                opened_at=round_trip["opened_at"],
+                closed_at=closed_at,
+            )
+            if snapshot_peak_cumulative_risk is not None:
+                peak_cumulative_risk = snapshot_peak_cumulative_risk
             round_trip_payload = {
                 "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],
                 "exit_order_ids": [item["order_id"] for item in exit_fills if item["order_id"] is not None],
