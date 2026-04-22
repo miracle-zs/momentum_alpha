@@ -161,12 +161,15 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 }
             )
         for timestamp, symbol, order_type, client_order_id, price, payload_json in broker_rows:
+            payload = _json_loads(payload_json)
+            if not symbol or not client_order_id:
+                client_order_id = payload.get("clientAlgoId") or payload.get("clientOrderId")
             if not symbol or not client_order_id:
                 continue
             trigger_price = _extract_stop_trigger_price_from_broker_order(
                 order_type=order_type,
                 price=price,
-                payload=_json_loads(payload_json),
+                payload=payload,
             )
             if trigger_price is None:
                 continue

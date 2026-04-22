@@ -188,7 +188,7 @@ def render_stop_slippage_table(stop_exits: list[dict]) -> str:
     header = (
         "<div class='analytics-row analytics-row-header'>"
         "<span class='analytics-main'>SYMBOL</span>"
-        "<span>STOP</span>"
+        "<span>TRIGGER</span>"
         "<span>EXEC</span>"
         "<span>SLIP %</span>"
         "<span>PNL</span>"
@@ -217,7 +217,7 @@ def render_stop_slippage_table(stop_exits: list[dict]) -> str:
         cards += (
             f"<div class='analytics-card'>"
             f"<div class='analytics-card-main'><b>{symbol}</b><span>{slippage_pct}</span></div>"
-            f"<div class='analytics-card-meta'><span>Stop {trigger_price}</span><span>Exec {average_exit_price}</span></div>"
+            f"<div class='analytics-card-meta'><span>Trigger {trigger_price}</span><span>Exec {average_exit_price}</span></div>"
             f"<div class='analytics-card-meta'><span>Net</span><span class='{pnl_class}'>{net_pnl}</span></div>"
             f"</div>"
         )

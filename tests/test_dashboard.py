@@ -2318,7 +2318,7 @@ console.log(JSON.stringify(cases));
         )
 
         self.assertIn("SYMBOL", stop_html)
-        self.assertIn("STOP", stop_html)
+        self.assertIn("TRIGGER", stop_html)
         self.assertIn("EXEC", stop_html)
         self.assertIn("SLIP %", stop_html)
         self.assertIn("PNL", stop_html)

@@ -34,14 +34,17 @@ def _extract_stop_trigger_price_from_broker_order(
     price: object | None,
     payload: object | None,
 ) -> Decimal | None:
-    if order_type != "STOP_MARKET":
+    resolved_order_type = order_type
+    if resolved_order_type is None and isinstance(payload, dict):
+        resolved_order_type = payload.get("orderType") or payload.get("type") or payload.get("origType")
+    if str(resolved_order_type or "").upper() != "STOP_MARKET":
         return None
     parsed_price = _text_to_optional_decimal(price)
-    if parsed_price is not None:
+    if parsed_price is not None and parsed_price > 0:
         return parsed_price
     if not isinstance(payload, dict):
         return None
-    return _text_to_optional_decimal(payload.get("stopPrice") or payload.get("price"))
+    return _text_to_optional_decimal(payload.get("triggerPrice") or payload.get("stopPrice") or payload.get("price"))
 
 
 def _extract_stop_trigger_price_from_signal_decision(payload: dict) -> Decimal | None:
