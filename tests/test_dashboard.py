@@ -258,7 +258,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Margin Usage", html)
         self.assertIn("CORE LIVE LINES", html)
         self.assertIn("实时监控室", html)
-        self.assertIn("live-control-grid", html)
+        self.assertIn("live-risk-band", html)
         self.assertIn("Account Equity", html)
         self.assertIn("Position Count", html)
 
@@ -2738,7 +2738,8 @@ console.log(JSON.stringify(cases));
         self.assertLess(overview_html.index("CORE LIVE LINES"), overview_html.index("ACTIVE SIGNAL"))
         self.assertLess(overview_html.index("ACTIVE SIGNAL"), overview_html.index("ACTIVE POSITIONS"))
         self.assertLess(overview_html.index("ACTIVE POSITIONS"), overview_html.index("ORDER FLOW"))
-        self.assertLess(overview_html.index("ORDER FLOW"), overview_html.index("data-live-metrics-panel"))
+        self.assertLess(overview_html.index("ORDER FLOW"), overview_html.index("HOME COMMAND"))
+        self.assertLess(overview_html.index("HOME COMMAND"), overview_html.index("data-live-metrics-panel"))
         self.assertIn("SYSTEM CONFIG", system_html)
         self.assertIn("Stop Budget", system_html)
         self.assertIn("10", system_html)
@@ -3704,11 +3705,11 @@ console.log(JSON.stringify(cases));
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("Distance", html)
         self.assertIn("Notional", html)
-        self.assertIn("live-control-grid", html)
+        self.assertIn("live-risk-band", html)
+        self.assertIn("live-core-lines-band", html)
+        self.assertIn("live-signal-band", html)
         self.assertIn("live-decision-grid", html)
-        self.assertIn("live-ops-grid", html)
-        self.assertIn("live-decision-grid", html)
-        self.assertIn("live-ops-grid", html)
+        self.assertIn("live-command-band", html)
 
     def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
