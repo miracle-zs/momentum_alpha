@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from .dashboard_common import _compute_margin_usage_pct, _parse_numeric
 from .dashboard_data import build_dashboard_timeseries_payload
+from .dashboard_position_risk import compute_position_risk
 
 
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
@@ -365,31 +366,7 @@ def build_position_details(position_snapshot: dict, equity_value: object | None 
             weighted_sum = total_quantity * avg_entry
 
         avg_entry = weighted_sum / total_quantity if total_quantity > 0 else Decimal("0")
-        risk = None
-        if isinstance(legs, (list, tuple)) and legs:
-            leg_risk_sum = Decimal("0")
-            leg_risk_known = True
-            for leg in legs:
-                if not isinstance(leg, Mapping) and not hasattr(leg, "__dict__") and not hasattr(type(leg), "__dataclass_fields__"):
-                    continue
-                qty = _parse_decimal(_object_field(leg, "quantity"))
-                entry = _parse_decimal(_object_field(leg, "entry_price"))
-                leg_stop = _parse_decimal(_object_field(leg, "stop_price"))
-                if leg_stop is None:
-                    leg_stop = stop_price
-                if qty is None or entry is None or leg_stop is None:
-                    leg_risk_known = False
-                    continue
-                if direction == "SHORT":
-                    leg_risk_sum += qty * (leg_stop - entry)
-                else:
-                    leg_risk_sum += qty * (entry - leg_stop)
-            if leg_risk_known:
-                risk = leg_risk_sum
-        if risk is None and stop_price is not None:
-            risk = total_quantity * (avg_entry - stop_price)
-            if direction == "SHORT":
-                risk = total_quantity * (stop_price - avg_entry)
+        risk = compute_position_risk(position)
         opened_at = _object_field(position, "opened_at")
         if not opened_at:
             parsed_leg_opened_ats: list[tuple[datetime, str]] = []

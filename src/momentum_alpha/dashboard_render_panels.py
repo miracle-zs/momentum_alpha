@@ -293,25 +293,28 @@ def _build_live_account_risk_panel(
     )
 
 
-def _build_live_core_lines_panel(account_points: list[dict]) -> str:
+def _build_live_core_lines_panel(account_points: list[dict], peak_risk_points: list[dict] | None = None) -> str:
     chart_specs = (
-        ("Account Equity", "equity", "#4cc9f0"),
-        ("Margin Usage %", "margin_usage_pct", "#ff8c42"),
-        ("Position Count", "position_count", "#36d98a"),
+        ("Account Equity", "equity", "#4cc9f0", account_points, ""),
+        ("Margin Usage %", "margin_usage_pct", "#ff8c42", account_points, ""),
+        ("Position Count", "position_count", "#36d98a", account_points, ""),
+        ("Peak Risk", "peak_risk", "#ff5d73", peak_risk_points or [], "live-core-line-card--peak-risk"),
     )
     chart_cards = "".join(
         (
-            "<div class='chart-card live-core-line-card'>"
+            f"<div class='chart-card live-core-line-card {card_class}'>"
             f"<div class='section-header'>{escape(label)}</div>"
-            f"{_render_line_chart_svg(points=account_points, value_key=value_key, stroke=color, fill=color)}"
+            f"{_render_line_chart_svg(points=points, value_key=value_key, stroke=color, fill=color)}"
             "</div>"
         )
-        for label, value_key, color in chart_specs
+        for label, value_key, color, points, card_class in chart_specs
     )
     return (
         "<section class='dashboard-section live-core-lines-panel'>"
         "<div class='section-header'>CORE LIVE LINES</div>"
-        f"<div class='analytics-grid'>{chart_cards}</div>"
+        "<div class='live-core-lines-grid'>"
+        f"{chart_cards}"
+        "</div>"
         "</section>"
     )
 

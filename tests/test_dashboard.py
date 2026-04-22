@@ -2279,8 +2279,9 @@ console.log(JSON.stringify(cases));
                     "symbol": "KOMAUSDT",
                     "trigger_price": "0.011133889229651234",
                     "average_exit_price": "0.0098",
+                    "slippage_abs": "0.001333889229651234",
                     "slippage_pct": "-11.52678424",
-                    "net_pnl": "-12.3456789",
+                    "exit_quantity": "1000",
                 }
             ]
         )
@@ -2321,11 +2322,11 @@ console.log(JSON.stringify(cases));
         self.assertIn("TRIGGER", stop_html)
         self.assertIn("EXEC", stop_html)
         self.assertIn("SLIP %", stop_html)
-        self.assertIn("PNL", stop_html)
+        self.assertIn("SLIP COST", stop_html)
         self.assertIn("0.011134", stop_html)
         self.assertNotIn("0.011133889229651234", stop_html)
         self.assertIn("-11.53%", stop_html)
-        self.assertIn("-12.35", stop_html)
+        self.assertIn("1.33", stop_html)
         self.assertIn("SYMBOL", round_trip_html)
         self.assertIn("OPEN", round_trip_html)
         self.assertIn("CLOSE", round_trip_html)
@@ -3052,11 +3053,16 @@ console.log(JSON.stringify(cases));
         self.assertIn("SYSTEM HEALTH", html)
         self.assertIn("Position Count", html)
         self.assertIn("Margin Usage", html)
+        self.assertIn("Peak Risk", html)
+        self.assertIn("live-core-lines-grid", html)
+        self.assertIn("live-core-line-card--peak-risk", html)
+        self.assertIn("waiting for data", html)
         self.assertNotIn("ACCOUNT METRICS", html)
         self.assertLess(html.index("Equity"), html.index("Available Balance"))
         self.assertLess(html.index("Available Balance"), html.index("Margin Usage"))
         self.assertLess(html.index("Margin Usage"), html.index("OPEN RISK / EQUITY"))
         self.assertLess(html.index("OPEN RISK / EQUITY"), html.index("Today Net PnL"))
+        self.assertLess(html.index("Position Count"), html.index("Peak Risk"))
 
     def test_render_dashboard_html_respects_requested_range_state_and_subpath_api(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

@@ -185,13 +185,26 @@ def render_stop_slippage_table(stop_exits: list[dict]) -> str:
     if not stop_exits:
         return "<div class='trade-history-empty'>No stop exits</div>"
 
+    def _compute_slip_cost_value(item: dict) -> float | None:
+        exit_quantity = _parse_numeric(item.get("exit_quantity"))
+        if exit_quantity is None:
+            return None
+        slippage_abs = _parse_numeric(item.get("slippage_abs"))
+        if slippage_abs is None:
+            trigger_price = _parse_numeric(item.get("trigger_price"))
+            average_exit_price = _parse_numeric(item.get("average_exit_price"))
+            if trigger_price is None or average_exit_price is None:
+                return None
+            slippage_abs = max(trigger_price - average_exit_price, 0.0)
+        return max(slippage_abs, 0.0) * exit_quantity
+
     header = (
         "<div class='analytics-row analytics-row-header'>"
         "<span class='analytics-main'>SYMBOL</span>"
         "<span>TRIGGER</span>"
         "<span>EXEC</span>"
         "<span>SLIP %</span>"
-        "<span>PNL</span>"
+        "<span>SLIP COST</span>"
         "</div>"
     )
     rows = ""
@@ -202,23 +215,23 @@ def render_stop_slippage_table(stop_exits: list[dict]) -> str:
         average_exit_price = escape(_format_price(item.get("average_exit_price")))
         slippage_pct_value = _format_pct_value(item.get("slippage_pct"), signed=True)
         slippage_pct = escape(slippage_pct_value)
-        net_pnl_value = _format_metric(_parse_numeric(item.get("net_pnl")), signed=True)
-        net_pnl = escape(net_pnl_value)
-        pnl_class = "side-buy" if not net_pnl_value.startswith("-") else "side-sell"
+        slip_cost_value = _compute_slip_cost_value(item)
+        slip_cost = escape(_format_metric(slip_cost_value))
+        slip_cost_class = "side-sell" if slip_cost_value and slip_cost_value > 0 else ""
         rows += (
             f"<div class='analytics-row'>"
             f"<span class='analytics-main'><b>{symbol}</b></span>"
             f"<span>{trigger_price}</span>"
             f"<span>{average_exit_price}</span>"
             f"<span>{slippage_pct}</span>"
-            f"<span class='{pnl_class}'>{net_pnl}</span>"
+            f"<span class='{slip_cost_class}'>{slip_cost}</span>"
             f"</div>"
         )
         cards += (
             f"<div class='analytics-card'>"
             f"<div class='analytics-card-main'><b>{symbol}</b><span>{slippage_pct}</span></div>"
             f"<div class='analytics-card-meta'><span>Trigger {trigger_price}</span><span>Exec {average_exit_price}</span></div>"
-            f"<div class='analytics-card-meta'><span>Net</span><span class='{pnl_class}'>{net_pnl}</span></div>"
+            f"<div class='analytics-card-meta'><span>Slip Cost</span><span class='{slip_cost_class}'>{slip_cost}</span></div>"
             f"</div>"
         )
     return (

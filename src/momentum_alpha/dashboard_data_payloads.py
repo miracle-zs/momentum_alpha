@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from momentum_alpha.dashboard_common import _compute_margin_usage_pct, _parse_numeric
 
 from .dashboard_data_common import _is_external_account_flow
+from .dashboard_position_risk import build_position_risk_series
 
 
 def build_dashboard_summary_payload(snapshot: dict) -> dict:
@@ -63,6 +64,7 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
         )
     return {
         "account": account_points,
+        "position_risk": build_position_risk_series(snapshot.get("recent_position_snapshots", [])),
         "pulse_points": snapshot.get("pulse_points", []),
         "leader_history": list(reversed(snapshot.get("leader_history", []))),
     }
