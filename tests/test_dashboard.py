@@ -2330,7 +2330,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("OPEN", round_trip_html)
         self.assertIn("CLOSE", round_trip_html)
         self.assertIn("LEGS", round_trip_html)
-        self.assertIn("PEAK RISK", round_trip_html)
+        self.assertIn("PEAK LIFECYCLE RISK", round_trip_html)
         self.assertIn("EXIT", round_trip_html)
         self.assertIn("PNL", round_trip_html)
         self.assertIn("DURATION", round_trip_html)
