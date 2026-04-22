@@ -5,7 +5,7 @@
 
 ## Overview
 
-Extend `实时监控室` so `CORE LIVE LINES` contains a fourth chart card for live position peak risk.
+Extend `实时监控室` so `CORE LIVE LINES` contains a fourth chart card for live position peak risk and renders as a 2x2 grid on desktop.
 
 The current live room already has the right structure:
 
@@ -15,7 +15,7 @@ The current live room already has the right structure:
 
 This change does not introduce a new room or a new route. It only adds one more chart card inside `CORE LIVE LINES` and updates the data projection needed to feed that chart.
 
-The user approved a four-card equal-width layout for `CORE LIVE LINES`:
+The user approved a four-card 2x2 layout for `CORE LIVE LINES`:
 
 - `Account Equity`
 - `Margin Usage %`
@@ -28,7 +28,7 @@ The user wants:
 
 - `CORE LIVE LINES` to keep its current three charts.
 - A new fourth chart for live position `Peak Risk`.
-- The four charts to read as equal peers on desktop.
+- The four charts to read as a balanced 2x2 block on desktop.
 - The new chart to remain in `实时监控室`, not in `ACCOUNT RISK`.
 
 The user also approved the visual direction shown in the mockup:
@@ -125,7 +125,7 @@ This is not recommended.
 
 Use **Approach A**.
 
-`CORE LIVE LINES` should become a four-card strip on desktop, with the existing three signals retained and `Peak Risk` appended as the fourth card.
+`CORE LIVE LINES` should become a four-card 2x2 grid on desktop, with the existing three signals retained and `Peak Risk` appended as the fourth card.
 
 The new card should:
 
@@ -159,17 +159,17 @@ The first implementation can use the recent snapshot slice already loaded by the
 
 ### Desktop
 
-- `CORE LIVE LINES` should render four equal cards in one row.
+- `CORE LIVE LINES` should render four cards in a 2x2 grid.
 - The order should remain:
   1. `Account Equity`
   2. `Margin Usage %`
   3. `Position Count`
   4. `Peak Risk`
-- All four cards should use the same height and frame language.
+- Each row should use the same height and frame language so the two rows feel balanced.
 
 ### Tablet
 
-- The cards may collapse to a 2-by-2 grid.
+- The cards should also use a 2-by-2 grid.
 - `Peak Risk` should stay in the same order, not jump to a separate section.
 
 ### Mobile
