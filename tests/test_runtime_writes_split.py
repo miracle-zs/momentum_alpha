@@ -18,6 +18,8 @@ class RuntimeWritesSplitTests(unittest.TestCase):
             runtime_writes_events_decisions,
             runtime_writes_events_flows,
             runtime_writes_events_orders,
+            runtime_writes_history_reports,
+            runtime_writes_history_trades,
             runtime_writes_events,
             runtime_writes_history,
             runtime_writes_notifications,
@@ -39,6 +41,9 @@ class RuntimeWritesSplitTests(unittest.TestCase):
         self.assertTrue(callable(runtime_writes_events_flows.insert_account_flow))
         self.assertTrue(callable(runtime_writes_history.insert_daily_review_report))
         self.assertTrue(callable(runtime_writes_history.insert_stop_exit_summary))
+        self.assertTrue(callable(runtime_writes_history_reports.insert_daily_review_report))
+        self.assertTrue(callable(runtime_writes_history_trades.insert_trade_round_trip))
+        self.assertTrue(callable(runtime_writes_history_trades.insert_stop_exit_summary))
         self.assertTrue(callable(runtime_writes_snapshots.insert_account_snapshot))
 
 
