@@ -344,7 +344,7 @@ class MainTests(unittest.TestCase):
         fake_connection = FakeConnection()
         runtime_db_path = Path("/tmp/runtime.db")
 
-        with patch("momentum_alpha.cli.sqlite3.connect", return_value=fake_connection):
+        with patch("momentum_alpha.cli_backfill.sqlite3.connect", return_value=fake_connection):
             with patch.object(Path, "exists", return_value=True):
                 exists = _account_flow_exists(
                     runtime_db_path=runtime_db_path,
@@ -1621,8 +1621,8 @@ class MainTests(unittest.TestCase):
             warnings = ()
             rows = ()
 
-        with patch("momentum_alpha.cli.build_daily_review_report", return_value=FakeReport()), patch(
-            "momentum_alpha.cli.insert_daily_review_report",
+        with patch("momentum_alpha.cli_commands.build_daily_review_report", return_value=FakeReport()), patch(
+            "momentum_alpha.cli_commands.insert_daily_review_report",
             side_effect=lambda **kwargs: calls.append(kwargs),
         ):
             out = StringIO()
