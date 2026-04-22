@@ -3053,6 +3053,10 @@ console.log(JSON.stringify(cases));
         self.assertIn("Position Count", html)
         self.assertIn("Margin Usage", html)
         self.assertNotIn("ACCOUNT METRICS", html)
+        self.assertLess(html.index("Equity"), html.index("Available Balance"))
+        self.assertLess(html.index("Available Balance"), html.index("Margin Usage"))
+        self.assertLess(html.index("Margin Usage"), html.index("OPEN RISK / EQUITY"))
+        self.assertLess(html.index("OPEN RISK / EQUITY"), html.index("Today Net PnL"))
 
     def test_render_dashboard_html_respects_requested_range_state_and_subpath_api(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3705,7 +3709,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("Distance", html)
         self.assertIn("Notional", html)
-        self.assertIn("live-risk-band", html)
+        self.assertIn("live-account-risk-grid", html)
         self.assertIn("live-core-lines-band", html)
         self.assertIn("live-signal-band", html)
         self.assertIn("live-decision-grid", html)
