@@ -123,6 +123,13 @@ The important behavior change is:
 
 `build_dashboard_timeseries_payload(...)` should produce a shared live-core timeline for `CORE LIVE LINES`.
 
+Keep the existing per-series payloads for compatibility:
+
+- `account`
+- `position_risk`
+
+The new shared timeline is an additional projection used only by the live core cards.
+
 That timeline should include, for each timestamp in the union of the live account and open-risk samples:
 
 - `timestamp`
@@ -179,6 +186,7 @@ Expected touch points:
 
 - `dashboard_data_payloads.py`
   - build a shared live-core timeline from the union of account and position-risk timestamps
+  - keep the existing per-series payloads for other consumers
 - `dashboard_render_panels.py`
   - update the SVG rendering helper to compute x positions from timestamps
   - keep the current live core card order and styling
