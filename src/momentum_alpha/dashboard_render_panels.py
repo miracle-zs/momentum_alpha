@@ -293,12 +293,12 @@ def _build_live_account_risk_panel(
     )
 
 
-def _build_live_core_lines_panel(account_points: list[dict], peak_risk_points: list[dict] | None = None) -> str:
+def _build_live_core_lines_panel(account_points: list[dict], open_risk_points: list[dict] | None = None) -> str:
     chart_specs = (
         ("Account Equity", "equity", "#4cc9f0", account_points, ""),
         ("Margin Usage %", "margin_usage_pct", "#ff8c42", account_points, ""),
         ("Position Count", "position_count", "#36d98a", account_points, ""),
-        ("Peak Risk", "peak_risk", "#ff5d73", peak_risk_points or [], "live-core-line-card--peak-risk"),
+        ("Open Risk", "open_risk", "#ff5d73", open_risk_points or [], "live-core-line-card--open-risk"),
     )
     chart_cards = "".join(
         (
@@ -380,7 +380,7 @@ def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
             "<summary class='analytics-card round-trip-card-summary'>"
             f"<div class='analytics-card-main'><b>{symbol}</b><span>{round_trip_id}</span></div>"
             f"<div class='analytics-card-meta'><span>Open {escape(opened_at)}</span><span>Close {escape(closed_at)}</span><span>Legs {leg_count_display}</span></div>"
-            f"<div class='analytics-card-meta'><span>Peak Lifecycle Risk {escape(peak_risk)}</span><span>{exit_reason}</span><span class='{pnl_class}'>{escape(net_pnl_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Peak Risk {escape(peak_risk)}</span><span>{exit_reason}</span><span class='{pnl_class}'>{escape(net_pnl_value)}</span></div>"
             f"<div class='analytics-card-meta'><span>Duration {escape(duration)}</span></div>"
             "</summary>"
             f"<div class='round-trip-detail-body'>{leg_rows}</div>"

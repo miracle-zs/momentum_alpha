@@ -23,28 +23,164 @@ def _snapshot_position_risk(position: object) -> Decimal | None:
     legs = position.get("legs") or []
     if not isinstance(legs, (list, tuple)) or not legs:
         return None
-    stop_price = _text_to_optional_decimal(position.get("stop_price"))
-    if stop_price is not None and stop_price <= Decimal("0"):
-        stop_price = None
     direction = str(position.get("side") or position.get("direction") or "LONG").upper()
-    total_risk = Decimal("0")
+    stop_price = _snapshot_position_stop_price(position)
+    if stop_price is None:
+        return None
+    return _position_net_risk(legs=legs, stop_price=stop_price, direction=direction)
+
+
+def _snapshot_position_stop_price(position: object) -> Decimal | None:
+    if not isinstance(position, Mapping):
+        return None
+    stop_price = _text_to_optional_decimal(position.get("stop_price"))
+    if stop_price is not None and stop_price > Decimal("0"):
+        return stop_price
+    legs = position.get("legs") or []
+    if not isinstance(legs, (list, tuple)) or not legs:
+        return None
+    candidate_stop_prices: list[Decimal] = []
+    for leg in legs:
+        if not isinstance(leg, Mapping):
+            continue
+        leg_stop = _text_to_optional_decimal(leg.get("stop_price"))
+        if leg_stop is None or leg_stop <= Decimal("0"):
+            continue
+        candidate_stop_prices.append(leg_stop)
+    if not candidate_stop_prices:
+        return None
+    first_stop = candidate_stop_prices[0]
+    if any(leg_stop != first_stop for leg_stop in candidate_stop_prices[1:]):
+        return None
+    return first_stop
+
+
+def _position_net_risk(
+    *,
+    legs: list[Mapping],
+    stop_price: Decimal,
+    direction: str,
+) -> Decimal | None:
+    net_pnl_at_stop = Decimal("0")
     known = False
     for leg in legs:
         if not isinstance(leg, Mapping):
             continue
         qty = _text_to_decimal(leg.get("quantity"))
         entry = _text_to_optional_decimal(leg.get("entry_price"))
-        leg_stop = _text_to_optional_decimal(leg.get("stop_price"))
-        if leg_stop is None:
-            leg_stop = stop_price
-        if qty is None or entry is None or leg_stop is None:
+        if qty is None or entry is None:
             return None
         known = True
         if direction == "SHORT":
-            total_risk += qty * (leg_stop - entry)
+            net_pnl_at_stop += (entry - stop_price) * qty
         else:
-            total_risk += qty * (entry - leg_stop)
-    return total_risk if known else None
+            net_pnl_at_stop += (stop_price - entry) * qty
+    if not known:
+        return None
+    return max(-net_pnl_at_stop, Decimal("0"))
+
+
+def _snapshot_position_has_valid_stop(position: object) -> bool:
+    if not isinstance(position, Mapping):
+        return False
+    stop_price = _text_to_optional_decimal(position.get("stop_price"))
+    if stop_price is not None and stop_price > Decimal("0"):
+        return True
+    legs = position.get("legs") or []
+    if not isinstance(legs, (list, tuple)):
+        return False
+    for leg in legs:
+        if not isinstance(leg, Mapping):
+            continue
+        leg_stop = _text_to_optional_decimal(leg.get("stop_price"))
+        if leg_stop is not None and leg_stop > Decimal("0"):
+            return True
+    return False
+
+
+def _timeline_peak_cumulative_risk(
+    *,
+    legs: list[dict],
+    opened_at: datetime,
+    closed_at: datetime,
+    trade_side: str | None,
+    stop_events: list[tuple[datetime, Decimal]],
+) -> Decimal | None:
+    if not legs:
+        return None
+
+    normalized_legs: list[dict] = []
+    for leg in legs:
+        leg_opened_at = datetime.fromisoformat(str(leg.get("opened_at") or ""))
+        if leg_opened_at < opened_at or leg_opened_at > closed_at:
+            continue
+        quantity = _text_to_optional_decimal(leg.get("quantity"))
+        entry_price = _text_to_optional_decimal(leg.get("entry_price"))
+        stop_price_at_entry = _text_to_optional_decimal(leg.get("stop_price_at_entry"))
+        if quantity is None or entry_price is None:
+            return None
+        normalized_legs.append(
+            {
+                "opened_at": leg_opened_at,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "stop_price_at_entry": stop_price_at_entry,
+            }
+        )
+
+    if not normalized_legs:
+        return None
+
+    timeline_points = sorted(
+        {
+            *(leg["opened_at"] for leg in normalized_legs),
+            *(timestamp for timestamp, _ in stop_events if opened_at <= timestamp <= closed_at),
+        }
+    )
+    if not timeline_points:
+        return None
+
+    peak_risk: Decimal | None = None
+    current_stop: Decimal | None = None
+    stop_index = 0
+    for timeline_point in timeline_points:
+        while stop_index < len(stop_events) and stop_events[stop_index][0] <= timeline_point:
+            current_stop = stop_events[stop_index][1]
+            stop_index += 1
+
+        active_legs = [leg for leg in normalized_legs if leg["opened_at"] <= timeline_point]
+        if not active_legs:
+            continue
+
+        effective_stop = current_stop
+        if effective_stop is None:
+            stop_candidates = [leg["stop_price_at_entry"] for leg in active_legs if leg["stop_price_at_entry"] is not None and leg["stop_price_at_entry"] > Decimal("0")]
+            if stop_candidates:
+                if trade_side == "SELL":
+                    effective_stop = min(stop_candidates)
+                else:
+                    effective_stop = max(stop_candidates)
+        if effective_stop is None:
+            continue
+
+        direction = "SHORT" if trade_side == "SELL" else "LONG"
+        risk = _position_net_risk(
+            legs=[
+                {
+                    "quantity": _decimal_to_text(leg["quantity"]),
+                    "entry_price": _decimal_to_text(leg["entry_price"]),
+                }
+                for leg in active_legs
+            ],
+            stop_price=effective_stop,
+            direction=direction,
+        )
+        if risk is None:
+            continue
+        if peak_risk is None or risk > peak_risk:
+            peak_risk = risk
+
+    return peak_risk
 
 
 def _snapshot_peak_cumulative_risk(
@@ -55,19 +191,30 @@ def _snapshot_peak_cumulative_risk(
     closed_at: datetime,
 ) -> Decimal | None:
     peak_risk: Decimal | None = None
+    current_timestamp_text: str | None = None
+    current_timestamp_risk: Decimal | None = None
     for timestamp_text, payload_json in snapshot_rows:
         snapshot_time = datetime.fromisoformat(timestamp_text)
         if snapshot_time < opened_at or snapshot_time > closed_at:
             continue
+        if current_timestamp_text is not None and timestamp_text != current_timestamp_text:
+            if current_timestamp_risk is not None and (peak_risk is None or current_timestamp_risk > peak_risk):
+                peak_risk = current_timestamp_risk
+            current_timestamp_risk = None
+        current_timestamp_text = timestamp_text
         payload = _json_loads(payload_json or "{}")
         positions = payload.get("positions") or {}
         if not isinstance(positions, Mapping):
             continue
-        risk = _snapshot_position_risk(positions.get(symbol))
+        position = positions.get(symbol)
+        if not _snapshot_position_has_valid_stop(position):
+            continue
+        risk = _snapshot_position_risk(position)
         if risk is None:
             continue
-        if peak_risk is None or risk > peak_risk:
-            peak_risk = risk
+        current_timestamp_risk = risk
+    if current_timestamp_risk is not None and (peak_risk is None or current_timestamp_risk > peak_risk):
+        peak_risk = current_timestamp_risk
     return peak_risk
 
 
@@ -129,6 +276,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
 
         algo_by_symbol: dict[str, list[dict]] = {}
         stop_trigger_by_client_order_id: dict[str, Decimal] = {}
+        stop_events_by_symbol: dict[str, list[tuple[datetime, Decimal]]] = {}
         for timestamp, symbol, trigger_price, algo_status, order_type, client_algo_id in algo_rows:
             if not symbol:
                 continue
@@ -173,6 +321,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             )
             if trigger_price is None:
                 continue
+            stop_events_by_symbol.setdefault(symbol, []).append((datetime.fromisoformat(timestamp), trigger_price))
             stop_trigger_by_client_order_id.setdefault(client_order_id, trigger_price)
             if is_strategy_client_order_id(client_order_id):
                 stop_client_order_id = _strategy_stop_client_order_id(client_order_id)
@@ -284,14 +433,36 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
                 signal_stop_price_candidates=signal_stop_price_by_symbol.get(symbol, []),
             )
-            snapshot_peak_cumulative_risk = _snapshot_peak_cumulative_risk(
-                snapshot_rows=snapshot_rows,
-                symbol=symbol,
-                opened_at=round_trip["opened_at"],
-                closed_at=closed_at,
-            )
-            if snapshot_peak_cumulative_risk is not None:
-                peak_cumulative_risk = snapshot_peak_cumulative_risk
+            stop_events = stop_events_by_symbol.get(symbol, [])
+            if stop_events:
+                trade_side = str(entry_fills[0]["side"] or "").upper() if entry_fills else None
+                timeline_peak_cumulative_risk = _timeline_peak_cumulative_risk(
+                    legs=legs,
+                    opened_at=round_trip["opened_at"],
+                    closed_at=closed_at,
+                    trade_side=trade_side,
+                    stop_events=stop_events,
+                )
+                if timeline_peak_cumulative_risk is not None:
+                    peak_cumulative_risk = timeline_peak_cumulative_risk
+                else:
+                    snapshot_peak_cumulative_risk = _snapshot_peak_cumulative_risk(
+                        snapshot_rows=snapshot_rows,
+                        symbol=symbol,
+                        opened_at=round_trip["opened_at"],
+                        closed_at=closed_at,
+                    )
+                    if snapshot_peak_cumulative_risk is not None:
+                        peak_cumulative_risk = snapshot_peak_cumulative_risk
+            else:
+                snapshot_peak_cumulative_risk = _snapshot_peak_cumulative_risk(
+                    snapshot_rows=snapshot_rows,
+                    symbol=symbol,
+                    opened_at=round_trip["opened_at"],
+                    closed_at=closed_at,
+                )
+                if snapshot_peak_cumulative_risk is not None:
+                    peak_cumulative_risk = snapshot_peak_cumulative_risk
             round_trip_payload = {
                 "entry_order_ids": [item["order_id"] for item in entry_fills if item["order_id"] is not None],
                 "exit_order_ids": [item["order_id"] for item in exit_fills if item["order_id"] is not None],

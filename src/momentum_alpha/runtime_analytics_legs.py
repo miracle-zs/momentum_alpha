@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from momentum_alpha.orders import is_strategy_client_order_id
 
-from .runtime_analytics_common import _decimal_to_text, _text_to_decimal
+from .runtime_analytics_common import _decimal_to_text, _text_to_decimal, _text_to_optional_decimal
 
 
 def _strategy_stop_client_order_id(client_order_id: str | None) -> str | None:
@@ -29,6 +29,26 @@ def _trade_leg_type_from_client_order_id(client_order_id: str | None, leg_index:
             if token == "a":
                 return "add_on"
     return "base" if leg_index == 1 else "add_on"
+
+
+def _position_net_risk(*, legs: list[dict], stop_price: Decimal, direction: str) -> Decimal | None:
+    net_pnl_at_stop = Decimal("0")
+    known = False
+    for leg in legs:
+        if not isinstance(leg, dict):
+            continue
+        qty = _text_to_decimal(leg.get("quantity"))
+        entry = _text_to_optional_decimal(leg.get("entry_price"))
+        if qty is None or entry is None:
+            return None
+        known = True
+        if direction == "SHORT":
+            net_pnl_at_stop += (entry - stop_price) * qty
+        else:
+            net_pnl_at_stop += (stop_price - entry) * qty
+    if not known:
+        return None
+    return max(-net_pnl_at_stop, Decimal("0"))
 
 
 def _build_trade_round_trip_leg_payload(
@@ -68,8 +88,9 @@ def _build_trade_round_trip_leg_payload(
             grouped["timestamp"] = item["timestamp"]
 
     legs: list[dict] = []
-    cumulative_risk = Decimal("0")
-    all_leg_risks_known = True
+    peak_cumulative_risk: Decimal | None = None
+    current_stop_price: Decimal | None = None
+    direction = "SHORT" if str(entry_fills[0].get("side") or "").upper() == "SELL" else "LONG"
 
     for leg_index, item in enumerate(grouped_entry_fills, start=1):
         client_order_id = item["client_order_id"]
@@ -85,23 +106,39 @@ def _build_trade_round_trip_leg_payload(
                 for candidate in signal_stop_price_candidates
                 if candidate["timestamp"] <= leg_time and candidate["leg_type"] == leg_type
             ]
-            fallback_candidates = [
-                candidate for candidate in signal_stop_price_candidates if candidate["timestamp"] <= leg_time
-            ]
-            chosen_candidate = (
-                same_type_candidates[-1] if same_type_candidates else (fallback_candidates[-1] if fallback_candidates else None)
-            )
-            if chosen_candidate is not None:
-                stop_price_at_entry = chosen_candidate["stop_price"]
+            if same_type_candidates:
+                stop_price_at_entry = same_type_candidates[-1]["stop_price"]
+        if stop_price_at_entry is None:
+            stop_price_at_entry = current_stop_price
+        if stop_price_at_entry is not None:
+            current_stop_price = stop_price_at_entry
         leg_risk = None
+        cumulative_risk_after_leg = None
         if stop_price_at_entry is not None and item["price"] is not None:
-            leg_risk = max((item["price"] - stop_price_at_entry) * item["quantity"], Decimal("0"))
-        if leg_risk is None:
-            all_leg_risks_known = False
-            cumulative_risk_after_leg = None
-        else:
-            cumulative_risk += leg_risk
-            cumulative_risk_after_leg = cumulative_risk if all_leg_risks_known else None
+            leg_risk = _position_net_risk(
+                legs=[
+                    {
+                        "quantity": item["quantity"],
+                        "entry_price": item["price"],
+                    }
+                ],
+                stop_price=stop_price_at_entry,
+                direction=direction,
+            )
+            cumulative_risk_after_leg = _position_net_risk(
+                legs=[
+                    {
+                        "quantity": leg["quantity"],
+                        "entry_price": leg["price"],
+                    }
+                    for leg in grouped_entry_fills[:leg_index]
+                    if leg.get("quantity") is not None and leg.get("price") is not None
+                ],
+                stop_price=stop_price_at_entry,
+                direction=direction,
+            )
+            if cumulative_risk_after_leg is not None and (peak_cumulative_risk is None or cumulative_risk_after_leg > peak_cumulative_risk):
+                peak_cumulative_risk = cumulative_risk_after_leg
 
         gross_pnl_contribution = None
         if weighted_exit_price is not None and item["price"] is not None:
@@ -131,5 +168,4 @@ def _build_trade_round_trip_leg_payload(
         )
 
     base_leg_risk = _text_to_decimal(legs[0]["leg_risk"]) if legs and legs[0]["leg_risk"] is not None else None
-    peak_cumulative_risk = cumulative_risk if all_leg_risks_known and legs else None
     return legs, base_leg_risk, peak_cumulative_risk

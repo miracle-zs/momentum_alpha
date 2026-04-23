@@ -73,8 +73,8 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
             or (account_points[-1]["timestamp"] if account_points else None)
             or (position_risk_points[-1]["timestamp"] if position_risk_points else None)
         )
-        if zero_timestamp is not None and (not position_risk_points or position_risk_points[-1].get("peak_risk") != 0.0):
-            position_risk_points.append({"timestamp": zero_timestamp, "peak_risk": 0.0})
+        if zero_timestamp is not None and (not position_risk_points or position_risk_points[-1].get("open_risk") != 0.0):
+            position_risk_points.append({"timestamp": zero_timestamp, "open_risk": 0.0})
     return {
         "account": account_points,
         "position_risk": position_risk_points,

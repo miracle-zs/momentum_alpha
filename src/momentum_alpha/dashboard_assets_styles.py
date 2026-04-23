@@ -565,11 +565,11 @@ def _render_dashboard_component_styles() -> str:
     .live-core-line-card {
       min-height: 248px;
     }
-    .live-core-line-card--peak-risk {
+    .live-core-line-card--open-risk {
       border-color: rgba(255,93,115,0.24);
       box-shadow: 0 0 0 1px rgba(255,93,115,0.06), inset 0 0 0 1px rgba(255,255,255,0.02);
     }
-    .live-core-line-card--peak-risk .section-header {
+    .live-core-line-card--open-risk .section-header {
       color: var(--danger);
     }
     .live-signal-band {

@@ -74,7 +74,7 @@ def render_closed_trades_table(round_trips: list[dict]) -> str:
         "<span>OPEN</span>"
         "<span>CLOSE</span>"
         "<span>LEGS</span>"
-        "<span>PEAK LIFECYCLE RISK</span>"
+        "<span>PEAK RISK</span>"
         "<span>EXIT</span>"
         "<span>PNL</span>"
         "<span>DURATION</span>"
@@ -97,7 +97,7 @@ def render_trade_leg_count_aggregate_table(aggregates: list[dict]) -> str:
         "<span>SAMPLES</span>"
         "<span>WIN RATE</span>"
         "<span>AVG NET PNL</span>"
-        "<span>AVG PEAK LIFECYCLE RISK</span>"
+        "<span>AVG PEAK RISK</span>"
         "</div>"
     )
     rows = ""
@@ -124,7 +124,7 @@ def render_trade_leg_count_aggregate_table(aggregates: list[dict]) -> str:
             "<div class='analytics-card'>"
             f"<div class='analytics-card-main'><b>{label}</b><span>{sample_count} samples</span></div>"
             f"<div class='analytics-card-meta'><span>Win {win_rate}</span><span class='{pnl_class}'>{escape(avg_net_pnl_value)}</span></div>"
-            f"<div class='analytics-card-meta'><span>Peak Lifecycle Risk</span><span class='{risk_class}'>{escape(avg_peak_risk_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Peak Risk</span><span class='{risk_class}'>{escape(avg_peak_risk_value)}</span></div>"
             "</div>"
         )
     return (
@@ -374,7 +374,7 @@ def _render_round_trip_item(trip: dict, *, mobile: bool = False) -> str:
             "<summary class='analytics-card round-trip-card-summary'>"
             f"<div class='analytics-card-main'><b>{symbol}</b><span>{round_trip_id}</span></div>"
             f"<div class='analytics-card-meta'><span>Open {escape(opened_at)}</span><span>Close {escape(closed_at)}</span><span>Legs {leg_count_display}</span></div>"
-            f"<div class='analytics-card-meta'><span>Peak Lifecycle Risk {escape(peak_risk)}</span><span>{exit_reason}</span><span class='{pnl_class}'>{escape(net_pnl_value)}</span></div>"
+            f"<div class='analytics-card-meta'><span>Peak Risk {escape(peak_risk)}</span><span>{exit_reason}</span><span class='{pnl_class}'>{escape(net_pnl_value)}</span></div>"
             f"<div class='analytics-card-meta'><span>Duration {escape(duration)}</span></div>"
             "</summary>"
             f"<div class='round-trip-detail-body'>{leg_rows}</div>"

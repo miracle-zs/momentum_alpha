@@ -34,6 +34,18 @@ class DashboardPositionRiskTests(unittest.TestCase):
         self.assertEqual(compute_position_risk(long_position), Decimal("10"))
         self.assertEqual(compute_position_risk(short_position), Decimal("16"))
 
+    def test_compute_position_risk_clamps_negative_values_to_zero(self) -> None:
+        from momentum_alpha.dashboard_position_risk import compute_position_risk
+
+        long_position = {
+            "side": "LONG",
+            "legs": [
+                {"quantity": "1", "entry_price": "100", "stop_price": "110"},
+            ],
+        }
+
+        self.assertEqual(compute_position_risk(long_position), Decimal("0"))
+
     def test_build_position_risk_series_skips_incomplete_positions(self) -> None:
         from momentum_alpha.dashboard_position_risk import build_position_risk_series
 
@@ -61,7 +73,7 @@ class DashboardPositionRiskTests(unittest.TestCase):
 
         series = build_position_risk_series(snapshots)
 
-        self.assertEqual(series, [{"timestamp": "2026-04-15T08:48:00+00:00", "peak_risk": 10.0}])
+        self.assertEqual(series, [{"timestamp": "2026-04-15T08:48:00+00:00", "open_risk": 10.0}])
 
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload
@@ -88,7 +100,7 @@ class DashboardPositionRiskTests(unittest.TestCase):
 
         payload = build_dashboard_timeseries_payload(snapshot)
 
-        self.assertEqual(payload["position_risk"], [{"timestamp": "2026-04-15T08:48:00+00:00", "peak_risk": 10.0}])
+        self.assertEqual(payload["position_risk"], [{"timestamp": "2026-04-15T08:48:00+00:00", "open_risk": 10.0}])
 
     def test_load_dashboard_snapshot_includes_position_risk_when_poll_rows_do_not_have_positions(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload, load_dashboard_snapshot
@@ -143,8 +155,8 @@ class DashboardPositionRiskTests(unittest.TestCase):
         self.assertEqual(
             payload["position_risk"],
             [
-                {"timestamp": "2026-04-21T08:25:00+00:00", "peak_risk": 10.0},
-                {"timestamp": "2026-04-21T09:09:00+00:00", "peak_risk": 0.0},
+                {"timestamp": "2026-04-21T08:25:00+00:00", "open_risk": 10.0},
+                {"timestamp": "2026-04-21T09:09:00+00:00", "open_risk": 0.0},
             ],
         )
 

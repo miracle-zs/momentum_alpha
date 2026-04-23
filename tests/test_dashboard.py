@@ -2338,7 +2338,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("OPEN", round_trip_html)
         self.assertIn("CLOSE", round_trip_html)
         self.assertIn("LEGS", round_trip_html)
-        self.assertIn("PEAK LIFECYCLE RISK", round_trip_html)
+        self.assertIn("PEAK RISK", round_trip_html)
         self.assertIn("EXIT", round_trip_html)
         self.assertIn("PNL", round_trip_html)
         self.assertIn("DURATION", round_trip_html)
@@ -3063,16 +3063,16 @@ console.log(JSON.stringify(cases));
         self.assertIn("SYSTEM HEALTH", html)
         self.assertIn("Position Count", html)
         self.assertIn("Margin Usage", html)
-        self.assertIn("Peak Risk", html)
+        self.assertIn("Open Risk", html)
         self.assertIn("live-core-lines-grid", html)
-        self.assertIn("live-core-line-card--peak-risk", html)
+        self.assertIn("live-core-line-card--open-risk", html)
         self.assertIn("waiting for data", html)
         self.assertNotIn("ACCOUNT METRICS", html)
         self.assertLess(html.index("Equity"), html.index("Available Balance"))
         self.assertLess(html.index("Available Balance"), html.index("Margin Usage"))
         self.assertLess(html.index("Margin Usage"), html.index("OPEN RISK / EQUITY"))
         self.assertLess(html.index("OPEN RISK / EQUITY"), html.index("Today Net PnL"))
-        self.assertLess(html.index("Position Count"), html.index("Peak Risk"))
+        self.assertLess(html.index("Position Count"), html.index("Open Risk"))
 
     def test_render_dashboard_html_uses_two_column_live_core_lines_grid(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3082,8 +3082,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("CORE LIVE LINES", html)
         self.assertIn("live-core-lines-grid", html)
         self.assertIn("Position Count", html)
-        self.assertIn("Peak Risk", html)
-        self.assertLess(html.index("Position Count"), html.index("Peak Risk"))
+        self.assertIn("Open Risk", html)
+        self.assertLess(html.index("Position Count"), html.index("Open Risk"))
         self.assertIn(
             ".live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }",
             html,

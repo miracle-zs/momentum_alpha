@@ -55,8 +55,8 @@ def compute_position_risk(position: object) -> Decimal | None:
                 weighted_stop_sum += qty * leg_stop
         if leg_seen and leg_stop_values_known and total_quantity > 0:
             if direction == "SHORT":
-                return weighted_stop_sum - weighted_entry_sum
-            return weighted_entry_sum - weighted_stop_sum
+                return max(weighted_stop_sum - weighted_entry_sum, Decimal("0"))
+            return max(weighted_entry_sum - weighted_stop_sum, Decimal("0"))
 
     if stop_price is None:
         return None
@@ -70,8 +70,8 @@ def compute_position_risk(position: object) -> Decimal | None:
         return None
 
     if direction == "SHORT":
-        return total_quantity * (stop_price - avg_entry)
-    return total_quantity * (avg_entry - stop_price)
+        return max(total_quantity * (stop_price - avg_entry), Decimal("0"))
+    return max(total_quantity * (avg_entry - stop_price), Decimal("0"))
 
 
 def build_position_risk_series(position_snapshots: list[dict]) -> list[dict]:
@@ -92,5 +92,5 @@ def build_position_risk_series(position_snapshots: list[dict]) -> list[dict]:
             snapshot_risk += risk
             snapshot_has_risk = True
         if snapshot_has_risk:
-            series.append({"timestamp": timestamp, "peak_risk": float(snapshot_risk)})
+            series.append({"timestamp": timestamp, "open_risk": float(snapshot_risk)})
     return series
