@@ -75,6 +75,19 @@ class DashboardPositionRiskTests(unittest.TestCase):
 
         self.assertEqual(series, [{"timestamp": "2026-04-15T08:48:00+00:00", "open_risk": 10.0}])
 
+    def test_render_line_chart_svg_uses_a_non_flat_axis_for_single_open_risk_point(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
+
+        svg = _render_line_chart_svg(
+            points=[{"timestamp": "2026-04-15T08:48:00+00:00", "open_risk": 0.9}],
+            value_key="open_risk",
+            stroke="#ff5d73",
+            fill="#ff5d73",
+        )
+
+        self.assertIn(">1.1<", svg)
+        self.assertIn(">0.0<", svg)
+
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload
 

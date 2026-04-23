@@ -85,12 +85,29 @@ def render_dashboard_scripts() -> str:
       if (!numericValues.length || numericValues.length !== values.length) {{
         return `<div class="chart-empty"><span class="chart-empty-icon">◎</span><span>waiting for visible metric data</span></div>`;
       }}
-      const minValue = Math.min(...numericValues);
-      const maxValue = Math.max(...numericValues);
+      let minValue = Math.min(...numericValues);
+      let maxValue = Math.max(...numericValues);
+      if (maxValue === minValue) {{
+        if (maxValue >= 0) {{
+          minValue = 0;
+          maxValue = Math.max(maxValue * 1.2, maxValue === 0 ? 1 : maxValue * 1.2);
+        }} else {{
+          minValue = Math.min(maxValue * 1.2, -1);
+          maxValue = 0;
+        }}
+      }}
       const spread = Math.max(maxValue - minValue, 1e-9);
       const chartWidth = width - padX * 2;
       const chartHeight = height - padY * 2;
       const axisSuffix = metric.endsWith('_pct') ? '%' : '';
+      function formatAccountAxisValue(value) {{
+        const magnitude = Math.max(Math.abs(minValue), Math.abs(maxValue), spread);
+        if (magnitude >= 100) return value.toLocaleString(undefined, {{ minimumFractionDigits: 0, maximumFractionDigits: 0 }});
+        if (magnitude >= 10) return value.toLocaleString(undefined, {{ minimumFractionDigits: 1, maximumFractionDigits: 1 }});
+        if (magnitude >= 1) return value.toLocaleString(undefined, {{ minimumFractionDigits: 1, maximumFractionDigits: 1 }});
+        if (magnitude >= 0.1) return value.toLocaleString(undefined, {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+        return value.toLocaleString(undefined, {{ minimumFractionDigits: 3, maximumFractionDigits: 3 }});
+      }}
       const coords = numericValues.map((value, index) => {{
         const x = padX + (chartWidth * index / Math.max(values.length - 1, 1));
         const y = padY + chartHeight - (((value - minValue) / spread) * chartHeight);
@@ -106,7 +123,7 @@ def render_dashboard_scripts() -> str:
         const y = padY + (chartHeight * i / 4);
         const val = maxValue - (spread * i / 4);
         grid += `<line x1="${{padX}}" y1="${{y.toFixed(2)}}" x2="${{width - padX}}" y2="${{y.toFixed(2)}}" class="account-grid-line" />`;
-        labels += `<text x="${{padX - 8}}" y="${{(y + 4).toFixed(2)}}" class="account-axis-label" text-anchor="end">${{formatAccountValue(val, false, axisSuffix)}}</text>`;
+        labels += `<text x="${{padX - 8}}" y="${{(y + 4).toFixed(2)}}" class="account-axis-label" text-anchor="end">${{formatAccountAxisValue(val)}}${{axisSuffix}}</text>`;
       }}
       const last = coords[coords.length - 1];
       return `

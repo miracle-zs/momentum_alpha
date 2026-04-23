@@ -246,6 +246,8 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("render_dashboard_shell", body_html)
         self.assertIn("ACCOUNT_METRIC_STORAGE_KEY", scripts_html)
         self.assertIn("setInterval(() => refreshDashboard(false), 5000)", scripts_html)
+        self.assertIn("if (maxValue === minValue)", scripts_html)
+        self.assertIn("formatAccountAxisValue", scripts_html)
         self.assertIn("<!doctype html>", document_html)
         self.assertIn("<head>", document_html)
         self.assertIn("<body>", document_html)
@@ -1050,7 +1052,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("1,000.00", html)
         self.assertIn("Available Balance", html)
         self.assertIn("850.00", html)
-        self.assertIn("Capital Pressure", html)
+        self.assertIn("Deployment Guardrails", html)
         self.assertIn("Margin Usage", html)
         self.assertIn("15.00%", html)
 
@@ -3746,6 +3748,82 @@ console.log(JSON.stringify(cases));
         self.assertIn("live-signal-band", html)
         self.assertIn("live-decision-grid", html)
         self.assertIn("live-command-band", html)
+
+    def test_render_dashboard_html_keeps_risk_deployment_panel_qualitative(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            {
+                "health": {"overall_status": "OK", "items": []},
+                "runtime": {
+                    "previous_leader_symbol": "BASEUSDT",
+                    "position_count": 1,
+                    "order_status_count": 0,
+                    "latest_position_snapshot": {
+                        "payload": {
+                            "market_context": {"candidates": []},
+                            "positions": {
+                                "BASEUSDT": {
+                                    "side": "LONG",
+                                    "latest_price": "101.00",
+                                    "weighted_avg_entry_price": "100.00",
+                                    "stop_price": "96.00",
+                                    "total_quantity": "1",
+                                    "legs": [
+                                        {
+                                            "quantity": "1",
+                                            "entry_price": "100.00",
+                                            "stop_price": "96.00",
+                                            "leg_type": "base",
+                                            "opened_at": "2026-04-15T08:00:00+00:00",
+                                        }
+                                    ],
+                                }
+                            },
+                        }
+                    },
+                    "latest_account_snapshot": {
+                        "wallet_balance": "1000.00",
+                        "available_balance": "940.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                    },
+                    "latest_signal_decision": {},
+                },
+                "recent_account_snapshots": [
+                    {
+                        "timestamp": "2026-04-15T18:00:00+00:00",
+                        "wallet_balance": "1000.00",
+                        "available_balance": "940.00",
+                        "equity": "1000.00",
+                        "unrealized_pnl": "0.00",
+                        "position_count": 1,
+                        "open_order_count": 0,
+                        "leader_symbol": "BASEUSDT",
+                    }
+                ],
+                "recent_events": [],
+                "recent_broker_orders": [],
+                "recent_trade_round_trips": [],
+                "recent_stop_exit_summaries": [],
+                "recent_trade_fills": [],
+                "recent_signal_decisions": [],
+                "event_counts": {},
+                "source_counts": {},
+                "leader_history": [],
+                "pulse_points": [],
+                "warnings": [],
+            },
+            strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False},
+        )
+
+        risk_section = html[html.index("RISK &amp; DEPLOYMENT"):html.index("LEADER ROTATION", html.index("RISK &amp; DEPLOYMENT"))]
+        self.assertIn("Deployment Guardrails", risk_section)
+        self.assertNotIn("Available Balance", risk_section)
+        self.assertNotIn("Current Drawdown", risk_section)
+        self.assertNotIn("Positions / Orders", risk_section)
 
     def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html

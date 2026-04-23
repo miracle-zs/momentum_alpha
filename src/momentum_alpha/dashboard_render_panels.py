@@ -36,6 +36,13 @@ def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, f
         values = [values[0], values[0]]
     min_value = min(values)
     max_value = max(values)
+    if max_value == min_value:
+        if max_value >= 0:
+            min_value = 0.0
+            max_value = max(max_value * 1.2, 1.0 if max_value == 0 else max_value * 1.2)
+        else:
+            min_value = min(max_value * 1.2, -1.0)
+            max_value = 0.0
     spread = max(max_value - min_value, 1e-9)
     width = 600
     height = 200
@@ -43,6 +50,19 @@ def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, f
     pad_y = 20
     chart_width = width - pad_x * 2
     chart_height = height - pad_y * 2
+    axis_magnitude = max(abs(min_value), abs(max_value), spread)
+
+    def _format_axis_value(value: float) -> str:
+        if axis_magnitude >= 100:
+            return f"{value:,.0f}"
+        if axis_magnitude >= 10:
+            return f"{value:,.1f}"
+        if axis_magnitude >= 1:
+            return f"{value:,.1f}"
+        if axis_magnitude >= 0.1:
+            return f"{value:,.2f}"
+        return f"{value:,.3f}"
+
     coordinates: list[tuple[float, float]] = []
     for index, value in enumerate(values):
         x = pad_x + (chart_width * index / max(len(values) - 1, 1))
@@ -62,7 +82,7 @@ def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, f
     for i in range(5):
         y = pad_y + (chart_height * i / 4)
         val = max_value - (spread * i / 4)
-        y_labels += f"<text x='{pad_x - 8}' y='{y + 4:.2f}' class='axis-label' text-anchor='end'>{val:,.0f}</text>"
+        y_labels += f"<text x='{pad_x - 8}' y='{y + 4:.2f}' class='axis-label' text-anchor='end'>{_format_axis_value(val)}</text>"
     dots = ""
     for x, y in coordinates[-3:]:
         dots += f"<circle cx='{x:.2f}' cy='{y:.2f}' r='4' fill='{stroke}' class='chart-dot'/>"
