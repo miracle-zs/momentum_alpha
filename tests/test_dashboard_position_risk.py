@@ -46,6 +46,18 @@ class DashboardPositionRiskTests(unittest.TestCase):
 
         self.assertEqual(compute_position_risk(long_position), Decimal("0"))
 
+    def test_compute_position_risk_ignores_zero_stop_legs(self) -> None:
+        from momentum_alpha.dashboard_position_risk import compute_position_risk
+
+        position = {
+            "side": "LONG",
+            "legs": [
+                {"quantity": "1", "entry_price": "100", "stop_price": "0"},
+            ],
+        }
+
+        self.assertIsNone(compute_position_risk(position))
+
     def test_build_position_risk_series_skips_incomplete_positions(self) -> None:
         from momentum_alpha.dashboard_position_risk import build_position_risk_series
 

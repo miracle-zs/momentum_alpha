@@ -42,6 +42,8 @@ def compute_position_risk(position: object) -> Decimal | None:
             qty = _parse_decimal(_object_field(leg, "quantity"))
             entry = _parse_decimal(_object_field(leg, "entry_price"))
             leg_stop = _parse_decimal(_object_field(leg, "stop_price"))
+            if leg_stop is not None and leg_stop <= 0:
+                leg_stop = None
             if leg_stop is None:
                 leg_stop = stop_price
             if qty is None or entry is None:
