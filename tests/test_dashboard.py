@@ -188,6 +188,74 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+        import re
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["recent_account_snapshots"] = [
+            {
+                "timestamp": "2026-04-23T09:00:00+00:00",
+                "wallet_balance": "1000.00",
+                "available_balance": "900.00",
+                "equity": "1000.00",
+                "unrealized_pnl": "0.00",
+                "position_count": 1,
+                "open_order_count": 1,
+                "leader_symbol": "BTCUSDT",
+            },
+            {
+                "timestamp": "2026-04-23T09:05:00+00:00",
+                "wallet_balance": "1002.00",
+                "available_balance": "902.00",
+                "equity": "1002.00",
+                "unrealized_pnl": "2.00",
+                "position_count": 1,
+                "open_order_count": 1,
+                "leader_symbol": "BTCUSDT",
+            },
+        ]
+        snapshot["recent_position_risk_snapshots"] = [
+            {
+                "timestamp": "2026-04-23T09:02:00+00:00",
+                "payload": {
+                    "positions": {
+                        "BTCUSDT": {
+                            "side": "LONG",
+                            "legs": [
+                                {"quantity": "1", "entry_price": "100", "stop_price": "90"}
+                            ],
+                        }
+                    }
+                },
+            },
+            {
+                "timestamp": "2026-04-23T09:05:00+00:00",
+                "payload": {
+                    "positions": {
+                        "BTCUSDT": {
+                            "side": "LONG",
+                            "legs": [
+                                {"quantity": "1", "entry_price": "100", "stop_price": "90"}
+                            ],
+                        }
+                    }
+                },
+            },
+        ]
+
+        html = render_dashboard_html(snapshot, account_range_key="1W")
+        account_match = re.search(r"Account Equity.*?<polyline points='([^']+)'", html, re.S)
+        open_risk_match = re.search(r"Open Risk.*?<polyline points='([^']+)'", html, re.S)
+
+        self.assertIsNotNone(account_match)
+        self.assertIsNotNone(open_risk_match)
+        account_x_values = [float(pair.split(",")[0]) for pair in account_match.group(1).split()]
+        open_risk_x_values = [float(pair.split(",")[0]) for pair in open_risk_match.group(1).split()]
+        self.assertEqual(len(account_x_values), 3)
+        self.assertEqual(len(open_risk_x_values), 2)
+        self.assertGreater(open_risk_x_values[0], account_x_values[0])
+
     def test_render_cosmic_identity_panel_composes_design_system_sections(self) -> None:
         from momentum_alpha.dashboard import (
             _render_cosmic_color_swatches,

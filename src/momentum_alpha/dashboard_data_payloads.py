@@ -9,6 +9,43 @@ from .dashboard_data_common import _is_external_account_flow
 from .dashboard_position_risk import build_position_risk_series
 
 
+def _build_shared_core_live_timeline(account_points: list[dict], position_risk_points: list[dict]) -> list[dict]:
+    timestamps = sorted(
+        {
+            point["timestamp"]
+            for point in account_points + position_risk_points
+            if point.get("timestamp")
+        }
+    )
+    shared_points: list[dict] = []
+    account_index = 0
+    position_risk_index = 0
+    latest_account_point: dict | None = None
+    latest_position_risk_point: dict | None = None
+
+    for timestamp in timestamps:
+        while account_index < len(account_points) and (account_points[account_index].get("timestamp") or "") <= timestamp:
+            latest_account_point = account_points[account_index]
+            account_index += 1
+        while position_risk_index < len(position_risk_points) and (
+            position_risk_points[position_risk_index].get("timestamp") or ""
+        ) <= timestamp:
+            latest_position_risk_point = position_risk_points[position_risk_index]
+            position_risk_index += 1
+
+        shared_points.append(
+            {
+                "timestamp": timestamp,
+                "equity": None if latest_account_point is None else latest_account_point.get("equity"),
+                "margin_usage_pct": None if latest_account_point is None else latest_account_point.get("margin_usage_pct"),
+                "position_count": None if latest_account_point is None else latest_account_point.get("position_count"),
+                "open_risk": None if latest_position_risk_point is None else latest_position_risk_point.get("open_risk"),
+            }
+        )
+
+    return shared_points
+
+
 def build_dashboard_summary_payload(snapshot: dict) -> dict:
     latest_account = snapshot.get("runtime", {}).get("latest_account_snapshot") or {}
     return {
@@ -78,6 +115,7 @@ def build_dashboard_timeseries_payload(snapshot: dict) -> dict:
     return {
         "account": account_points,
         "position_risk": position_risk_points,
+        "core_live_timeline": _build_shared_core_live_timeline(account_points, position_risk_points),
         "pulse_points": snapshot.get("pulse_points", []),
         "leader_history": list(reversed(snapshot.get("leader_history", []))),
     }

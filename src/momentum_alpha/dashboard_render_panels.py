@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from decimal import Decimal
 from html import escape
 
@@ -29,9 +30,21 @@ from .dashboard_view_model import _compute_account_range_stats, _detect_account_
 
 
 def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, fill: str, show_grid: bool = True) -> str:
-    values = [point.get(value_key) for point in points if isinstance(point.get(value_key), (int, float))]
-    if not values:
+    domain_timestamps: list[datetime] = []
+    chart_values: list[float] = []
+    for point in points:
+        timestamp = point.get("timestamp")
+        if timestamp:
+            try:
+                domain_timestamps.append(datetime.fromisoformat(timestamp))
+            except ValueError:
+                pass
+        value = point.get(value_key)
+        if isinstance(value, (int, float)):
+            chart_values.append(float(value))
+    if not chart_values:
         return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for data</span></div>"
+    values = list(chart_values)
     if len(values) == 1:
         values = [values[0], values[0]]
     min_value = min(values)
@@ -63,11 +76,34 @@ def _render_line_chart_svg(*, points: list[dict], value_key: str, stroke: str, f
             return f"{value:,.2f}"
         return f"{value:,.3f}"
 
+    timestamp_mode = bool(domain_timestamps) and len(domain_timestamps) == len(points)
     coordinates: list[tuple[float, float]] = []
-    for index, value in enumerate(values):
-        x = pad_x + (chart_width * index / max(len(values) - 1, 1))
-        y = pad_y + chart_height - (((value - min_value) / spread) * chart_height)
-        coordinates.append((x, y))
+    if timestamp_mode:
+        min_timestamp = min(domain_timestamps)
+        max_timestamp = max(domain_timestamps)
+        if min_timestamp == max_timestamp:
+            min_timestamp -= timedelta(seconds=30)
+            max_timestamp += timedelta(seconds=30)
+        timestamp_spread = max((max_timestamp - min_timestamp).total_seconds(), 1e-9)
+        for point in points:
+            value = point.get(value_key)
+            if not isinstance(value, (int, float)):
+                continue
+            timestamp = point.get("timestamp")
+            if not timestamp:
+                continue
+            try:
+                parsed_timestamp = datetime.fromisoformat(timestamp)
+            except ValueError:
+                continue
+            x = pad_x + (((parsed_timestamp - min_timestamp).total_seconds()) / timestamp_spread) * chart_width
+            y = pad_y + chart_height - (((float(value) - min_value) / spread) * chart_height)
+            coordinates.append((x, y))
+    else:
+        for index, value in enumerate(values):
+            x = pad_x + (chart_width * index / max(len(values) - 1, 1))
+            y = pad_y + chart_height - (((value - min_value) / spread) * chart_height)
+            coordinates.append((x, y))
     polyline = " ".join(f"{x:.2f},{y:.2f}" for x, y in coordinates)
     area = " ".join([f"{coordinates[0][0]:.2f},{height - pad_y:.2f}", polyline, f"{coordinates[-1][0]:.2f},{height - pad_y:.2f}"])
     grid_lines = ""
@@ -313,12 +349,12 @@ def _build_live_account_risk_panel(
     )
 
 
-def _build_live_core_lines_panel(account_points: list[dict], open_risk_points: list[dict] | None = None) -> str:
+def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
     chart_specs = (
-        ("Account Equity", "equity", "#4cc9f0", account_points, ""),
-        ("Margin Usage %", "margin_usage_pct", "#ff8c42", account_points, ""),
-        ("Position Count", "position_count", "#36d98a", account_points, ""),
-        ("Open Risk", "open_risk", "#ff5d73", open_risk_points or [], "live-core-line-card--open-risk"),
+        ("Account Equity", "equity", "#4cc9f0", core_live_points, ""),
+        ("Margin Usage %", "margin_usage_pct", "#ff8c42", core_live_points, ""),
+        ("Position Count", "position_count", "#36d98a", core_live_points, ""),
+        ("Open Risk", "open_risk", "#ff5d73", core_live_points, "live-core-line-card--open-risk"),
     )
     chart_cards = "".join(
         (

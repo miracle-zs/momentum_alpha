@@ -543,7 +543,7 @@ def render_dashboard_body(
         trader_metrics=trader_metrics,
         account_range_stats=account_range_stats,
     )
-    core_lines_html = _build_live_core_lines_panel(timeseries["account"], timeseries["position_risk"])
+    core_lines_html = _build_live_core_lines_panel(timeseries["core_live_timeline"])
     home_command_html = _build_overview_home_command(
         position_details=position_details,
         trader_metrics=trader_metrics,

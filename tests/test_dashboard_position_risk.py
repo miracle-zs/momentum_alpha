@@ -100,6 +100,26 @@ class DashboardPositionRiskTests(unittest.TestCase):
         self.assertIn(">1.1<", svg)
         self.assertIn(">0.0<", svg)
 
+    def test_render_line_chart_svg_uses_timestamp_spacing(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
+        import re
+
+        svg = _render_line_chart_svg(
+            points=[
+                {"timestamp": "2026-04-23T09:00:00+00:00", "equity": 100.0},
+                {"timestamp": "2026-04-23T09:10:00+00:00", "equity": 110.0},
+                {"timestamp": "2026-04-23T10:10:00+00:00", "equity": 120.0},
+            ],
+            value_key="equity",
+            stroke="#4cc9f0",
+            fill="#4cc9f0",
+        )
+
+        match = re.search(r"<polyline points='([^']+)'", svg)
+        self.assertIsNotNone(match)
+        x_values = [float(pair.split(",")[0]) for pair in match.group(1).split()]
+        self.assertLess(x_values[1] - x_values[0], x_values[2] - x_values[1])
+
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload
 
@@ -126,6 +146,64 @@ class DashboardPositionRiskTests(unittest.TestCase):
         payload = build_dashboard_timeseries_payload(snapshot)
 
         self.assertEqual(payload["position_risk"], [{"timestamp": "2026-04-15T08:48:00+00:00", "open_risk": 10.0}])
+
+    def test_build_dashboard_timeseries_payload_creates_shared_core_live_timeline(self) -> None:
+        from momentum_alpha.dashboard import build_dashboard_timeseries_payload
+
+        snapshot = {
+            "recent_account_snapshots": [
+                {
+                    "timestamp": "2026-04-23T09:00:00+00:00",
+                    "wallet_balance": "100.00",
+                    "available_balance": "90.00",
+                    "equity": "100.00",
+                    "unrealized_pnl": "0.00",
+                    "position_count": 1,
+                    "open_order_count": 1,
+                },
+                {
+                    "timestamp": "2026-04-23T09:05:00+00:00",
+                    "wallet_balance": "102.00",
+                    "available_balance": "92.00",
+                    "equity": "102.00",
+                    "unrealized_pnl": "2.00",
+                    "position_count": 1,
+                    "open_order_count": 1,
+                },
+            ],
+            "recent_position_risk_snapshots": [
+                {
+                    "timestamp": "2026-04-23T09:02:00+00:00",
+                    "payload": {
+                        "positions": {
+                            "BTCUSDT": {
+                                "side": "LONG",
+                                "legs": [
+                                    {"quantity": "1", "entry_price": "100", "stop_price": "90"}
+                                ],
+                            }
+                        }
+                    },
+                }
+            ],
+        }
+
+        payload = build_dashboard_timeseries_payload(snapshot)
+
+        self.assertEqual(
+            [point["timestamp"] for point in payload["core_live_timeline"]],
+            [
+                "2026-04-23T09:00:00+00:00",
+                "2026-04-23T09:02:00+00:00",
+                "2026-04-23T09:05:00+00:00",
+            ],
+        )
+        self.assertEqual(payload["core_live_timeline"][0]["open_risk"], None)
+        self.assertEqual(payload["core_live_timeline"][1]["open_risk"], 10.0)
+        self.assertEqual(payload["core_live_timeline"][2]["open_risk"], 10.0)
+        self.assertEqual(payload["core_live_timeline"][1]["equity"], 100.0)
+        self.assertEqual(payload["account"][0]["equity"], 100.0)
+        self.assertEqual(payload["position_risk"][0]["open_risk"], 10.0)
 
     def test_load_dashboard_snapshot_includes_position_risk_when_poll_rows_do_not_have_positions(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload, load_dashboard_snapshot
