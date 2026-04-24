@@ -120,6 +120,63 @@ class DashboardPositionRiskTests(unittest.TestCase):
         x_values = [float(pair.split(",")[0]) for pair in match.group(1).split()]
         self.assertLess(x_values[1] - x_values[0], x_values[2] - x_values[1])
 
+    def test_render_line_chart_svg_uses_integer_axis_for_position_count(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
+
+        svg = _render_line_chart_svg(
+            points=[
+                {"timestamp": "2026-04-15T08:48:00+00:00", "position_count": 0},
+                {"timestamp": "2026-04-15T08:49:00+00:00", "position_count": 1},
+                {"timestamp": "2026-04-15T08:50:00+00:00", "position_count": 2},
+            ],
+            value_key="position_count",
+            stroke="#36d98a",
+            fill="#36d98a",
+            integer_axis=True,
+        )
+
+        self.assertIn(">2<", svg)
+        self.assertIn(">1<", svg)
+        self.assertIn(">0<", svg)
+        self.assertNotIn(">2.0<", svg)
+        self.assertNotIn(">1.5<", svg)
+
+    def test_build_live_core_lines_panel_renders_integer_position_count_axis(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _build_live_core_lines_panel
+
+        html = _build_live_core_lines_panel(
+            [
+                {
+                    "timestamp": "2026-04-15T08:48:00+00:00",
+                    "equity": 100.0,
+                    "margin_usage_pct": 0.0,
+                    "position_count": 0,
+                    "open_risk": 0.0,
+                },
+                {
+                    "timestamp": "2026-04-15T08:49:00+00:00",
+                    "equity": 101.0,
+                    "margin_usage_pct": 0.2,
+                    "position_count": 1,
+                    "open_risk": 0.5,
+                },
+                {
+                    "timestamp": "2026-04-15T08:50:00+00:00",
+                    "equity": 102.0,
+                    "margin_usage_pct": 0.4,
+                    "position_count": 2,
+                    "open_risk": 0.9,
+                },
+            ]
+        )
+
+        position_count_section = html.split("Position Count", 1)[1].split("Open Risk", 1)[0]
+        self.assertIn(">2<", position_count_section)
+        self.assertIn(">1<", position_count_section)
+        self.assertIn(">0<", position_count_section)
+        self.assertNotIn(">2.0<", position_count_section)
+        self.assertNotIn(">1.5<", position_count_section)
+
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload
 

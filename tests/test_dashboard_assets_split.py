@@ -19,6 +19,19 @@ class DashboardAssetsSplitTests(unittest.TestCase):
         self.assertTrue(callable(dashboard_assets_head.render_dashboard_head))
         self.assertTrue(callable(dashboard_assets_scripts.render_dashboard_scripts))
 
+    def test_dashboard_style_bundle_modules_export_key_entrypoints(self) -> None:
+        from momentum_alpha import (
+            dashboard_assets_styles_base,
+            dashboard_assets_styles_components,
+            dashboard_assets_styles_cosmic,
+            dashboard_assets_styles_responsive,
+        )
+
+        self.assertTrue(callable(dashboard_assets_styles_base._render_dashboard_base_styles))
+        self.assertTrue(callable(dashboard_assets_styles_cosmic._render_dashboard_cosmic_styles))
+        self.assertTrue(callable(dashboard_assets_styles_components._render_dashboard_component_styles))
+        self.assertTrue(callable(dashboard_assets_styles_responsive._render_dashboard_responsive_styles))
+
 
 if __name__ == "__main__":
     unittest.main()
