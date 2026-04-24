@@ -83,10 +83,12 @@ def run_user_stream(
     prune_processed_event_ids_fn=None,
     rebuild_trade_analytics_fn=None,
     scheduler_factory=None,
+    reconnect_on_stream_end: bool = False,
+    max_stream_cycles: int | None = None,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
-    stream_client_factory = stream_client_factory or (lambda **kwargs: BinanceUserStreamClient(**kwargs))
+    stream_client_factory = stream_client_factory or (lambda **kwargs: BinanceUserStreamClient(logger=logger, **kwargs))
     extract_trade_fill_fn = extract_trade_fill_fn or extract_trade_fill
     extract_algo_order_event_fn = extract_algo_order_event_fn or extract_algo_order_event
     extract_account_flows_fn = extract_account_flows_fn or extract_account_flows
@@ -214,6 +216,7 @@ def run_user_stream(
     )
 
     reconnect_attempt = 0
+    completed_stream_cycles = 0
     try:
         while True:
             _prewarm_state()
@@ -240,7 +243,20 @@ def run_user_stream(
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
                 logger(f"listen_key={listen_key}")
-                return 0
+                if not reconnect_on_stream_end:
+                    return 0
+                completed_stream_cycles += 1
+                reconnect_attempt += 1
+                if max_stream_cycles is not None and completed_stream_cycles >= max_stream_cycles:
+                    logger(
+                        "stream-ended "
+                        f"attempt={reconnect_attempt} listen_key={listen_key} "
+                        f"max_stream_cycles={max_stream_cycles}"
+                    )
+                    return 0
+                sleep_seconds = min(reconnect_attempt, 5)
+                logger(f"stream-ended attempt={reconnect_attempt} sleep={sleep_seconds}s listen_key={listen_key}")
+                reconnect_sleep_fn(sleep_seconds)
             except Exception as exc:
                 reconnect_attempt += 1
                 sleep_seconds = min(reconnect_attempt, 5)

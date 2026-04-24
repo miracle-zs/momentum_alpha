@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from momentum_alpha.binance_client import BINANCE_FSTREAM_WS_URL, BINANCE_TESTNET_FSTREAM_WS_URL
@@ -15,6 +16,7 @@ class BinanceUserStreamClient:
     websocket_runner: object | None = None
     keepalive_runner: object | None = None
     stop_event_factory: object | None = None
+    logger: Callable[[str], None] | None = None
     keepalive_interval_seconds: int = 30 * 60
 
     def build_stream_url(self, *, listen_key: str) -> str:
@@ -69,12 +71,18 @@ class BinanceUserStreamClient:
                 payload = raw_message
             on_event(parse_user_stream_event(payload))
 
-        runner = self.websocket_runner or _default_websocket_runner
         try:
-            runner(
-                url=self.build_stream_url(listen_key=listen_key),
-                on_message=_on_message,
-            )
+            if self.websocket_runner is None:
+                _default_websocket_runner(
+                    url=self.build_stream_url(listen_key=listen_key),
+                    on_message=_on_message,
+                    logger=self.logger,
+                )
+            else:
+                self.websocket_runner(
+                    url=self.build_stream_url(listen_key=listen_key),
+                    on_message=_on_message,
+                )
         finally:
             keepalive_stop_event.set()
             if keepalive_thread is not None:
@@ -85,14 +93,24 @@ class BinanceUserStreamClient:
         return listen_key
 
 
-def _default_websocket_runner(*, url: str, on_message) -> None:
+def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], None] | None = None) -> None:
     try:
         import websocket
     except ImportError as exc:
         raise RuntimeError("websocket-client is required to run the Binance user stream") from exc
 
-    app = websocket.WebSocketApp(url, on_message=lambda _app, message: on_message(message))
-    app.run_forever()
+    def _log(message: str) -> None:
+        if logger is not None:
+            logger(message)
+
+    app = websocket.WebSocketApp(
+        url,
+        on_message=lambda _app, message: on_message(message),
+        on_open=lambda _app: _log("websocket-open"),
+        on_error=lambda _app, error: _log(f"websocket-error error={error}"),
+        on_close=lambda _app, status, reason: _log(f"websocket-close status={status} reason={reason}"),
+    )
+    app.run_forever(ping_interval=30, ping_timeout=10)
 
 
 def _default_keepalive_runner(*, rest_client, listen_key: str, stop_event, interval_seconds: int) -> None:

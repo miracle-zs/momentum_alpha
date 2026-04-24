@@ -60,6 +60,8 @@ def run_user_stream(
     runtime_db_path=None,
     rebuild_trade_analytics_fn=None,
     scheduler_factory=None,
+    reconnect_on_stream_end: bool = False,
+    max_stream_cycles: int | None = None,
 ) -> int:
     return _run_user_stream_impl(
         client=client,
@@ -86,4 +88,6 @@ def run_user_stream(
         prune_processed_event_ids_fn=_prune_processed_event_ids,
         rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
         scheduler_factory=scheduler_factory,
+        reconnect_on_stream_end=reconnect_on_stream_end,
+        max_stream_cycles=max_stream_cycles,
     )

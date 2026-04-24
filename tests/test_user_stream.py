@@ -1,8 +1,10 @@
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,6 +237,40 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(len(keepalive_runs), 1)
         self.assertEqual(keepalive_runs[0][:2], ("abc", 30 * 60))
         self.assertTrue(stop_events[0].is_set())
+
+    def test_default_websocket_runner_logs_lifecycle_and_uses_ping(self) -> None:
+        from momentum_alpha.user_stream import _default_websocket_runner
+
+        calls: dict[str, object] = {}
+        logs: list[str] = []
+
+        class FakeWebSocketApp:
+            def __init__(self, url, on_message=None, on_open=None, on_error=None, on_close=None):
+                calls["url"] = url
+                self.on_open = on_open
+                self.on_error = on_error
+                self.on_close = on_close
+
+            def run_forever(self, **kwargs):
+                calls["run_forever_kwargs"] = kwargs
+                self.on_open(self)
+                self.on_error(self, RuntimeError("socket closed"))
+                self.on_close(self, 1006, "abnormal closure")
+
+        fake_websocket = SimpleNamespace(WebSocketApp=FakeWebSocketApp)
+
+        with patch.dict(sys.modules, {"websocket": fake_websocket}):
+            _default_websocket_runner(
+                url="wss://example.test/ws/listen",
+                on_message=lambda message: None,
+                logger=lambda message: logs.append(message),
+            )
+
+        self.assertEqual(calls["url"], "wss://example.test/ws/listen")
+        self.assertEqual(calls["run_forever_kwargs"], {"ping_interval": 30, "ping_timeout": 10})
+        self.assertTrue(any("websocket-open" in message for message in logs))
+        self.assertTrue(any("websocket-error error=socket closed" in message for message in logs))
+        self.assertTrue(any("websocket-close status=1006 reason=abnormal closure" in message for message in logs))
 
     def test_apply_order_trade_update_buy_fill_adds_position(self) -> None:
         from momentum_alpha.models import StrategyState

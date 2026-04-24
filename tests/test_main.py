@@ -1505,7 +1505,14 @@ class MainTests(unittest.TestCase):
             return FakeClient()
 
         def fake_run_user_stream(**kwargs):
-            calls.append(("stream", kwargs.get("testnet"), kwargs.get("client").__class__.__name__))
+            calls.append(
+                (
+                    "stream",
+                    kwargs.get("testnet"),
+                    kwargs.get("client").__class__.__name__,
+                    kwargs.get("reconnect_on_stream_end"),
+                )
+            )
             kwargs.get("logger")("user-stream-started")
             return 0
 
@@ -1520,7 +1527,7 @@ class MainTests(unittest.TestCase):
                 )
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0], ("client", True))
-        self.assertEqual(calls[1], ("stream", True, "FakeClient"))
+        self.assertEqual(calls[1], ("stream", True, "FakeClient", True))
         self.assertIn("user-stream-started", out.getvalue())
 
     def test_cli_main_supports_healthcheck_command(self) -> None:

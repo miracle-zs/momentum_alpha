@@ -227,3 +227,35 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(closed, ["close"])
         self.assertTrue(callable(captured["rebuild_fn"]))
         self.assertTrue(callable(captured["on_trade_fill_persisted_fn"]))
+
+    def test_run_user_stream_reconnects_after_clean_stream_end_when_enabled(self) -> None:
+        from momentum_alpha import stream_worker_loop
+
+        logs: list[str] = []
+        sleep_calls: list[int] = []
+
+        class FakeStreamClient:
+            attempts = 0
+
+            def run_forever(self, on_event):
+                _ = on_event
+                FakeStreamClient.attempts += 1
+                return f"listen-{FakeStreamClient.attempts}"
+
+        result = stream_worker_loop.run_user_stream(
+            client=object(),
+            testnet=False,
+            logger=lambda msg: logs.append(msg),
+            runtime_state_store=None,
+            now_provider=lambda: datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+            stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            reconnect_sleep_fn=lambda seconds: sleep_calls.append(seconds),
+            reconnect_on_stream_end=True,
+            max_stream_cycles=2,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(FakeStreamClient.attempts, 2)
+        self.assertEqual(sleep_calls, [1])
+        self.assertTrue(any("stream-ended attempt=1" in message for message in logs))
+        self.assertTrue(any("stream-ended attempt=2" in message for message in logs))

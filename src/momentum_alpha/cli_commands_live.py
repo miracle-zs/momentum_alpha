@@ -126,6 +126,7 @@ def user_stream_command(
         logger=print,
         runtime_state_store=runtime_state_store,
         runtime_db_path=runtime_db_path,
+        reconnect_on_stream_end=True,
     )
 
 
