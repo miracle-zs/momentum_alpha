@@ -50,6 +50,78 @@ def fetch_recent_position_snapshots(*, path: Path, limit: int = 20, require_posi
     ]
 
 
+def fetch_position_snapshots_for_range(
+    *,
+    path: Path,
+    now: datetime,
+    range_key: str,
+    require_positions: bool = False,
+) -> list[dict]:
+    if not path.exists():
+        return []
+    window, bucket_seconds = _ACCOUNT_RANGE_DENSITY.get(range_key, _ACCOUNT_RANGE_DENSITY["1D"])
+    cutoff = None if window is None else now.astimezone(timezone.utc) - window
+    where_clause = "WHERE json_type(payload_json, '$.positions') IS NOT NULL" if require_positions else ""
+    if cutoff is not None:
+        where_clause = f"{where_clause} {'AND' if where_clause else 'WHERE'} timestamp >= ?"
+    params = () if cutoff is None else (cutoff.isoformat(),)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT
+                id,
+                timestamp,
+                source,
+                leader_symbol,
+                position_count,
+                order_status_count,
+                symbol_count,
+                submit_orders,
+                restore_positions,
+                execute_stop_replacements,
+                payload_json
+            FROM (
+                SELECT
+                    id,
+                    timestamp,
+                    source,
+                    leader_symbol,
+                    position_count,
+                    order_status_count,
+                    symbol_count,
+                    submit_orders,
+                    restore_positions,
+                    execute_stop_replacements,
+                    payload_json,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                        ORDER BY timestamp DESC, id DESC
+                    ) AS rn
+                FROM position_snapshots
+                {where_clause}
+            )
+            WHERE rn = 1
+            ORDER BY timestamp DESC, id DESC
+            """,
+            (bucket_seconds, *params),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[1],
+            "source": row[2],
+            "leader_symbol": row[3],
+            "position_count": row[4],
+            "order_status_count": row[5],
+            "symbol_count": row[6],
+            "submit_orders": bool(row[7]) if row[7] is not None else None,
+            "restore_positions": bool(row[8]) if row[8] is not None else None,
+            "execute_stop_replacements": bool(row[9]) if row[9] is not None else None,
+            "payload": _json_loads(row[10]),
+        }
+        for row in rows
+    ]
+
+
 def fetch_recent_account_snapshots(*, path: Path, limit: int = 20) -> list[dict]:
     if not path.exists():
         return []

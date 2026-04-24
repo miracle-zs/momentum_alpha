@@ -16,6 +16,7 @@ from momentum_alpha.runtime_store import (
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_latest_daily_review_report,
+    fetch_position_snapshots_for_range,
     fetch_recent_account_flows,
     fetch_recent_algo_orders,
     fetch_recent_audit_events,
@@ -110,9 +111,10 @@ def load_dashboard_snapshot(
         )
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
-        recent_position_risk_snapshots = fetch_recent_position_snapshots(
+        recent_position_risk_snapshots = fetch_position_snapshots_for_range(
             path=runtime_db_file,
-            limit=8,
+            now=now,
+            range_key=account_range_key,
             require_positions=True,
         )
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)

@@ -23,6 +23,7 @@ from momentum_alpha.runtime_reads import (
     fetch_recent_stop_exit_summaries,
     fetch_recent_trade_fills,
     fetch_recent_trade_round_trips,
+    fetch_position_snapshots_for_range,
     fetch_signal_decisions_for_window,
     fetch_trade_round_trips_for_range,
     fetch_trade_round_trips_for_window,

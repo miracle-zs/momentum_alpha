@@ -24,6 +24,7 @@ from .runtime_reads_history import (
     fetch_recent_position_snapshots,
     fetch_recent_stop_exit_summaries,
     fetch_recent_trade_round_trips,
+    fetch_position_snapshots_for_range,
     fetch_trade_round_trips_for_range,
     fetch_trade_round_trips_for_window,
     summarize_audit_events,
