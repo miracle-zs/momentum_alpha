@@ -9,7 +9,7 @@ from momentum_alpha.poll_worker import run_forever
 from momentum_alpha.runtime_store import rebuild_trade_analytics
 from momentum_alpha.stream_worker import run_user_stream
 
-from .cli_backfill import _account_flow_exists, backfill_account_flows
+from .cli_backfill import _account_flow_exists, backfill_account_flows, backfill_binance_user_trades
 from .cli_commands import run_cli_command
 from .cli_env import (
     _build_audit_recorder,
@@ -34,6 +34,7 @@ def cli_main(
     run_user_stream_fn=None,
     run_dashboard_fn=None,
     backfill_account_flows_fn=None,
+    backfill_binance_user_trades_fn=None,
     rebuild_trade_analytics_fn=None,
 ) -> int:
     parser = build_cli_parser()
@@ -54,6 +55,7 @@ def cli_main(
     run_forever_fn = run_forever_fn or run_forever
     run_user_stream_fn = run_user_stream_fn or run_user_stream
     backfill_account_flows_fn = backfill_account_flows_fn or backfill_account_flows
+    backfill_binance_user_trades_fn = backfill_binance_user_trades_fn or backfill_binance_user_trades
     rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
 
     run_dashboard_fn = run_dashboard_fn or run_dashboard_server
@@ -68,6 +70,7 @@ def cli_main(
         run_user_stream_fn=run_user_stream_fn,
         run_dashboard_fn=run_dashboard_fn,
         backfill_account_flows_fn=backfill_account_flows_fn,
+        backfill_binance_user_trades_fn=backfill_binance_user_trades_fn,
         rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
     )
 
@@ -84,5 +87,6 @@ __all__ = [
     "load_runtime_settings_from_env",
     "_account_flow_exists",
     "backfill_account_flows",
+    "backfill_binance_user_trades",
     "build_cli_parser",
 ]

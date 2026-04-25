@@ -30,7 +30,15 @@ class AuditRecorder:
     db_insert_fn: Callable = insert_audit_event
     error_logger: Callable[[str], None] | None = None
 
-    def record(self, *, event_type: str, now: datetime, payload: dict) -> None:
+    def record(
+        self,
+        *,
+        event_type: str,
+        now: datetime,
+        payload: dict,
+        decision_id: str | None = None,
+        intent_id: str | None = None,
+    ) -> None:
         try:
             self.db_insert_fn(
                 path=self.runtime_db_path,
@@ -38,6 +46,8 @@ class AuditRecorder:
                 event_type=event_type,
                 payload=_coerce_json_value(payload),
                 source=self.source,
+                decision_id=decision_id,
+                intent_id=intent_id,
             )
         except Exception as exc:
             if self.error_logger is not None:

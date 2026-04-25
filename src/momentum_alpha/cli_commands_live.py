@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from momentum_alpha.poll_worker import run_forever as _default_run_forever, run_once_live as _default_run_once_live
 from momentum_alpha.stream_worker import run_user_stream as _default_run_user_stream
+from momentum_alpha.structured_log import emit_structured_log
 
 from .cli_env import (
     _build_audit_recorder,
@@ -48,10 +49,7 @@ def run_once_live_command(
         audit_recorder=audit_recorder,
     )
     entry_symbols = [order["symbol"] for order in result.execution_plan.entry_orders]
-    print(f"mode={mode}")
-    print(f"testnet={use_testnet}")
-    print(f"entry_orders={entry_symbols}")
-    print(f"broker_responses={len(result.broker_responses)}")
+    emit_structured_log(print, service="run-once-live", event="summary", mode=mode, testnet=use_testnet, entry_orders=entry_symbols, broker_responses=len(result.broker_responses))
     return 0
 
 
@@ -78,13 +76,16 @@ def poll_command(
         error_logger=print,
     )
     mode = "LIVE" if args.submit_orders else "DRY_RUN"
-    print(
-        "starting poll "
-        f"mode={mode} symbols={args.symbols or 'AUTO'} "
-        f"testnet={use_testnet} "
-        f"restore_positions={args.restore_positions} "
-        f"execute_stop_replacements={args.execute_stop_replacements} "
-        f"max_ticks={args.max_ticks}"
+    emit_structured_log(
+        print,
+        service="poll",
+        event="start",
+        mode=mode,
+        symbols=args.symbols or "AUTO",
+        testnet=use_testnet,
+        restore_positions=args.restore_positions,
+        execute_stop_replacements=args.execute_stop_replacements,
+        max_ticks=args.max_ticks,
     )
     return run_forever_fn(
         symbols=args.symbols,
@@ -119,7 +120,7 @@ def user_stream_command(
         explicit_path=args.runtime_db_file,
     )
     runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
-    print(f"starting user-stream testnet={use_testnet}")
+    emit_structured_log(print, service="user-stream", event="start", testnet=use_testnet)
     return run_user_stream_fn(
         client=client,
         testnet=use_testnet,

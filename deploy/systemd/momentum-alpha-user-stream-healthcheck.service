@@ -1,0 +1,13 @@
+[Unit]
+Description=Momentum Alpha User Stream Healthcheck Restart
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
+ExecStart=%h/momentum_alpha/scripts/restart_user_stream_if_unhealthy.sh
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-user-stream-healthcheck.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-user-stream-healthcheck.log
+

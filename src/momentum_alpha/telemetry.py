@@ -10,6 +10,34 @@ from momentum_alpha.runtime_store import (
     insert_position_snapshot,
     insert_signal_decision,
 )
+from momentum_alpha.structured_log import emit_structured_log
+from momentum_alpha.trace_ids import build_intent_id_from_client_order_id
+
+
+def _record_telemetry_error(
+    *,
+    audit_recorder: AuditRecorder | None,
+    now: datetime,
+    event_type: str,
+    level_event: str,
+    payload: dict,
+    error: str,
+) -> None:
+    if audit_recorder is None:
+        return
+    payload_with_error = {**payload, "error": error}
+    if audit_recorder.error_logger is not None:
+        emit_structured_log(
+            audit_recorder.error_logger,
+            service=audit_recorder.source or "telemetry",
+            event=level_event,
+            level="ERROR",
+            **payload_with_error,
+        )
+    try:
+        audit_recorder.record(event_type=event_type, now=now, payload=payload_with_error)
+    except Exception:
+        pass
 
 
 def _serialize_snapshot_position(position) -> dict:
@@ -55,6 +83,8 @@ def _record_position_snapshot(
     audit_recorder: AuditRecorder | None,
     now: datetime,
     leader_symbol: str | None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     position_count: int,
     order_status_count: int,
     symbol_count: int | None = None,
@@ -85,6 +115,8 @@ def _record_position_snapshot(
             timestamp=now,
             source=audit_recorder.source,
             leader_symbol=leader_symbol,
+            decision_id=decision_id,
+            intent_id=intent_id,
             position_count=position_count,
             order_status_count=order_status_count,
             symbol_count=symbol_count,
@@ -93,14 +125,27 @@ def _record_position_snapshot(
             execute_stop_replacements=execute_stop_replacements,
             payload=snapshot_payload,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        _record_telemetry_error(
+            audit_recorder=audit_recorder,
+            now=now,
+            event_type="position_snapshot_insert_error",
+            level_event="position-snapshot-insert-error",
+            payload={
+                "decision_id": decision_id,
+                "intent_id": intent_id,
+                "leader_symbol": leader_symbol,
+            },
+            error=str(exc),
+        )
 
 
 def _record_signal_decision(
     *,
     audit_recorder: AuditRecorder | None,
     now: datetime,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     decision_type: str,
     symbol: str | None,
     previous_leader_symbol: str | None,
@@ -118,6 +163,8 @@ def _record_signal_decision(
             path=audit_recorder.runtime_db_path,
             timestamp=now,
             source=audit_recorder.source,
+            decision_id=decision_id,
+            intent_id=intent_id,
             decision_type=decision_type,
             symbol=symbol,
             previous_leader_symbol=previous_leader_symbol,
@@ -128,8 +175,20 @@ def _record_signal_decision(
             stop_replacement_count=stop_replacement_count,
             payload=payload or {},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        _record_telemetry_error(
+            audit_recorder=audit_recorder,
+            now=now,
+            event_type="signal_decision_insert_error",
+            level_event="signal-decision-insert-error",
+            payload={
+                "decision_id": decision_id,
+                "intent_id": intent_id,
+                "decision_type": decision_type,
+                "symbol": symbol,
+            },
+            error=str(exc),
+        )
 
 
 def _build_market_context_payloads(
@@ -180,11 +239,14 @@ def _record_broker_orders(
     now: datetime,
     responses: list[dict],
     action_type: str,
+    decision_id: str | None = None,
 ) -> None:
     if audit_recorder is None or audit_recorder.runtime_db_path is None:
         return
     for response in responses:
         try:
+            client_order_id = response.get("clientOrderId") or response.get("client_order_id")
+            client_algo_id = response.get("clientAlgoId") or response.get("client_algo_id")
             quantity = response.get("quantity")
             price = response.get("price") or response.get("stopPrice")
             insert_broker_order(
@@ -194,15 +256,31 @@ def _record_broker_orders(
                 action_type=action_type,
                 symbol=response.get("symbol"),
                 order_id=str(response.get("orderId")) if response.get("orderId") is not None else None,
-                client_order_id=response.get("clientOrderId"),
+                client_order_id=client_order_id,
+                client_algo_id=client_algo_id,
+                decision_id=decision_id,
+                intent_id=response.get("intent_id") or build_intent_id_from_client_order_id(client_order_id or client_algo_id),
                 order_status=response.get("status"),
                 side=response.get("side"),
                 quantity=float(quantity) if quantity not in (None, "") else None,
                 price=float(price) if price not in (None, "") else None,
                 payload=response,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            _record_telemetry_error(
+                audit_recorder=audit_recorder,
+                now=now,
+                event_type="broker_order_insert_error",
+                level_event="broker-order-insert-error",
+                payload={
+                    "decision_id": decision_id,
+                    "symbol": response.get("symbol"),
+                    "order_id": response.get("orderId"),
+                    "client_order_id": response.get("clientOrderId"),
+                    "client_algo_id": response.get("clientAlgoId"),
+                },
+                error=str(exc),
+            )
 
 
 def _record_account_snapshot(
@@ -210,6 +288,8 @@ def _record_account_snapshot(
     audit_recorder: AuditRecorder | None,
     now: datetime,
     leader_symbol: str | None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     position_count: int,
     open_order_count: int,
     account_info: dict | None,
@@ -222,6 +302,8 @@ def _record_account_snapshot(
             path=audit_recorder.runtime_db_path,
             timestamp=now,
             source=audit_recorder.source,
+            decision_id=decision_id,
+            intent_id=intent_id,
             wallet_balance=account_info.get("totalWalletBalance"),
             available_balance=account_info.get("availableBalance"),
             equity=account_info.get("totalMarginBalance"),
@@ -231,8 +313,19 @@ def _record_account_snapshot(
             leader_symbol=leader_symbol,
             payload=payload or account_info,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        _record_telemetry_error(
+            audit_recorder=audit_recorder,
+            now=now,
+            event_type="account_snapshot_insert_error",
+            level_event="account-snapshot-insert-error",
+            payload={
+                "decision_id": decision_id,
+                "intent_id": intent_id,
+                "leader_symbol": leader_symbol,
+            },
+            error=str(exc),
+        )
 
 
 build_snapshot_market_context_payload = _build_snapshot_market_context_payload

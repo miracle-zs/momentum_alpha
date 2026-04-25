@@ -14,6 +14,23 @@ RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 STOP_BUDGET_USDT="${STOP_BUDGET_USDT:-10}"
 ENTRY_START_HOUR_UTC="${ENTRY_START_HOUR_UTC:-1}"
 ENTRY_END_HOUR_UTC="${ENTRY_END_HOUR_UTC:-23}"
+BACKFILL_LOOKBACK_HOURS="${BACKFILL_LOOKBACK_HOURS:-30}"
+
+BACKFILL_END_TIME="$("${VENV_PYTHON}" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())')"
+BACKFILL_START_TIME="$(
+  BACKFILL_LOOKBACK_HOURS="${BACKFILL_LOOKBACK_HOURS}" "${VENV_PYTHON}" -c 'import os; from datetime import datetime, timedelta, timezone; hours = int(os.environ["BACKFILL_LOOKBACK_HOURS"]); print((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat())'
+)"
+
+"${VENV_PYTHON}" -u -m momentum_alpha.main \
+  backfill-binance-trades \
+  --runtime-db-file "${RUNTIME_DB_FILE}" \
+  --start-time "${BACKFILL_START_TIME}" \
+  --end-time "${BACKFILL_END_TIME}" \
+  --skip-rebuild
+
+"${VENV_PYTHON}" -u -m momentum_alpha.main \
+  rebuild-trade-analytics \
+  --runtime-db-file "${RUNTIME_DB_FILE}"
 
 ARGS=(
   daily-review-report

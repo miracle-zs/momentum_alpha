@@ -10,11 +10,14 @@ sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-dashboard.service" /etc/s
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-rebuild-trade-analytics.service" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-daily-review-report.service" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-daily-review-report.timer" /etc/systemd/system/
+sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-user-stream-healthcheck.service" /etc/systemd/system/
+sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-user-stream-healthcheck.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl start momentum-alpha-rebuild-trade-analytics.service
 sudo systemctl enable --now momentum-alpha-dashboard.service
 sudo systemctl enable --now momentum-alpha-user-stream.service
 sudo systemctl enable --now momentum-alpha.service
 sudo systemctl enable --now momentum-alpha-daily-review-report.timer
+sudo systemctl enable --now momentum-alpha-user-stream-healthcheck.timer
 
-echo "installed and started momentum-alpha.service, momentum-alpha-user-stream.service, momentum-alpha-dashboard.service, enabled momentum-alpha-daily-review-report.timer, and ran momentum-alpha-rebuild-trade-analytics.service once"
+echo "installed and started momentum-alpha.service, momentum-alpha-user-stream.service, momentum-alpha-dashboard.service, enabled momentum-alpha-daily-review-report.timer and momentum-alpha-user-stream-healthcheck.timer, and ran momentum-alpha-rebuild-trade-analytics.service once"

@@ -54,6 +54,14 @@ def build_cli_parser() -> argparse.ArgumentParser:
     backfill_account_flows_parser.add_argument("--end-time", required=True)
     backfill_account_flows_parser.add_argument("--testnet", action="store_true")
 
+    backfill_binance_trades_parser = subparsers.add_parser("backfill-binance-trades")
+    backfill_binance_trades_parser.add_argument("--runtime-db-file", required=True)
+    backfill_binance_trades_parser.add_argument("--start-time", required=True)
+    backfill_binance_trades_parser.add_argument("--end-time", required=True)
+    backfill_binance_trades_parser.add_argument("--symbols", nargs="+")
+    backfill_binance_trades_parser.add_argument("--testnet", action="store_true")
+    backfill_binance_trades_parser.add_argument("--skip-rebuild", action="store_true")
+
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)
 

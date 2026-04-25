@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from momentum_alpha.reconciliation import restore_state
 from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
 from momentum_alpha.strategy_state_codec import StoredStrategyState
+from momentum_alpha.structured_log import emit_structured_log
 from momentum_alpha.telemetry import _record_broker_orders, _record_position_snapshot
 from momentum_alpha.user_stream import (
     BinanceUserStreamClient,
@@ -85,6 +87,7 @@ def run_user_stream(
     scheduler_factory=None,
     reconnect_on_stream_end: bool = False,
     max_stream_cycles: int | None = None,
+    heartbeat_interval_seconds: int = 60,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
@@ -124,6 +127,39 @@ def run_user_stream(
             rebuild_fn=lambda: rebuild_trade_analytics_fn(path=runtime_db_path),
             logger=logger,
         )
+
+    def _log(event: str, *, level: str = "INFO", **fields) -> None:
+        emit_structured_log(logger, service="user-stream", event=event, level=level, **fields)
+
+    def _record_heartbeat(*, reconnect_attempt: int) -> None:
+        if audit_recorder is None:
+            return
+        audit_recorder.record(
+            event_type="user_stream_heartbeat",
+            now=now_provider(),
+            payload={
+                "testnet": testnet,
+                "stream_active": True,
+                "position_count": len(context.state.positions),
+                "tracked_order_status_count": len(context.order_statuses),
+                "reconnect_attempt": reconnect_attempt,
+            },
+        )
+
+    def _start_heartbeat(*, reconnect_attempt: int):
+        if audit_recorder is None:
+            return None, None
+        stop_event = threading.Event()
+
+        def _run() -> None:
+            while not stop_event.is_set():
+                _record_heartbeat(reconnect_attempt=reconnect_attempt)
+                if stop_event.wait(heartbeat_interval_seconds):
+                    break
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        return stop_event, thread
 
     def _prewarm_state() -> None:
         fetch_position_risk = getattr(client, "fetch_position_risk", None)
@@ -231,37 +267,52 @@ def run_user_stream(
                         "reconnect_attempt": reconnect_attempt,
                     },
                 )
+                _log(
+                    "worker-start",
+                    testnet=testnet,
+                    position_count=len(context.state.positions),
+                    tracked_order_status_count=len(context.order_statuses),
+                    reconnect_attempt=reconnect_attempt,
+                )
                 _record_position_snapshot(
                     audit_recorder=audit_recorder,
                     now=now_provider(),
                     leader_symbol=context.state.previous_leader_symbol,
+                    decision_id=None,
                     position_count=len(context.state.positions),
                     order_status_count=len(context.order_statuses),
                     payload={"event_type": "user_stream_worker_start", "testnet": testnet},
                 )
             stream_client = stream_client_factory(rest_client=client, testnet=testnet)
+            heartbeat_stop_event, heartbeat_thread = _start_heartbeat(reconnect_attempt=reconnect_attempt)
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
-                logger(f"listen_key={listen_key}")
+                _log("stream-ended", listen_key=listen_key)
                 if not reconnect_on_stream_end:
                     return 0
                 completed_stream_cycles += 1
                 reconnect_attempt += 1
                 if max_stream_cycles is not None and completed_stream_cycles >= max_stream_cycles:
-                    logger(
-                        "stream-ended "
-                        f"attempt={reconnect_attempt} listen_key={listen_key} "
-                        f"max_stream_cycles={max_stream_cycles}"
+                    _log(
+                        "stream-ended",
+                        attempt=reconnect_attempt,
+                        listen_key=listen_key,
+                        max_stream_cycles=max_stream_cycles,
                     )
                     return 0
                 sleep_seconds = min(reconnect_attempt, 5)
-                logger(f"stream-ended attempt={reconnect_attempt} sleep={sleep_seconds}s listen_key={listen_key}")
+                _log("stream-ended", attempt=reconnect_attempt, sleep_seconds=sleep_seconds, listen_key=listen_key)
                 reconnect_sleep_fn(sleep_seconds)
             except Exception as exc:
                 reconnect_attempt += 1
                 sleep_seconds = min(reconnect_attempt, 5)
-                logger(f"stream-error attempt={reconnect_attempt} sleep={sleep_seconds}s error={exc}")
+                _log("stream-error", level="ERROR", attempt=reconnect_attempt, sleep_seconds=sleep_seconds, error=str(exc))
                 reconnect_sleep_fn(sleep_seconds)
+            finally:
+                if heartbeat_stop_event is not None:
+                    heartbeat_stop_event.set()
+                if heartbeat_thread is not None:
+                    heartbeat_thread.join(timeout=1)
     finally:
         if scheduler is not None:
             scheduler.close()

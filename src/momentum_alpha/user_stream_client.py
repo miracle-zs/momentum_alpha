@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from momentum_alpha.binance_client import BINANCE_FSTREAM_WS_URL, BINANCE_TESTNET_FSTREAM_WS_URL
+from momentum_alpha.structured_log import emit_structured_log
 
 from .user_stream_events import parse_user_stream_event
 
@@ -49,15 +50,30 @@ class BinanceUserStreamClient:
         keepalive_stop_event = stop_event_factory()
         keepalive_runner = self.keepalive_runner or _default_keepalive_runner
         keepalive_thread = None
+        keepalive_errors: list[BaseException] = []
         if hasattr(self.rest_client, "keepalive_listen_key"):
+            def _run_keepalive() -> None:
+                try:
+                    keepalive_runner(
+                        rest_client=self.rest_client,
+                        listen_key=listen_key,
+                        stop_event=keepalive_stop_event,
+                        interval_seconds=self.keepalive_interval_seconds,
+                    )
+                except BaseException as exc:
+                    keepalive_errors.append(exc)
+                    keepalive_stop_event.set()
+                    if self.logger is not None:
+                        emit_structured_log(
+                            self.logger,
+                            service="user-stream",
+                            event="keepalive-error",
+                            level="ERROR",
+                            error=str(exc),
+                        )
+
             keepalive_thread = threading.Thread(
-                target=keepalive_runner,
-                kwargs={
-                    "rest_client": self.rest_client,
-                    "listen_key": listen_key,
-                    "stop_event": keepalive_stop_event,
-                    "interval_seconds": self.keepalive_interval_seconds,
-                },
+                target=_run_keepalive,
                 daemon=True,
             )
             keepalive_thread.start()
@@ -77,6 +93,7 @@ class BinanceUserStreamClient:
                     url=self.build_stream_url(listen_key=listen_key),
                     on_message=_on_message,
                     logger=self.logger,
+                    stop_event=keepalive_stop_event,
                 )
             else:
                 self.websocket_runner(
@@ -90,10 +107,12 @@ class BinanceUserStreamClient:
             close_listen_key = getattr(self.rest_client, "close_listen_key", None)
             if callable(close_listen_key):
                 close_listen_key(listen_key=listen_key)
+        if keepalive_errors:
+            raise keepalive_errors[0]
         return listen_key
 
 
-def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], None] | None = None) -> None:
+def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], None] | None = None, stop_event=None) -> None:
     try:
         import websocket
     except ImportError as exc:
@@ -101,7 +120,7 @@ def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], N
 
     def _log(message: str) -> None:
         if logger is not None:
-            logger(message)
+            emit_structured_log(logger, service="user-stream", event=message)
 
     app = websocket.WebSocketApp(
         url,
@@ -110,6 +129,16 @@ def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], N
         on_error=lambda _app, error: _log(f"websocket-error error={error}"),
         on_close=lambda _app, status, reason: _log(f"websocket-close status={status} reason={reason}"),
     )
+    if stop_event is not None:
+        def _close_when_stopped() -> None:
+            stop_event.wait()
+            if stop_event.is_set():
+                _log("websocket-stop-requested")
+                close = getattr(app, "close", None)
+                if callable(close):
+                    close()
+
+        threading.Thread(target=_close_when_stopped, daemon=True).start()
     app.run_forever(ping_interval=30, ping_timeout=10)
 
 

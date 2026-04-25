@@ -17,6 +17,8 @@ def fetch_recent_signal_decisions(*, path: Path, limit: int = 20) -> list[dict]:
             SELECT
                 timestamp,
                 source,
+                decision_id,
+                intent_id,
                 decision_type,
                 symbol,
                 previous_leader_symbol,
@@ -36,15 +38,17 @@ def fetch_recent_signal_decisions(*, path: Path, limit: int = 20) -> list[dict]:
         {
             "timestamp": row[0],
             "source": row[1],
-            "decision_type": row[2],
-            "symbol": row[3],
-            "previous_leader_symbol": row[4],
-            "next_leader_symbol": row[5],
-            "position_count": row[6],
-            "order_status_count": row[7],
-            "broker_response_count": row[8],
-            "stop_replacement_count": row[9],
-            "payload": _json_loads(row[10]),
+            "decision_id": row[2],
+            "intent_id": row[3],
+            "decision_type": row[4],
+            "symbol": row[5],
+            "previous_leader_symbol": row[6],
+            "next_leader_symbol": row[7],
+            "position_count": row[8],
+            "order_status_count": row[9],
+            "broker_response_count": row[10],
+            "stop_replacement_count": row[11],
+            "payload": _json_loads(row[12]),
         }
         for row in rows
     ]
@@ -59,6 +63,8 @@ def fetch_signal_decisions_for_window(*, path: Path, window_start: datetime, win
             SELECT
                 timestamp,
                 source,
+                decision_id,
+                intent_id,
                 decision_type,
                 symbol,
                 previous_leader_symbol,
@@ -81,15 +87,17 @@ def fetch_signal_decisions_for_window(*, path: Path, window_start: datetime, win
         {
             "timestamp": row[0],
             "source": row[1],
-            "decision_type": row[2],
-            "symbol": row[3],
-            "previous_leader_symbol": row[4],
-            "next_leader_symbol": row[5],
-            "position_count": row[6],
-            "order_status_count": row[7],
-            "broker_response_count": row[8],
-            "stop_replacement_count": row[9],
-            "payload": _json_loads(row[10]),
+            "decision_id": row[2],
+            "intent_id": row[3],
+            "decision_type": row[4],
+            "symbol": row[5],
+            "previous_leader_symbol": row[6],
+            "next_leader_symbol": row[7],
+            "position_count": row[8],
+            "order_status_count": row[9],
+            "broker_response_count": row[10],
+            "stop_replacement_count": row[11],
+            "payload": _json_loads(row[12]),
         }
         for row in rows
     ]

@@ -76,7 +76,7 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.items[1].name, "poll_events")
             self.assertEqual(report.items[1].status, "FAIL")
 
-    def test_build_health_report_marks_stale_user_stream_events_warn(self) -> None:
+    def test_build_health_report_marks_stale_user_stream_events_fail(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
@@ -108,7 +108,42 @@ class HealthTests(unittest.TestCase):
                 max_user_stream_event_age_seconds=1800 - 1,
             )
 
-            self.assertEqual(report.overall_status, "WARN")
+            self.assertEqual(report.overall_status, "FAIL")
             self.assertEqual(report.items[2].name, "user_stream_events")
-            self.assertEqual(report.items[2].status, "WARN")
-            self.assertIn("inactive", report.items[2].message)
+            self.assertEqual(report.items[2].status, "FAIL")
+            self.assertIn("stale", report.items[2].message)
+
+    def test_build_health_report_accepts_recent_user_stream_heartbeat(self) -> None:
+        from momentum_alpha.health import build_runtime_health_report
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
+
+        with TemporaryDirectory() as tmpdir:
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="poll_tick",
+                payload={"symbol_count": 538},
+                source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
+                source="user-stream",
+            )
+
+            report = build_runtime_health_report(
+                now=now,
+                runtime_db_file=runtime_db_file,
+            )
+
+            self.assertEqual(report.overall_status, "OK")
+            self.assertEqual(report.items[2].name, "user_stream_events")
+            self.assertEqual(report.items[2].status, "OK")

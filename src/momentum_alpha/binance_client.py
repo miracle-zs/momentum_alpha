@@ -303,6 +303,57 @@ class BinanceRestClient:
         )
         return self.send(request)
 
+    def fetch_user_trades(
+        self,
+        *,
+        symbol: str,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+        from_id: int | None = None,
+        limit: int | None = None,
+        timestamp_ms: int | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {"symbol": symbol}
+        if start_time_ms is not None:
+            params["startTime"] = str(start_time_ms)
+        if end_time_ms is not None:
+            params["endTime"] = str(end_time_ms)
+        if from_id is not None:
+            params["fromId"] = str(from_id)
+        if limit is not None:
+            params["limit"] = str(limit)
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/userTrades",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
+    def fetch_all_orders(
+        self,
+        *,
+        symbol: str,
+        start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
+        limit: int | None = None,
+        timestamp_ms: int | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {"symbol": symbol}
+        if start_time_ms is not None:
+            params["startTime"] = str(start_time_ms)
+        if end_time_ms is not None:
+            params["endTime"] = str(end_time_ms)
+        if limit is not None:
+            params["limit"] = str(limit)
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/allOrders",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
     def cancel_open_orders(self, *, symbol: str, timestamp_ms: int | None = None) -> list:
         request = self.build_signed_request(
             method="DELETE",

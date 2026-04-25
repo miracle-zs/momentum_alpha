@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.exchange_info import ExchangeSymbol
+from momentum_alpha.trace_ids import build_order_intent_id
 
 
 STRATEGY_CLIENT_ORDER_ID_PREFIX = "ma_"
@@ -28,11 +29,9 @@ def build_client_order_id(
     order_kind: str,
     sequence: int,
 ) -> str:
-    timestamp_token = opened_at.astimezone(timezone.utc).strftime("%y%m%d%H%M%S")
-    symbol_token = "".join(ch for ch in symbol.upper() if ch.isalnum())[-10:] or "UNKNOWN"
-    leg_token = "b" if leg_type == "base" else "a"
+    intent_token = build_order_intent_id(symbol=symbol, opened_at=opened_at, leg_type=leg_type, sequence=sequence)
     kind_token = "e" if order_kind == "entry" else "s"
-    return f"{STRATEGY_CLIENT_ORDER_ID_PREFIX}{timestamp_token}_{symbol_token}_{leg_token}{sequence:02d}{kind_token}"
+    return f"{intent_token}{kind_token}"
 
 
 def is_strategy_client_order_id(client_order_id: str | None) -> bool:

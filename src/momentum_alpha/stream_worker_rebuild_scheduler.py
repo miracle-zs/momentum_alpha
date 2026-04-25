@@ -4,6 +4,8 @@ import threading
 from datetime import datetime, timedelta
 from typing import Callable
 
+from momentum_alpha.structured_log import emit_structured_log
+
 
 class DebouncedRebuildScheduler:
     def __init__(
@@ -87,7 +89,13 @@ class DebouncedRebuildScheduler:
         try:
             self._rebuild_fn()
         except Exception as exc:  # pragma: no cover - error path verified in tests
-            self._logger(f"rebuild-trade-analytics-error error={exc}")
+            emit_structured_log(
+                self._logger,
+                service="user-stream",
+                event="rebuild-trade-analytics-error",
+                level="ERROR",
+                error=str(exc),
+            )
         finally:
             with self._condition:
                 self._condition.notify_all()

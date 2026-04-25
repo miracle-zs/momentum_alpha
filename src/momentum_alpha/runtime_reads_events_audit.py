@@ -25,7 +25,7 @@ def fetch_recent_audit_events(*, path: Path, limit: int = 20) -> list[dict]:
     with _connect(path) as connection:
         rows = connection.execute(
             """
-            SELECT timestamp, event_type, payload_json, source
+            SELECT timestamp, event_type, payload_json, source, decision_id, intent_id
             FROM audit_events
             ORDER BY timestamp DESC, id DESC
             LIMIT ?
@@ -38,6 +38,8 @@ def fetch_recent_audit_events(*, path: Path, limit: int = 20) -> list[dict]:
             "event_type": row[1],
             "payload": _json_loads(row[2]),
             "source": row[3],
+            "decision_id": row[4],
+            "intent_id": row[5],
         }
         for row in rows
     ]

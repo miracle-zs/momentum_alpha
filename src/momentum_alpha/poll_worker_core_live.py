@@ -23,6 +23,7 @@ from momentum_alpha.telemetry import (
     _record_position_snapshot,
     _record_signal_decision,
 )
+from momentum_alpha.trace_ids import build_decision_id, build_order_intent_id
 
 from .poll_worker_core_execution import RunOnceResult, build_runtime_from_snapshots, run_once
 from .poll_worker_core_state import _save_strategy_state
@@ -184,10 +185,13 @@ def run_once_live(
                 market_data_cache.exchange_symbol_map(client=client) if market_data_cache is not None else None
             ),
         )
+        decision_id = build_decision_id(now=now)
         audit_recorder.record(
             event_type="tick_result",
             now=now,
+            decision_id=decision_id,
             payload={
+                "decision_id": decision_id,
                 "symbol_count": len(snapshots),
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
@@ -201,35 +205,25 @@ def run_once_live(
         )
         position_count = len(result.runtime_result.next_state.positions)
         order_status_count = 0
-        signal_records = []
-        signal_records.extend(
-            (
-                "base_entry",
-                intent.symbol,
-                {
-                    "leg_type": intent.leg_type,
-                    "stop_price": str(intent.stop_price),
-                    **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
-                },
+        signal_records: list[tuple[str, str | None, str | None, dict]] = []
+        for sequence, intent in enumerate([*result.runtime_result.decision.base_entries, *result.runtime_result.decision.add_on_entries]):
+            signal_records.append(
+                (
+                    "base_entry" if intent.leg_type == "base" else "add_on",
+                    intent.symbol,
+                    build_order_intent_id(symbol=intent.symbol, opened_at=now, leg_type=intent.leg_type, sequence=sequence),
+                    {
+                        "leg_type": intent.leg_type,
+                        "stop_price": str(intent.stop_price),
+                        **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
+                    },
+                )
             )
-            for intent in result.runtime_result.decision.base_entries
-        )
-        signal_records.extend(
-            (
-                "add_on",
-                intent.symbol,
-                {
-                    "leg_type": intent.leg_type,
-                    "stop_price": str(intent.stop_price),
-                    **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
-                },
-            )
-            for intent in result.runtime_result.decision.add_on_entries
-        )
         signal_records.extend(
             (
                 "add_on_skipped",
                 skipped.symbol,
+                None,
                 {
                     "leg_type": "add_on",
                     "blocked_reason": skipped.reason,
@@ -244,6 +238,7 @@ def run_once_live(
             (
                 "stop_update",
                 symbol,
+                None,
                 {
                     "stop_price": str(stop_price),
                     **{key: value for key, value in market_payloads.get(symbol, {}).items() if value is not None},
@@ -256,6 +251,7 @@ def run_once_live(
                 (
                     "no_action",
                     result.runtime_result.next_state.previous_leader_symbol,
+                    None,
                     (
                         {"blocked_reason": result.runtime_result.decision.blocked_reason}
                         if result.runtime_result.decision.blocked_reason is not None
@@ -263,10 +259,12 @@ def run_once_live(
                     ),
                 )
             )
-        for decision_type, symbol, payload in signal_records:
+        for decision_type, symbol, intent_id, payload in signal_records:
             _record_signal_decision(
                 audit_recorder=audit_recorder,
                 now=now,
+                decision_id=decision_id,
+                intent_id=intent_id,
                 decision_type=decision_type,
                 symbol=symbol,
                 previous_leader_symbol=previous_leader_symbol,
@@ -286,6 +284,7 @@ def run_once_live(
             audit_recorder=audit_recorder,
             now=now,
             leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            decision_id=decision_id,
             position_count=position_count,
             order_status_count=order_status_count,
             symbol_count=len(snapshots),
@@ -296,6 +295,7 @@ def run_once_live(
             market_payloads=market_payloads,
             market_context=market_context,
             payload={
+                "decision_id": decision_id,
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
                 "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
@@ -305,10 +305,12 @@ def run_once_live(
             audit_recorder=audit_recorder,
             now=now,
             leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            decision_id=decision_id,
             position_count=position_count,
             open_order_count=order_status_count,
             account_info=account_info,
             payload={
+                "decision_id": decision_id,
                 "symbol_count": len(snapshots),
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
@@ -319,37 +321,46 @@ def run_once_live(
             audit_recorder.record(
                 event_type="broker_submit",
                 now=now,
-                payload={"responses": result.broker_responses},
+                decision_id=decision_id,
+                payload={"responses": result.broker_responses, "decision_id": decision_id},
             )
             _record_broker_orders(
                 audit_recorder=audit_recorder,
                 now=now,
                 responses=result.broker_responses,
                 action_type="submit_order",
+                decision_id=decision_id,
             )
         if stop_replacement_responses:
             audit_recorder.record(
                 event_type="broker_replace",
                 now=now,
-                payload={"responses": stop_replacement_responses},
+                decision_id=decision_id,
+                payload={"responses": stop_replacement_responses, "decision_id": decision_id},
             )
             _record_broker_orders(
                 audit_recorder=audit_recorder,
                 now=now,
                 responses=stop_replacement_responses,
                 action_type="replace_stop_order",
+                decision_id=decision_id,
             )
         if stop_replacements:
             audit_recorder.record(
                 event_type="stop_replacements",
                 now=now,
-                payload={"replacements": [(symbol, str(stop_price)) for symbol, stop_price in stop_replacements]},
+                decision_id=decision_id,
+                payload={
+                    "replacements": [(symbol, str(stop_price)) for symbol, stop_price in stop_replacements],
+                    "decision_id": decision_id,
+                },
             )
         if stop_replacement_failures:
             audit_recorder.record(
                 event_type="stop_replacement_failures",
                 now=now,
-                payload={"failures": stop_replacement_failures},
+                decision_id=decision_id,
+                payload={"failures": stop_replacement_failures, "decision_id": decision_id},
             )
     return RunOnceResult(
         runtime_result=result.runtime_result,

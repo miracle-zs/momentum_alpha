@@ -163,6 +163,9 @@ class UserStreamTests(unittest.TestCase):
             def create_listen_key(self):
                 return {"listenKey": "abc"}
 
+            def keepalive_listen_key(self, *, listen_key):
+                _ = listen_key
+
             def close_listen_key(self, *, listen_key):
                 self.closed.append(listen_key)
 
@@ -237,6 +240,41 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(len(keepalive_runs), 1)
         self.assertEqual(keepalive_runs[0][:2], ("abc", 30 * 60))
         self.assertTrue(stop_events[0].is_set())
+
+    def test_run_forever_raises_when_keepalive_loop_fails(self) -> None:
+        from momentum_alpha.user_stream import BinanceUserStreamClient
+
+        class FakeRestClient:
+            def __init__(self) -> None:
+                self.closed = []
+
+            def create_listen_key(self):
+                return {"listenKey": "abc"}
+
+            def keepalive_listen_key(self, *, listen_key):
+                _ = listen_key
+
+            def close_listen_key(self, *, listen_key):
+                self.closed.append(listen_key)
+
+        def failing_keepalive_runner(*, rest_client, listen_key, stop_event, interval_seconds):
+            _ = rest_client, listen_key, stop_event, interval_seconds
+            raise RuntimeError("keepalive failed")
+
+        def fake_runner(*, url, on_message):
+            _ = url, on_message
+
+        rest_client = FakeRestClient()
+        client = BinanceUserStreamClient(
+            rest_client=rest_client,
+            websocket_runner=fake_runner,
+            keepalive_runner=failing_keepalive_runner,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "keepalive failed"):
+            client.run_forever(on_event=lambda event: None)
+
+        self.assertEqual(rest_client.closed, ["abc"])
 
     def test_default_websocket_runner_logs_lifecycle_and_uses_ping(self) -> None:
         from momentum_alpha.user_stream import _default_websocket_runner

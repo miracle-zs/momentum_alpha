@@ -548,7 +548,8 @@ class MainTests(unittest.TestCase):
             fetch_recent_position_snapshots,
             fetch_recent_signal_decisions,
         )
-        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.orders import build_client_order_id
+        from momentum_alpha.trace_ids import build_decision_id, build_order_intent_id
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -585,11 +586,41 @@ class MainTests(unittest.TestCase):
                     "totalUnrealizedProfit": "25.56",
                 }
 
+        now = datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc)
+
         class FakeBroker:
             def submit_execution_plan(self, plan):
+                entry_client_order_id = build_client_order_id(
+                    symbol="BTCUSDT",
+                    opened_at=now,
+                    leg_type="base",
+                    order_kind="entry",
+                    sequence=0,
+                )
+                stop_client_order_id = build_client_order_id(
+                    symbol="BTCUSDT",
+                    opened_at=now,
+                    leg_type="base",
+                    order_kind="stop",
+                    sequence=0,
+                )
                 return [
-                    {"symbol": "BTCUSDT", "status": "NEW", "type": "MARKET", "side": "BUY", "orderId": 101},
-                    {"symbol": "BTCUSDT", "status": "NEW", "type": "STOP_MARKET", "side": "SELL", "orderId": 102},
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "NEW",
+                        "type": "MARKET",
+                        "side": "BUY",
+                        "orderId": 101,
+                        "clientOrderId": entry_client_order_id,
+                    },
+                    {
+                        "symbol": "BTCUSDT",
+                        "status": "NEW",
+                        "type": "STOP_MARKET",
+                        "side": "SELL",
+                        "orderId": 102,
+                        "clientOrderId": stop_client_order_id,
+                    },
                 ]
 
             def replace_stop_orders(self, replacements):
@@ -597,9 +628,16 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
+            expected_decision_id = build_decision_id(now=now)
+            expected_intent_id = build_order_intent_id(
+                symbol="BTCUSDT",
+                opened_at=now,
+                leg_type="base",
+                sequence=0,
+            )
             result = run_once_live(
                 symbols=["BTCUSDT"],
-                now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                now=now,
                 previous_leader_symbol="ETHUSDT",
                 client=FakeClient(),
                 broker=FakeBroker(),
@@ -617,13 +655,21 @@ class MainTests(unittest.TestCase):
             self.assertEqual(signal_decisions[0]["decision_type"], "base_entry")
             self.assertEqual(signal_decisions[0]["symbol"], "BTCUSDT")
             self.assertEqual(signal_decisions[0]["next_leader_symbol"], "BTCUSDT")
+            self.assertEqual(signal_decisions[0]["decision_id"], expected_decision_id)
+            self.assertEqual(signal_decisions[0]["intent_id"], expected_intent_id)
             self.assertEqual(len(broker_orders), 2)
             self.assertEqual(broker_orders[0]["symbol"], "BTCUSDT")
+            self.assertTrue(all(row["decision_id"] == expected_decision_id for row in broker_orders))
+            self.assertTrue(all(row["intent_id"] == expected_intent_id for row in broker_orders))
             self.assertEqual(snapshots[0]["leader_symbol"], "BTCUSDT")
+            self.assertEqual(snapshots[0]["decision_id"], expected_decision_id)
+            self.assertIsNone(snapshots[0]["intent_id"])
             self.assertEqual(account_snapshots[0]["wallet_balance"], "1234.56")
             self.assertEqual(account_snapshots[0]["available_balance"], "1200.00")
             self.assertEqual(account_snapshots[0]["equity"], "1260.12")
             self.assertEqual(account_snapshots[0]["open_order_count"], 0)
+            self.assertEqual(account_snapshots[0]["decision_id"], expected_decision_id)
+            self.assertIsNone(account_snapshots[0]["intent_id"])
             mirrored_state = RuntimeStateStore(path=runtime_db_path).load()
             self.assertEqual(mirrored_state.previous_leader_symbol, "BTCUSDT")
 
@@ -1718,6 +1764,110 @@ class MainTests(unittest.TestCase):
         self.assertEqual(flows[0]["balance_change"], "300.00")
         self.assertEqual(flows[0]["payload"]["tranId"], "abc123")
 
+    def test_backfill_binance_user_trades_inserts_missing_fills_and_keeps_order_linkage(self) -> None:
+        from momentum_alpha.main import backfill_binance_user_trades
+        from momentum_alpha.runtime_store import fetch_recent_trade_fills, insert_broker_order
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.trade_calls = []
+                self.order_calls = []
+
+            def fetch_all_orders(self, **kwargs):
+                self.order_calls.append(kwargs)
+                return [
+                    {
+                        "orderId": 101,
+                        "clientOrderId": "ma_260415030000_BTCUSDT_b00e",
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "origType": "MARKET",
+                        "status": "FILLED",
+                    },
+                    {
+                        "orderId": 102,
+                        "clientOrderId": "ma_260415030000_BTCUSDT_b00s",
+                        "symbol": "BTCUSDT",
+                        "side": "SELL",
+                        "type": "MARKET",
+                        "origType": "STOP_MARKET",
+                        "status": "FILLED",
+                    },
+                ]
+
+            def fetch_user_trades(self, **kwargs):
+                self.trade_calls.append(kwargs)
+                return [
+                    {
+                        "symbol": "BTCUSDT",
+                        "id": 9001,
+                        "orderId": 101,
+                        "side": "BUY",
+                        "price": "100",
+                        "qty": "1",
+                        "realizedPnl": "0",
+                        "commission": "0.10",
+                        "commissionAsset": "USDT",
+                        "time": 1776207600000,
+                        "maker": False,
+                    },
+                    {
+                        "symbol": "BTCUSDT",
+                        "id": 9002,
+                        "orderId": 102,
+                        "side": "SELL",
+                        "price": "90",
+                        "qty": "1",
+                        "realizedPnl": "-10",
+                        "commission": "0.10",
+                        "commissionAsset": "USDT",
+                        "time": 1776207660000,
+                        "maker": False,
+                    },
+                ]
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_broker_order(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 15, 3, 0, tzinfo=timezone.utc),
+                source="poll",
+                action_type="submit_order",
+                symbol="BTCUSDT",
+                order_id="101",
+                client_order_id="ma_260415030000_BTCUSDT_b00e",
+                decision_id="dec_260415030000000000",
+                order_status="NEW",
+                side="BUY",
+                payload={"orderId": 101},
+            )
+            inserted = backfill_binance_user_trades(
+                client=FakeClient(),
+                runtime_db_path=runtime_db_path,
+                start_time=datetime(2026, 4, 15, 2, 0, tzinfo=timezone.utc),
+                end_time=datetime(2026, 4, 15, 4, 0, tzinfo=timezone.utc),
+                logger=lambda _message: None,
+            )
+            inserted_again = backfill_binance_user_trades(
+                client=FakeClient(),
+                runtime_db_path=runtime_db_path,
+                start_time=datetime(2026, 4, 15, 2, 0, tzinfo=timezone.utc),
+                end_time=datetime(2026, 4, 15, 4, 0, tzinfo=timezone.utc),
+                logger=lambda _message: None,
+            )
+            fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
+
+        self.assertEqual(inserted, 2)
+        self.assertEqual(inserted_again, 0)
+        self.assertEqual([fill["trade_id"] for fill in fills], ["9002", "9001"])
+        self.assertEqual(fills[0]["source"], "backfill-user-trades")
+        self.assertEqual(fills[0]["order_type"], "STOP_MARKET")
+        self.assertEqual(fills[0]["client_order_id"], "ma_260415030000_BTCUSDT_b00s")
+        self.assertEqual(fills[0]["intent_id"], "ma_260415030000_BTCUSDT_b00")
+        self.assertEqual(fills[0]["realized_pnl"], "-10")
+        self.assertEqual(fills[1]["decision_id"], "dec_260415030000000000")
+
     def test_cli_main_supports_backfill_account_flows_command(self) -> None:
         from momentum_alpha.main import cli_main
 
@@ -1753,6 +1903,54 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[1]["start_time"].isoformat(), "2026-04-15T00:00:00+00:00")
         self.assertEqual(calls[1]["end_time"].isoformat(), "2026-04-16T00:00:00+00:00")
         self.assertEqual(calls[1]["client"].__class__.__name__, "FakeClient")
+
+    def test_cli_main_supports_backfill_binance_trades_command_and_rebuilds_analytics(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeClient:
+            pass
+
+        def fake_client_factory(*, testnet):
+            calls.append(("client", testnet))
+            return FakeClient()
+
+        def fake_backfill_binance_user_trades(**kwargs):
+            calls.append(("backfill", kwargs))
+            return 7
+
+        def fake_rebuild_trade_analytics(**kwargs):
+            calls.append(("rebuild", kwargs))
+
+        exit_code = cli_main(
+            argv=[
+                "backfill-binance-trades",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
+                "--start-time",
+                "2026-04-24T00:30:00+08:00",
+                "--end-time",
+                "2026-04-25T08:30:00+08:00",
+                "--symbols",
+                "BTCUSDT",
+                "ETHUSDT",
+            ],
+            client_factory=fake_client_factory,
+            backfill_binance_user_trades_fn=fake_backfill_binance_user_trades,
+            rebuild_trade_analytics_fn=fake_rebuild_trade_analytics,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0], ("client", False))
+        self.assertEqual(calls[1][0], "backfill")
+        self.assertEqual(calls[1][1]["runtime_db_path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[1][1]["symbols"], ["BTCUSDT", "ETHUSDT"])
+        self.assertEqual(calls[1][1]["start_time"].isoformat(), "2026-04-24T00:30:00+08:00")
+        self.assertEqual(calls[1][1]["end_time"].isoformat(), "2026-04-25T08:30:00+08:00")
+        self.assertEqual(calls[1][1]["client"].__class__.__name__, "FakeClient")
+        self.assertEqual(calls[2][0], "rebuild")
+        self.assertEqual(calls[2][1]["path"], Path("/tmp/runtime.db"))
 
     def test_cli_main_supports_rebuild_trade_analytics_command(self) -> None:
         from momentum_alpha.main import cli_main
@@ -1882,8 +2080,9 @@ class MainTests(unittest.TestCase):
             broker_orders = fetch_recent_broker_orders(path=runtime_db_path, limit=10)
             trade_fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
             self.assertEqual(exit_code, 0)
-            self.assertEqual(db_events[0]["event_type"], "user_stream_worker_start")
-            self.assertEqual(db_events[0]["payload"]["testnet"], True)
+            event_by_type = {event["event_type"]: event for event in db_events}
+            self.assertEqual(event_by_type["user_stream_worker_start"]["payload"]["testnet"], True)
+            self.assertEqual(event_by_type["user_stream_heartbeat"]["payload"]["stream_active"], True)
             snapshots = fetch_recent_position_snapshots(path=runtime_db_path, limit=10)
             self.assertNotIn("market_context", snapshots[0]["payload"])
             self.assertNotIn("positions", snapshots[0]["payload"])
@@ -2852,10 +3051,13 @@ class MainTests(unittest.TestCase):
                     "--restore-positions",
                 ],
                 run_forever_fn=fake_run_forever,
-            )
+        )
         self.assertEqual(exit_code, 0)
-        self.assertIn("starting poll", out.getvalue())
-        self.assertIn("restore_positions=True", out.getvalue())
+        output = out.getvalue()
+        self.assertIn("service=poll", output)
+        self.assertIn("event=start", output)
+        self.assertIn("restore_positions=true", output)
+        self.assertIn('symbols=["BTCUSDT","ETHUSDT"]', output)
 
     def test_cli_main_submit_orders_reports_live_mode(self) -> None:
         from momentum_alpha.main import cli_main

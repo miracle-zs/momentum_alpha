@@ -6,6 +6,7 @@ from pathlib import Path
 from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
 
 from .runtime_writes_common import _as_utc_iso, _decimal_to_text, _json_dumps
+from .trace_ids import build_intent_id_from_client_order_id
 
 
 def insert_broker_order(
@@ -18,6 +19,9 @@ def insert_broker_order(
     symbol: str | None = None,
     order_id: str | None = None,
     client_order_id: str | None = None,
+    client_algo_id: str | None = None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     order_status: str | None = None,
     status: str | None = None,
     side: str | None = None,
@@ -27,6 +31,7 @@ def insert_broker_order(
 ) -> None:
     bootstrap_runtime_db(path=path)
     normalized_order_status = order_status if order_status is not None else status
+    normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_order_id or client_algo_id)
     with _connect(path) as connection:
         connection.execute(
             """
@@ -38,12 +43,15 @@ def insert_broker_order(
                 order_type,
                 order_id,
                 client_order_id,
+                client_algo_id,
+                decision_id,
+                intent_id,
                 order_status,
                 side,
                 quantity,
                 price,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
@@ -53,6 +61,9 @@ def insert_broker_order(
                 order_type,
                 order_id,
                 client_order_id,
+                client_algo_id,
+                decision_id,
+                normalized_intent_id,
                 normalized_order_status,
                 side,
                 quantity,
@@ -71,6 +82,8 @@ def insert_trade_fill(
     order_id: str | None = None,
     trade_id: str | None = None,
     client_order_id: str | None = None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     order_status: str | None = None,
     execution_type: str | None = None,
     side: str | None = None,
@@ -85,6 +98,7 @@ def insert_trade_fill(
     payload: dict | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
+    normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_order_id)
     with _connect(path) as connection:
         connection.execute(
             """
@@ -95,6 +109,8 @@ def insert_trade_fill(
                 order_id,
                 trade_id,
                 client_order_id,
+                decision_id,
+                intent_id,
                 order_status,
                 execution_type,
                 side,
@@ -107,7 +123,7 @@ def insert_trade_fill(
                 commission,
                 commission_asset,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
@@ -116,6 +132,8 @@ def insert_trade_fill(
                 order_id,
                 trade_id,
                 client_order_id,
+                decision_id,
+                normalized_intent_id,
                 order_status,
                 execution_type,
                 side,
@@ -140,6 +158,8 @@ def insert_algo_order(
     symbol: str | None = None,
     algo_id: str | None = None,
     client_algo_id: str | None = None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     algo_status: str | None = None,
     side: str | None = None,
     order_type: str | None = None,
@@ -147,6 +167,7 @@ def insert_algo_order(
     payload: dict | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
+    normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_algo_id)
     with _connect(path) as connection:
         connection.execute(
             """
@@ -156,12 +177,14 @@ def insert_algo_order(
                 symbol,
                 algo_id,
                 client_algo_id,
+                decision_id,
+                intent_id,
                 algo_status,
                 side,
                 order_type,
                 trigger_price,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
@@ -169,6 +192,8 @@ def insert_algo_order(
                 symbol,
                 algo_id,
                 client_algo_id,
+                decision_id,
+                normalized_intent_id,
                 algo_status,
                 side,
                 order_type,

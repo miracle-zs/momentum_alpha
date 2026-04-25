@@ -9,6 +9,7 @@ from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.market_data import LiveMarketDataCache
 from momentum_alpha.runtime_store import RuntimeStateStore
 from momentum_alpha.scheduler import run_loop
+from momentum_alpha.structured_log import emit_structured_log
 from momentum_alpha.telemetry import _record_position_snapshot
 
 from .poll_worker_core import run_once_live
@@ -37,13 +38,10 @@ def run_forever(
     rate_limited_until = None
     last_add_on_hour: int | None = None
 
-    def _log(message: str) -> None:
-        if hasattr(logger, "info"):
-            logger.info(message)
-        else:
-            logger(message)
+    def _log(event: str, *, level: str = "INFO", **fields) -> None:
+        emit_structured_log(logger, service="poll", event=event, level=level, **fields)
 
-    _log(f"tracking symbols={resolved_symbols}")
+    _log("tracking", symbols=resolved_symbols)
     if audit_recorder is not None:
         audit_recorder.record(
             event_type="poll_worker_start",
@@ -71,11 +69,11 @@ def run_forever(
     def _run_once(now):
         nonlocal rate_limited_until, last_add_on_hour
         if rate_limited_until is not None and now < rate_limited_until:
-            _log(f"rate-limit-backoff until={rate_limited_until.isoformat()}")
+            _log("rate-limit-backoff", level="WARN", until=rate_limited_until)
             return
         if last_add_on_hour is None:
             last_add_on_hour = now.hour
-        _log(f"tick {now.isoformat()}")
+        _log("tick", now=now, last_add_on_hour=last_add_on_hour)
         try:
             try:
                 result = run_once_live_fn(
@@ -120,7 +118,7 @@ def run_forever(
             )
 
     def _handle_error(exc, now):
-        _log(f"error at {now.isoformat()}: {exc}")
+        _log("error", level="ERROR", now=now, error=str(exc))
         if audit_recorder is not None:
             audit_recorder.record(
                 event_type="poll_error",

@@ -177,6 +177,101 @@ class StreamWorkerSplitTests(unittest.TestCase):
 
         self.assertEqual(calls, [])
 
+    def test_user_stream_event_handler_links_trade_fill_to_poll_intent(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.orders import build_client_order_id
+        from momentum_alpha.runtime_store import insert_broker_order
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.trace_ids import build_decision_id, build_order_intent_id
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        captured: dict[str, dict] = {}
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            now = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+            decision_id = build_decision_id(now=now)
+            intent_id = build_order_intent_id(symbol="BTCUSDT", opened_at=now, leg_type="base", sequence=0)
+            client_order_id = build_client_order_id(
+                symbol="BTCUSDT",
+                opened_at=now,
+                leg_type="base",
+                order_kind="entry",
+                sequence=0,
+            )
+            insert_broker_order(
+                path=db_path,
+                timestamp=now,
+                source="poll",
+                action_type="submit_execution_plan",
+                symbol="BTCUSDT",
+                order_id="101",
+                client_order_id=client_order_id,
+                decision_id=decision_id,
+                intent_id=intent_id,
+                order_status="NEW",
+                side="BUY",
+                quantity=1,
+                price=100,
+                payload={"clientOrderId": client_order_id},
+            )
+
+            context = UserStreamWorkerContext(
+                state=StrategyState(
+                    current_day=now.date(),
+                    previous_leader_symbol=None,
+                    positions={},
+                ),
+                processed_event_ids={},
+                order_statuses={},
+            )
+            audit_recorder = AuditRecorder(runtime_db_path=db_path, source="user-stream")
+
+            handler = build_user_stream_event_handler(
+                logger=lambda msg: None,
+                runtime_state_store=None,
+                audit_recorder=audit_recorder,
+                now_provider=lambda: now,
+                context=context,
+                record_broker_orders_fn=lambda **kwargs: captured.__setitem__("broker_orders", kwargs),
+                insert_trade_fill_fn=lambda **kwargs: captured.__setitem__("trade_fill", kwargs),
+                record_position_snapshot_fn=lambda **kwargs: captured.__setitem__("position_snapshot", kwargs),
+                save_user_stream_strategy_state_fn=lambda **kwargs: None,
+            )
+
+            handler(
+                parse_user_stream_event(
+                    {
+                        "e": "ORDER_TRADE_UPDATE",
+                        "T": 1776729600000,
+                        "o": {
+                            "s": "BTCUSDT",
+                            "i": 101,
+                            "t": 202,
+                            "c": client_order_id,
+                            "X": "FILLED",
+                            "x": "TRADE",
+                            "ap": "100",
+                            "z": "1",
+                            "L": "100",
+                            "l": "1",
+                            "rp": "0",
+                            "n": "0",
+                            "N": "USDT",
+                        },
+                    }
+                )
+            )
+
+        self.assertEqual(captured["trade_fill"]["decision_id"], decision_id)
+        self.assertEqual(captured["trade_fill"]["intent_id"], intent_id)
+        self.assertEqual(captured["broker_orders"]["decision_id"], decision_id)
+        self.assertEqual(captured["broker_orders"]["responses"][0]["decision_id"], decision_id)
+        self.assertEqual(captured["broker_orders"]["responses"][0]["intent_id"], intent_id)
+        self.assertEqual(captured["position_snapshot"]["decision_id"], decision_id)
+        self.assertEqual(captured["position_snapshot"]["intent_id"], intent_id)
+
     def test_run_user_stream_wires_scheduler_into_event_handler(self) -> None:
         from momentum_alpha import stream_worker_loop
 
@@ -259,3 +354,36 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(sleep_calls, [1])
         self.assertTrue(any("stream-ended attempt=1" in message for message in logs))
         self.assertTrue(any("stream-ended attempt=2" in message for message in logs))
+
+    def test_run_user_stream_records_heartbeat_on_start(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import fetch_recent_audit_events
+
+        now = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+
+        class FakeStreamClient:
+            def run_forever(self, on_event):
+                _ = on_event
+                return "listen-key"
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+
+            result = stream_worker_loop.run_user_stream(
+                client=object(),
+                testnet=False,
+                logger=lambda msg: None,
+                runtime_state_store=None,
+                now_provider=lambda: now,
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                reconnect_sleep_fn=lambda seconds: None,
+                runtime_db_path=runtime_db_path,
+            )
+
+            events = fetch_recent_audit_events(
+                path=runtime_db_path,
+                limit=10,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any(event["event_type"] == "user_stream_heartbeat" for event in events))

@@ -13,6 +13,8 @@ def insert_signal_decision(
     path: Path,
     timestamp: datetime,
     source: str | None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     decision_type: str,
     symbol: str | None = None,
     previous_leader_symbol: str | None = None,
@@ -30,6 +32,8 @@ def insert_signal_decision(
             INSERT INTO signal_decisions(
                 timestamp,
                 source,
+                decision_id,
+                intent_id,
                 decision_type,
                 symbol,
                 previous_leader_symbol,
@@ -39,11 +43,13 @@ def insert_signal_decision(
                 broker_response_count,
                 stop_replacement_count,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
                 source,
+                decision_id,
+                intent_id,
                 decision_type,
                 symbol,
                 previous_leader_symbol,

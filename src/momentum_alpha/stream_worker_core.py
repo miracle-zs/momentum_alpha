@@ -14,6 +14,7 @@ from momentum_alpha.runtime_store import (
     insert_algo_order,
     insert_trade_fill,
 )
+from momentum_alpha.runtime_reads_events_orders import resolve_order_linkage
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.telemetry import _record_broker_orders, _record_position_snapshot
 from momentum_alpha.user_stream import (
@@ -114,11 +115,25 @@ def build_user_stream_event_handler(
     def _on_event(event: UserStreamEvent) -> None:
         logger(f"event={event.event_type} symbol={event.symbol}")
         timestamp = event.event_time or now_provider()
+        linkage = None
+        if audit_recorder is not None and audit_recorder.runtime_db_path is not None:
+            linkage = resolve_order_linkage(
+                path=audit_recorder.runtime_db_path,
+                client_order_id=event.client_order_id,
+                client_algo_id=event.client_algo_id,
+                order_id=str(event.order_id) if event.order_id is not None else None,
+            )
+        decision_id = None if linkage is None else linkage.get("decision_id")
+        intent_id = None if linkage is None else linkage.get("intent_id")
         if audit_recorder is not None:
             audit_recorder.record(
                 event_type="user_stream_event",
                 now=timestamp,
+                decision_id=decision_id,
+                intent_id=intent_id,
                 payload={
+                    "decision_id": decision_id,
+                    "intent_id": intent_id,
                     "event_type": event.event_type,
                     "symbol": event.symbol,
                     "order_status": event.order_status,
@@ -139,9 +154,14 @@ def build_user_stream_event_handler(
                         "type": event.original_order_type,
                         "orderId": event.order_id,
                         "tradeId": event.trade_id,
+                        "clientOrderId": event.client_order_id,
+                        "clientAlgoId": event.client_algo_id,
+                        "decision_id": decision_id,
+                        "intent_id": intent_id,
                     }
                 ],
                 action_type="stream_order_update",
+                decision_id=decision_id,
             )
         event_id = user_stream_event_id_fn(event)
         if event_id is not None and event_id in context.processed_event_ids:
@@ -157,6 +177,8 @@ def build_user_stream_event_handler(
                     order_id=trade_fill.get("order_id"),
                     trade_id=trade_fill.get("trade_id"),
                     client_order_id=trade_fill.get("client_order_id"),
+                    decision_id=decision_id,
+                    intent_id=intent_id,
                     order_status=trade_fill.get("order_status"),
                     execution_type=trade_fill.get("execution_type"),
                     side=trade_fill.get("side"),
@@ -188,6 +210,8 @@ def build_user_stream_event_handler(
                     symbol=algo_order.get("symbol"),
                     algo_id=algo_order.get("algo_id"),
                     client_algo_id=algo_order.get("client_algo_id"),
+                    decision_id=decision_id,
+                    intent_id=intent_id,
                     algo_status=algo_order.get("algo_status"),
                     side=algo_order.get("side"),
                     order_type=algo_order.get("order_type"),
@@ -236,6 +260,8 @@ def build_user_stream_event_handler(
             if order_snapshot is None:
                 context.order_statuses.pop(order_id, None)
             else:
+                if decision_id is not None or intent_id is not None:
+                    order_snapshot = {**order_snapshot, "decision_id": decision_id, "intent_id": intent_id}
                 context.order_statuses[order_id] = order_snapshot
         algo_order_status_update = extract_algo_order_status_update_fn(event)
         if algo_order_status_update is not None:
@@ -243,6 +269,8 @@ def build_user_stream_event_handler(
             if algo_snapshot is None:
                 context.order_statuses.pop(algo_key, None)
             else:
+                if decision_id is not None or intent_id is not None:
+                    algo_snapshot = {**algo_snapshot, "decision_id": decision_id, "intent_id": intent_id}
                 context.order_statuses[algo_key] = algo_snapshot
         context.state = apply_user_stream_event_to_state_fn(
             state=context.state,
@@ -272,10 +300,12 @@ def build_user_stream_event_handler(
             audit_recorder=audit_recorder,
             now=timestamp,
             leader_symbol=context.state.previous_leader_symbol,
+            decision_id=decision_id,
+            intent_id=intent_id,
             position_count=len(context.state.positions),
             order_status_count=len(context.order_statuses),
             positions=context.state.positions,
-            payload={"event_type": event.event_type, "symbol": event.symbol},
+            payload={"event_type": event.event_type, "symbol": event.symbol, "decision_id": decision_id, "intent_id": intent_id},
         )
 
     return _on_event

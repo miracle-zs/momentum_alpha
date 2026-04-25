@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Momentum Alpha User Stream Healthcheck Every Minute
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+Unit=momentum-alpha-user-stream-healthcheck.service
+
+[Install]
+WantedBy=timers.target

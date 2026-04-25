@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
     timestamp TEXT NOT NULL,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
-    source TEXT
+    source TEXT,
+    decision_id TEXT,
+    intent_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp
     ON audit_events(timestamp DESC);
@@ -22,6 +24,8 @@ CREATE TABLE IF NOT EXISTS signal_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     source TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     decision_type TEXT NOT NULL,
     symbol TEXT,
     previous_leader_symbol TEXT,
@@ -48,6 +52,9 @@ CREATE TABLE IF NOT EXISTS broker_orders (
     order_type TEXT,
     order_id TEXT,
     client_order_id TEXT,
+    client_algo_id TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     order_status TEXT,
     side TEXT,
     quantity REAL,
@@ -69,6 +76,8 @@ CREATE TABLE IF NOT EXISTS trade_fills (
     order_id TEXT,
     trade_id TEXT,
     client_order_id TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     order_status TEXT,
     execution_type TEXT,
     side TEXT,
@@ -96,6 +105,8 @@ CREATE TABLE IF NOT EXISTS algo_orders (
     symbol TEXT,
     algo_id TEXT,
     client_algo_id TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     algo_status TEXT,
     side TEXT,
     order_type TEXT,
@@ -199,6 +210,8 @@ CREATE TABLE IF NOT EXISTS position_snapshots (
     timestamp TEXT NOT NULL,
     source TEXT,
     leader_symbol TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     position_count INTEGER NOT NULL,
     order_status_count INTEGER NOT NULL,
     symbol_count INTEGER,
@@ -216,6 +229,8 @@ CREATE TABLE IF NOT EXISTS account_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
     source TEXT,
+    decision_id TEXT,
+    intent_id TEXT,
     wallet_balance TEXT,
     available_balance TEXT,
     equity TEXT,
@@ -256,6 +271,77 @@ def _connect(path: Path):
         connection.close()
 
 
+def _ensure_columns(*, connection: sqlite3.Connection, table_name: str, column_definitions: tuple[str, ...]) -> None:
+    existing_columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    for column_definition in column_definitions:
+        column_name = column_definition.split()[0]
+        if column_name in existing_columns:
+            continue
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_definition}")
+
+
+def _migrate_runtime_db(connection: sqlite3.Connection) -> None:
+    columns_by_table = {
+        "audit_events": ("decision_id TEXT", "intent_id TEXT"),
+        "signal_decisions": ("decision_id TEXT", "intent_id TEXT"),
+        "broker_orders": ("client_algo_id TEXT", "decision_id TEXT", "intent_id TEXT"),
+        "trade_fills": ("decision_id TEXT", "intent_id TEXT"),
+        "algo_orders": ("decision_id TEXT", "intent_id TEXT"),
+        "position_snapshots": ("decision_id TEXT", "intent_id TEXT"),
+        "account_snapshots": ("decision_id TEXT", "intent_id TEXT"),
+    }
+    for table_name, column_definitions in columns_by_table.items():
+        _ensure_columns(connection=connection, table_name=table_name, column_definitions=column_definitions)
+
+    connection.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_audit_events_decision_id
+            ON audit_events(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_events_intent_id
+            ON audit_events(intent_id);
+
+        CREATE INDEX IF NOT EXISTS idx_signal_decisions_decision_id
+            ON signal_decisions(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_signal_decisions_intent_id
+            ON signal_decisions(intent_id);
+
+        CREATE INDEX IF NOT EXISTS idx_broker_orders_decision_id
+            ON broker_orders(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_broker_orders_intent_id
+            ON broker_orders(intent_id);
+        CREATE INDEX IF NOT EXISTS idx_broker_orders_client_order_id
+            ON broker_orders(client_order_id);
+        CREATE INDEX IF NOT EXISTS idx_broker_orders_client_algo_id
+            ON broker_orders(client_algo_id);
+
+        CREATE INDEX IF NOT EXISTS idx_trade_fills_decision_id
+            ON trade_fills(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_trade_fills_intent_id
+            ON trade_fills(intent_id);
+        CREATE INDEX IF NOT EXISTS idx_trade_fills_client_order_id
+            ON trade_fills(client_order_id);
+
+        CREATE INDEX IF NOT EXISTS idx_algo_orders_decision_id
+            ON algo_orders(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_algo_orders_intent_id
+            ON algo_orders(intent_id);
+        CREATE INDEX IF NOT EXISTS idx_algo_orders_client_algo_id
+            ON algo_orders(client_algo_id);
+
+        CREATE INDEX IF NOT EXISTS idx_position_snapshots_decision_id
+            ON position_snapshots(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_position_snapshots_intent_id
+            ON position_snapshots(intent_id);
+
+        CREATE INDEX IF NOT EXISTS idx_account_snapshots_decision_id
+            ON account_snapshots(decision_id);
+        CREATE INDEX IF NOT EXISTS idx_account_snapshots_intent_id
+            ON account_snapshots(intent_id);
+        """
+    )
+
+
 def bootstrap_runtime_db(*, path: Path) -> None:
     with _connect(path) as connection:
         connection.executescript(SCHEMA)
+        _migrate_runtime_db(connection)

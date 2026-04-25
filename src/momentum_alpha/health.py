@@ -160,8 +160,7 @@ def build_runtime_health_report(
             path=runtime_db_file,
             now=now,
             max_age_seconds=max_user_stream_event_age_seconds,
-            event_types=("user_stream_worker_start", "user_stream_event"),
-            stale_status="WARN",
+            event_types=("user_stream_heartbeat", "user_stream_event"),
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
     ]

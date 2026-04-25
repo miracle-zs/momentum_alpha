@@ -15,10 +15,12 @@ def insert_audit_event(
     event_type: str,
     payload: dict,
     source: str | None = None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
     with _connect(path) as connection:
         connection.execute(
-            "INSERT INTO audit_events(timestamp, event_type, payload_json, source) VALUES (?, ?, ?, ?)",
-            (_as_utc_iso(timestamp), event_type, _json_dumps(payload), source),
+            "INSERT INTO audit_events(timestamp, event_type, payload_json, source, decision_id, intent_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (_as_utc_iso(timestamp), event_type, _json_dumps(payload), source, decision_id, intent_id),
         )

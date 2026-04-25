@@ -15,6 +15,8 @@ def insert_position_snapshot(
     source: str | None,
     leader_symbol: str | None = None,
     previous_leader_symbol: str | None = None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     position_count: int,
     order_status_count: int,
     symbol_count: int | None = None,
@@ -32,6 +34,8 @@ def insert_position_snapshot(
                 timestamp,
                 source,
                 leader_symbol,
+                decision_id,
+                intent_id,
                 position_count,
                 order_status_count,
                 symbol_count,
@@ -39,12 +43,14 @@ def insert_position_snapshot(
                 restore_positions,
                 execute_stop_replacements,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
                 source,
                 normalized_leader_symbol,
+                decision_id,
+                intent_id,
                 position_count,
                 order_status_count,
                 symbol_count,
@@ -61,6 +67,8 @@ def insert_account_snapshot(
     path: Path,
     timestamp: datetime,
     source: str | None,
+    decision_id: str | None = None,
+    intent_id: str | None = None,
     position_count: int,
     open_order_count: int,
     leader_symbol: str | None = None,
@@ -77,6 +85,8 @@ def insert_account_snapshot(
             INSERT INTO account_snapshots(
                 timestamp,
                 source,
+                decision_id,
+                intent_id,
                 wallet_balance,
                 available_balance,
                 equity,
@@ -85,11 +95,13 @@ def insert_account_snapshot(
                 open_order_count,
                 leader_symbol,
                 payload_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 _as_utc_iso(timestamp),
                 source,
+                decision_id,
+                intent_id,
                 _decimal_to_text(wallet_balance),
                 _decimal_to_text(available_balance),
                 _decimal_to_text(equity),
