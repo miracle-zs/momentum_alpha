@@ -29,6 +29,13 @@ BACKFILL_START_TIME="$(
   --skip-rebuild
 
 "${VENV_PYTHON}" -u -m momentum_alpha.main \
+  backfill-account-flows \
+  --runtime-db-file "${RUNTIME_DB_FILE}" \
+  --start-time "${BACKFILL_START_TIME}" \
+  --end-time "${BACKFILL_END_TIME}" \
+  --income-types REALIZED_PNL COMMISSION FUNDING_FEE TRANSFER
+
+"${VENV_PYTHON}" -u -m momentum_alpha.main \
   rebuild-trade-analytics \
   --runtime-db-file "${RUNTIME_DB_FILE}"
 

@@ -91,6 +91,7 @@ def daily_review_report_command(
         warnings=list(report.warnings),
         payload={
             "rows": [row.__dict__ for row in report.rows],
+            "account_reconciliation": report.account_reconciliation.__dict__,
             "strategy_config": {
                 "stop_budget_usdt": report.stop_budget_usdt,
                 "entry_window": f"{report.entry_start_hour_utc:02d}:00-{report.entry_end_hour_utc:02d}:00 UTC",
@@ -101,6 +102,8 @@ def daily_review_report_command(
     print(f"trade_count={report.trade_count}")
     print(f"actual_total_pnl={report.actual_total_pnl}")
     print(f"counterfactual_total_pnl={report.counterfactual_total_pnl}")
+    print(f"account_income_total_pnl={report.account_reconciliation.income_total_pnl}")
+    print(f"account_trade_vs_income_delta={report.account_reconciliation.trade_vs_income_delta}")
     return 0
 
 

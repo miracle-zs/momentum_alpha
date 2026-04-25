@@ -121,6 +121,11 @@ class DeployArtifactTests(unittest.TestCase):
     def test_daily_review_report_script_invokes_daily_review_report_command(self) -> None:
         content = (ROOT / "scripts" / "run_daily_review_report.sh").read_text()
         self.assertIn("backfill-binance-trades", content)
+        self.assertIn("backfill-account-flows", content)
+        self.assertIn("REALIZED_PNL", content)
+        self.assertIn("COMMISSION", content)
+        self.assertIn("FUNDING_FEE", content)
+        self.assertIn("TRANSFER", content)
         self.assertIn("BACKFILL_LOOKBACK_HOURS", content)
         self.assertIn("rebuild-trade-analytics", content)
         self.assertIn("daily-review-report", content)

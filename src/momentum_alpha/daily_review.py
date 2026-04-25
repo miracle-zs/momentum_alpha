@@ -6,13 +6,21 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from momentum_alpha.binance_filters import SymbolFilters
-from momentum_alpha.runtime_store import fetch_signal_decisions_for_window, fetch_trade_round_trips_for_window
+from momentum_alpha.runtime_store import (
+    fetch_account_flows_for_window,
+    fetch_account_snapshots_for_window,
+    fetch_signal_decisions_for_window,
+    fetch_trade_round_trips_for_window,
+)
 from momentum_alpha.sizing import size_from_stop_budget
 
 
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8))
 DAILY_REVIEW_CUTOFF_HOUR = 8
 DAILY_REVIEW_CUTOFF_MINUTE = 30
+BACKFILL_INCOME_SOURCE = "backfill-income-history"
+ACCOUNT_PNL_REASONS = frozenset({"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"})
+ACCOUNT_TRANSFER_REASONS = frozenset({"TRANSFER", "INTERNAL_TRANSFER", "DEPOSIT", "WITHDRAW"})
 
 
 @dataclass(frozen=True)
@@ -37,6 +45,24 @@ class DailyReviewTradeRow:
 
 
 @dataclass(frozen=True)
+class DailyReviewAccountReconciliation:
+    income_total_pnl: str
+    income_realized_pnl: str
+    income_commission: str
+    income_funding_fee: str
+    income_other: str
+    income_transfer_total: str
+    trade_vs_income_delta: str
+    wallet_balance_start: str | None
+    wallet_balance_end: str | None
+    wallet_balance_delta: str | None
+    equity_start: str | None
+    equity_end: str | None
+    equity_delta: str | None
+    flow_count: int
+
+
+@dataclass(frozen=True)
 class DailyReviewReport:
     report_date: str
     window_start: str
@@ -52,6 +78,7 @@ class DailyReviewReport:
     entry_start_hour_utc: int
     entry_end_hour_utc: int
     warnings: tuple[str, ...]
+    account_reconciliation: DailyReviewAccountReconciliation
     rows: tuple[DailyReviewTradeRow, ...]
 
 
@@ -92,6 +119,16 @@ def build_daily_review_report(
         window_start=window.window_start,
         window_end=window.window_end,
     )
+    account_flows = fetch_account_flows_for_window(
+        path=path,
+        window_start=window.window_start,
+        window_end=window.window_end,
+    )
+    account_snapshots = fetch_account_snapshots_for_window(
+        path=path,
+        window_start=window.window_start,
+        window_end=window.window_end,
+    )
     rows, warnings = _build_daily_review_rows(
         trade_round_trips=trade_round_trips,
         signal_decisions=signal_decisions,
@@ -99,6 +136,11 @@ def build_daily_review_report(
     )
     actual_total_pnl = sum((Decimal(row.actual_net_pnl) for row in rows), Decimal("0"))
     counterfactual_total_pnl = sum((Decimal(row.counterfactual_net_pnl) for row in rows), Decimal("0"))
+    account_reconciliation = _build_account_reconciliation(
+        account_flows=account_flows,
+        account_snapshots=account_snapshots,
+        trade_total_pnl=actual_total_pnl,
+    )
     report = DailyReviewReport(
         report_date=window.report_date,
         window_start=window.window_start.isoformat(),
@@ -114,6 +156,7 @@ def build_daily_review_report(
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
         warnings=tuple(dict.fromkeys(warnings)),
+        account_reconciliation=account_reconciliation,
         rows=tuple(rows),
     )
     return report
@@ -239,6 +282,84 @@ def _extract_replay_inputs(
     return latest_price, stop_price, filters
 
 
+def _build_account_reconciliation(
+    *,
+    account_flows: list[dict],
+    account_snapshots: list[dict],
+    trade_total_pnl: Decimal,
+) -> DailyReviewAccountReconciliation:
+    realized_pnl = _sum_preferred_income_flows(account_flows, reasons={"REALIZED_PNL"})
+    commission = _sum_preferred_income_flows(account_flows, reasons={"COMMISSION"})
+    funding_fee = _sum_preferred_income_flows(account_flows, reasons={"FUNDING_FEE"})
+    transfer_total = _sum_preferred_income_flows(account_flows, reasons=ACCOUNT_TRANSFER_REASONS)
+    income_other = _sum_account_flows(
+        [
+            flow
+            for flow in account_flows
+            if str(flow.get("source") or "") == BACKFILL_INCOME_SOURCE
+            and str(flow.get("reason") or "").upper() not in ACCOUNT_PNL_REASONS
+            and str(flow.get("reason") or "").upper() not in ACCOUNT_TRANSFER_REASONS
+        ],
+        reasons=None,
+    )
+    income_total_pnl = realized_pnl + commission + funding_fee + income_other
+    wallet_start, wallet_end, wallet_delta = _snapshot_delta(account_snapshots, field="wallet_balance")
+    equity_start, equity_end, equity_delta = _snapshot_delta(account_snapshots, field="equity")
+    return DailyReviewAccountReconciliation(
+        income_total_pnl=str(income_total_pnl),
+        income_realized_pnl=str(realized_pnl),
+        income_commission=str(commission),
+        income_funding_fee=str(funding_fee),
+        income_other=str(income_other),
+        income_transfer_total=str(transfer_total),
+        trade_vs_income_delta=str(income_total_pnl - trade_total_pnl),
+        wallet_balance_start=wallet_start,
+        wallet_balance_end=wallet_end,
+        wallet_balance_delta=wallet_delta,
+        equity_start=equity_start,
+        equity_end=equity_end,
+        equity_delta=equity_delta,
+        flow_count=len(account_flows),
+    )
+
+
+def _sum_preferred_income_flows(account_flows: list[dict], *, reasons: set[str] | frozenset[str]) -> Decimal:
+    backfill_flows = [
+        flow
+        for flow in account_flows
+        if str(flow.get("source") or "") == BACKFILL_INCOME_SOURCE and str(flow.get("reason") or "").upper() in reasons
+    ]
+    if backfill_flows:
+        return _sum_account_flows(backfill_flows, reasons=reasons)
+    return _sum_account_flows(account_flows, reasons=reasons)
+
+
+def _sum_account_flows(account_flows: list[dict], *, reasons: set[str] | frozenset[str] | None) -> Decimal:
+    total = Decimal("0")
+    for flow in account_flows:
+        reason = str(flow.get("reason") or "").upper()
+        if reasons is not None and reason not in reasons:
+            continue
+        balance_change = _parse_optional_decimal(flow.get("balance_change"))
+        if balance_change is not None:
+            total += balance_change
+    return total
+
+
+def _snapshot_delta(account_snapshots: list[dict], *, field: str) -> tuple[str | None, str | None, str | None]:
+    if not account_snapshots:
+        return None, None, None
+    start_value = _parse_optional_decimal(account_snapshots[0].get(field))
+    end_value = _parse_optional_decimal(account_snapshots[-1].get(field))
+    if start_value is None or end_value is None:
+        return (
+            None if start_value is None else str(start_value),
+            None if end_value is None else str(end_value),
+            None,
+        )
+    return str(start_value), str(end_value), str(end_value - start_value)
+
+
 def _parse_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
@@ -250,3 +371,9 @@ def _parse_decimal(value: object) -> Decimal:
     if isinstance(value, Decimal):
         return value
     return Decimal(str(value))
+
+
+def _parse_optional_decimal(value: object) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    return _parse_decimal(value)

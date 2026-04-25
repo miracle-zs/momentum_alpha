@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,11 +18,30 @@ def _account_flow_exists(
     reason: str | None,
     asset: str | None,
     balance_change: str | None,
+    source: str | None = None,
+    reference_id: str | None = None,
 ) -> bool:
     if not runtime_db_path.exists():
         return False
     connection = sqlite3.connect(runtime_db_path)
     try:
+        if reference_id is not None:
+            rows = connection.execute(
+                """
+                SELECT payload_json
+                FROM account_flows
+                WHERE timestamp = ?
+                  AND COALESCE(source, '') = COALESCE(?, '')
+                """,
+                (timestamp.astimezone(timezone.utc).isoformat(), source),
+            ).fetchall()
+            for row in rows:
+                try:
+                    payload = json.loads(row[0])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if _income_reference_id(payload) == reference_id:
+                    return True
         row = connection.execute(
             """
             SELECT 1
@@ -45,52 +65,74 @@ def backfill_account_flows(
     runtime_db_path: Path,
     start_time: datetime,
     end_time: datetime,
+    income_types: list[str] | tuple[str, ...] | None = None,
     logger=print,
 ) -> int:
     inserted = 0
-    window_start = start_time.astimezone(timezone.utc)
     end_time_utc = end_time.astimezone(timezone.utc)
-    while window_start < end_time_utc:
-        window_end = min(window_start + timedelta(days=7), end_time_utc)
-        incomes = client.fetch_income_history(
-            income_type="TRANSFER",
-            start_time_ms=int(window_start.timestamp() * 1000),
-            end_time_ms=int(window_end.timestamp() * 1000),
-            limit=1000,
-        )
-        for income in incomes:
-            timestamp_ms = income.get("time")
-            if timestamp_ms in (None, ""):
-                continue
-            timestamp = datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
-            reason = str(income.get("info") or income.get("incomeType") or "").upper() or None
-            asset = income.get("asset")
-            balance_change = str(income.get("income")) if income.get("income") not in (None, "") else None
-            if _account_flow_exists(
-                runtime_db_path=runtime_db_path,
-                timestamp=timestamp,
-                reason=reason,
-                asset=asset,
-                balance_change=balance_change,
-            ):
-                continue
-            insert_account_flow(
-                path=runtime_db_path,
-                timestamp=timestamp,
-                source="backfill-income-history",
-                reason=reason,
-                asset=asset,
-                balance_change=balance_change,
-                payload=income,
+    normalized_income_types = tuple(
+        str(income_type).strip().upper() for income_type in (income_types or ("TRANSFER",)) if str(income_type).strip()
+    )
+    for income_type in normalized_income_types:
+        window_start = start_time.astimezone(timezone.utc)
+        while window_start < end_time_utc:
+            window_end = min(window_start + timedelta(days=7), end_time_utc)
+            incomes = client.fetch_income_history(
+                income_type=income_type,
+                start_time_ms=int(window_start.timestamp() * 1000),
+                end_time_ms=int(window_end.timestamp() * 1000),
+                limit=1000,
             )
-            inserted += 1
-        logger(
-            "backfill-account-flows "
-            f"window_start={window_start.isoformat()} window_end={window_end.isoformat()} "
-            f"fetched={len(incomes)} inserted={inserted}"
-        )
-        window_start = window_end
+            for income in incomes:
+                timestamp_ms = income.get("time")
+                if timestamp_ms in (None, ""):
+                    continue
+                timestamp = datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
+                reason = _income_reason(income)
+                asset = income.get("asset")
+                balance_change = str(income.get("income")) if income.get("income") not in (None, "") else None
+                source = "backfill-income-history"
+                if _account_flow_exists(
+                    runtime_db_path=runtime_db_path,
+                    timestamp=timestamp,
+                    reason=reason,
+                    asset=asset,
+                    balance_change=balance_change,
+                    source=source,
+                    reference_id=_income_reference_id(income),
+                ):
+                    continue
+                insert_account_flow(
+                    path=runtime_db_path,
+                    timestamp=timestamp,
+                    source=source,
+                    reason=reason,
+                    asset=asset,
+                    balance_change=balance_change,
+                    payload=income,
+                )
+                inserted += 1
+            logger(
+                "backfill-account-flows "
+                f"income_type={income_type} "
+                f"window_start={window_start.isoformat()} window_end={window_end.isoformat()} "
+                f"fetched={len(incomes)} inserted={inserted}"
+            )
+            window_start = window_end
     return inserted
+
+
+def _income_reason(income: dict) -> str | None:
+    reason = str(income.get("incomeType") or income.get("info") or "").strip().upper()
+    return reason or None
+
+
+def _income_reference_id(income: dict) -> str | None:
+    for key in ("tranId", "tradeId"):
+        value = income.get(key)
+        if value not in (None, ""):
+            return f"{key}:{value}"
+    return None
 
 
 def _trade_fill_exists(

@@ -99,6 +99,126 @@ class DailyReviewTests(unittest.TestCase):
         self.assertGreater(Decimal(report.counterfactual_total_pnl), Decimal(report.actual_total_pnl))
         self.assertEqual(report.replayed_add_on_count, 1)
 
+    def test_build_daily_review_report_includes_account_reconciliation(self) -> None:
+        from momentum_alpha.daily_review import build_daily_review_report
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            insert_account_flow,
+            insert_account_snapshot,
+            insert_trade_round_trip,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="KATUSDT:1",
+                symbol="KATUSDT",
+                opened_at=datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc),
+                closed_at=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="1",
+                total_exit_quantity="1",
+                weighted_avg_entry_price="100",
+                weighted_avg_exit_price="58",
+                realized_pnl="-42.00",
+                commission="0.00",
+                net_pnl="-42.00",
+                exit_reason="stop_loss",
+                duration_seconds=3 * 3600,
+                payload={"legs": []},
+            )
+            insert_account_flow(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                source="backfill-income-history",
+                reason="REALIZED_PNL",
+                asset="USDT",
+                balance_change="-120.00",
+                payload={"incomeType": "REALIZED_PNL"},
+            )
+            insert_account_flow(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                source="backfill-income-history",
+                reason="COMMISSION",
+                asset="USDT",
+                balance_change="-4.00",
+                payload={"incomeType": "COMMISSION"},
+            )
+            insert_account_flow(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                source="backfill-income-history",
+                reason="FUNDING_FEE",
+                asset="USDT",
+                balance_change="-1.00",
+                payload={"incomeType": "FUNDING_FEE"},
+            )
+            insert_account_flow(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 13, 0, tzinfo=timezone.utc),
+                source="backfill-income-history",
+                reason="TRANSFER",
+                asset="USDT",
+                balance_change="300.00",
+                payload={"incomeType": "TRANSFER"},
+            )
+            insert_account_flow(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                source="user-stream",
+                reason="ORDER",
+                asset="USDT",
+                balance_change="-125.00",
+                payload={"m": "ORDER"},
+            )
+            insert_account_snapshot(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 8, 31, tzinfo=timezone.utc),
+                source="poll",
+                wallet_balance="1000.00",
+                available_balance="980.00",
+                equity="1005.00",
+                unrealized_pnl="5.00",
+                position_count=1,
+                open_order_count=1,
+                payload={},
+            )
+            insert_account_snapshot(
+                path=db_path,
+                timestamp=datetime(2026, 4, 20, 13, 0, tzinfo=timezone.utc),
+                source="poll",
+                wallet_balance="875.00",
+                available_balance="870.00",
+                equity="874.00",
+                unrealized_pnl="-1.00",
+                position_count=0,
+                open_order_count=0,
+                payload={},
+            )
+
+            report = build_daily_review_report(
+                path=db_path,
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                stop_budget_usdt=Decimal("10"),
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+            )
+
+        reconciliation = report.account_reconciliation
+        self.assertEqual(reconciliation.income_total_pnl, "-125.00")
+        self.assertEqual(reconciliation.income_realized_pnl, "-120.00")
+        self.assertEqual(reconciliation.income_commission, "-4.00")
+        self.assertEqual(reconciliation.income_funding_fee, "-1.00")
+        self.assertEqual(reconciliation.income_other, "0")
+        self.assertEqual(reconciliation.income_transfer_total, "300.00")
+        self.assertEqual(reconciliation.trade_vs_income_delta, "-83.00")
+        self.assertEqual(reconciliation.wallet_balance_delta, "-125.00")
+        self.assertEqual(reconciliation.equity_delta, "-131.00")
+
     def test_build_daily_review_report_sorts_rows_by_closed_at_descending(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report
         from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_trade_round_trip

@@ -31,6 +31,7 @@ def backfill_account_flows_command(
         runtime_db_path=Path(os.path.abspath(args.runtime_db_file)),
         start_time=_parse_cli_datetime(args.start_time),
         end_time=_parse_cli_datetime(args.end_time),
+        income_types=args.income_types,
         logger=print,
     )
     print(f"backfilled_account_flows={inserted}")

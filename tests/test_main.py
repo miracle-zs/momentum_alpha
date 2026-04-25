@@ -1673,6 +1673,24 @@ class MainTests(unittest.TestCase):
             entry_end_hour_utc = 23
             warnings = ()
             rows = ()
+            class FakeAccountReconciliation:
+                def __init__(self) -> None:
+                    self.income_total_pnl = "9.50"
+                    self.income_realized_pnl = "10.00"
+                    self.income_commission = "-0.50"
+                    self.income_funding_fee = "0"
+                    self.income_other = "0"
+                    self.income_transfer_total = "0"
+                    self.trade_vs_income_delta = "-0.50"
+                    self.wallet_balance_start = None
+                    self.wallet_balance_end = None
+                    self.wallet_balance_delta = None
+                    self.equity_start = None
+                    self.equity_end = None
+                    self.equity_delta = None
+                    self.flow_count = 2
+
+            account_reconciliation = FakeAccountReconciliation()
 
         with patch("momentum_alpha.cli_commands.build_daily_review_report", return_value=FakeReport()), patch(
             "momentum_alpha.cli_commands.insert_daily_review_report",
@@ -1697,7 +1715,9 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0]["report_date"], "2026-04-21")
+        self.assertEqual(calls[0]["payload"]["account_reconciliation"]["income_total_pnl"], "9.50")
         self.assertIn("actual_total_pnl=10.00", out.getvalue())
+        self.assertIn("account_income_total_pnl=9.50", out.getvalue())
 
     def test_cli_main_supports_dashboard_command(self) -> None:
         from momentum_alpha.main import cli_main
@@ -1763,6 +1783,49 @@ class MainTests(unittest.TestCase):
         self.assertEqual(flows[0]["asset"], "USDT")
         self.assertEqual(flows[0]["balance_change"], "300.00")
         self.assertEqual(flows[0]["payload"]["tranId"], "abc123")
+
+    def test_backfill_account_flows_can_fetch_pnl_income_types(self) -> None:
+        from momentum_alpha.main import backfill_account_flows
+        from momentum_alpha.runtime_store import fetch_recent_account_flows
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.income_types = []
+
+            def fetch_income_history(self, **kwargs):
+                income_type = kwargs["income_type"]
+                self.income_types.append(income_type)
+                return [
+                    {
+                        "time": 1776207600000 + len(self.income_types),
+                        "asset": "USDT",
+                        "incomeType": income_type,
+                        "income": {
+                            "REALIZED_PNL": "-120.00",
+                            "COMMISSION": "-4.00",
+                            "FUNDING_FEE": "-1.00",
+                        }[income_type],
+                        "info": "API3USDT",
+                        "tranId": income_type,
+                    }
+                ]
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            client = FakeClient()
+            inserted = backfill_account_flows(
+                client=client,
+                runtime_db_path=runtime_db_path,
+                start_time=datetime(2026, 4, 14, 23, 0, tzinfo=timezone.utc),
+                end_time=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                income_types=["REALIZED_PNL", "COMMISSION", "FUNDING_FEE"],
+                logger=lambda _message: None,
+            )
+            flows = fetch_recent_account_flows(path=runtime_db_path, limit=10)
+
+        self.assertEqual(inserted, 3)
+        self.assertEqual(client.income_types, ["REALIZED_PNL", "COMMISSION", "FUNDING_FEE"])
+        self.assertEqual({flow["reason"] for flow in flows}, {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"})
 
     def test_backfill_binance_user_trades_inserts_missing_fills_and_keeps_order_linkage(self) -> None:
         from momentum_alpha.main import backfill_binance_user_trades
@@ -1893,6 +1956,10 @@ class MainTests(unittest.TestCase):
                 "2026-04-15T00:00:00+00:00",
                 "--end-time",
                 "2026-04-16T00:00:00+00:00",
+                "--income-types",
+                "REALIZED_PNL",
+                "COMMISSION",
+                "FUNDING_FEE",
             ],
             client_factory=fake_client_factory,
             backfill_account_flows_fn=fake_backfill_account_flows,
@@ -1902,6 +1969,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[1]["runtime_db_path"], Path("/tmp/runtime.db"))
         self.assertEqual(calls[1]["start_time"].isoformat(), "2026-04-15T00:00:00+00:00")
         self.assertEqual(calls[1]["end_time"].isoformat(), "2026-04-16T00:00:00+00:00")
+        self.assertEqual(calls[1]["income_types"], ["REALIZED_PNL", "COMMISSION", "FUNDING_FEE"])
         self.assertEqual(calls[1]["client"].__class__.__name__, "FakeClient")
 
     def test_cli_main_supports_backfill_binance_trades_command_and_rebuilds_analytics(self) -> None:

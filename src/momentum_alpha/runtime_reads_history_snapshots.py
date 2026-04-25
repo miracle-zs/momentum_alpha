@@ -176,6 +176,53 @@ def fetch_recent_account_snapshots(*, path: Path, limit: int = 20) -> list[dict]
     ]
 
 
+def fetch_account_snapshots_for_window(*, path: Path, window_start: datetime, window_end: datetime) -> list[dict]:
+    if not path.exists():
+        return []
+    with _connect(path) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                timestamp,
+                source,
+                decision_id,
+                intent_id,
+                wallet_balance,
+                available_balance,
+                equity,
+                unrealized_pnl,
+                position_count,
+                open_order_count,
+                leader_symbol,
+                payload_json
+            FROM account_snapshots
+            WHERE timestamp >= ? AND timestamp < ?
+            ORDER BY timestamp ASC, id ASC
+            """,
+            (
+                window_start.astimezone(timezone.utc).isoformat(),
+                window_end.astimezone(timezone.utc).isoformat(),
+            ),
+        ).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "source": row[1],
+            "decision_id": row[2],
+            "intent_id": row[3],
+            "wallet_balance": row[4],
+            "available_balance": row[5],
+            "equity": row[6],
+            "unrealized_pnl": row[7],
+            "position_count": row[8],
+            "open_order_count": row[9],
+            "leader_symbol": row[10],
+            "payload": _json_loads(row[11]),
+        }
+        for row in rows
+    ]
+
+
 def fetch_account_snapshots_for_range(
     *,
     path: Path,

@@ -8,6 +8,7 @@ from .runtime_reads_history_reports import (
     fetch_latest_daily_review_report,
 )
 from .runtime_reads_history_snapshots import (
+    fetch_account_snapshots_for_window,
     fetch_account_snapshots_for_range,
     fetch_position_snapshots_for_range,
     fetch_recent_account_snapshots,

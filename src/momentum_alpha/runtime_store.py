@@ -4,6 +4,8 @@ from momentum_alpha.runtime_analytics import rebuild_trade_analytics
 from momentum_alpha.runtime_state_store import RuntimeStateStore
 from momentum_alpha.runtime_reads import (
     fetch_account_flows_since,
+    fetch_account_flows_for_window,
+    fetch_account_snapshots_for_window,
     fetch_account_snapshots_for_range,
     fetch_audit_event_counts,
     fetch_event_pulse_points,
