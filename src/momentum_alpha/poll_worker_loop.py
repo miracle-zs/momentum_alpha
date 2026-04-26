@@ -89,6 +89,7 @@ def run_forever(
                     market_data_cache=market_data_cache,
                     audit_recorder=audit_recorder,
                     last_add_on_hour=last_add_on_hour,
+                    logger=logger,
                 )
             except TypeError:
                 result = run_once_live_fn(

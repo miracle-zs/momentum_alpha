@@ -287,7 +287,7 @@ def run_user_stream(
             heartbeat_stop_event, heartbeat_thread = _start_heartbeat(reconnect_attempt=reconnect_attempt)
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
-                _log("stream-ended", listen_key=listen_key)
+                _log("stream-ended")
                 if not reconnect_on_stream_end:
                     return 0
                 completed_stream_cycles += 1
@@ -296,12 +296,11 @@ def run_user_stream(
                     _log(
                         "stream-ended",
                         attempt=reconnect_attempt,
-                        listen_key=listen_key,
                         max_stream_cycles=max_stream_cycles,
                     )
                     return 0
                 sleep_seconds = min(reconnect_attempt, 5)
-                _log("stream-ended", attempt=reconnect_attempt, sleep_seconds=sleep_seconds, listen_key=listen_key)
+                _log("stream-ended", attempt=reconnect_attempt, sleep_seconds=sleep_seconds)
                 reconnect_sleep_fn(sleep_seconds)
             except Exception as exc:
                 reconnect_attempt += 1

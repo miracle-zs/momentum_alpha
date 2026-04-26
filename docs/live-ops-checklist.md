@@ -17,6 +17,7 @@ Use this checklist during the first production session and any later restart or 
   - `systemctl start momentum-alpha-rebuild-trade-analytics.service`
   - Re-run it manually any time you need to backfill closed-trade analytics after a data repair
 - Confirm log rotation is installed at `/etc/logrotate.d/momentum-alpha`
+- Log rotation should cover `momentum-alpha.log`, `momentum-alpha-user-stream.log`, `momentum-alpha-dashboard.log`, `momentum-alpha-rebuild-trade-analytics.log`, and `momentum-alpha-daily-review-report.log`
 - Confirm `AUDIT_LOG_FILE` points to a persistent writable path
 - If you want push alerts, confirm `SERVERCHAN_SENDKEY` is set
 
@@ -79,3 +80,4 @@ Use this checklist during the first production session and any later restart or 
 - Confirm `audit_events` and related runtime tables are still growing with new runtime and user-stream events
 - Confirm the daily review timer has run successfully at 08:30 Asia/Shanghai and inserted a fresh row into `daily_review_reports`
 - Run `bash scripts/run_daily_review_report.sh` manually when you need to backfill or debug the daily review output
+- Run `python3 -m momentum_alpha.main prune-runtime-db --runtime-db-file /root/momentum_alpha/var/runtime.db` when old audit or snapshot rows need to be trimmed

@@ -22,6 +22,7 @@ def run_cli_command(
     backfill_account_flows_fn,
     backfill_binance_user_trades_fn,
     rebuild_trade_analytics_fn,
+    prune_runtime_db_fn,
 ) -> int:
     dispatch_kwargs = {
         "parser": parser,
@@ -35,6 +36,7 @@ def run_cli_command(
         "backfill_account_flows_fn": backfill_account_flows_fn,
         "backfill_binance_user_trades_fn": backfill_binance_user_trades_fn,
         "rebuild_trade_analytics_fn": rebuild_trade_analytics_fn,
+        "prune_runtime_db_fn": prune_runtime_db_fn,
         "build_runtime_health_report_fn": build_runtime_health_report,
         "summarize_audit_events_fn": summarize_audit_events,
         "build_daily_review_report_fn": build_daily_review_report,

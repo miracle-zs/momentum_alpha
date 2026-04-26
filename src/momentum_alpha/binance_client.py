@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import hmac
 import json
 import time
 from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from momentum_alpha.structured_log import emit_structured_log
 
 
 BINANCE_FAPI_BASE_URL = "https://fapi.binance.com"
@@ -18,6 +21,31 @@ BINANCE_TESTNET_FSTREAM_WS_URL = "wss://stream.binancefuture.com/ws"
 
 def sign_query(*, secret: str, query: str) -> str:
     return hmac.new(secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+_SENSITIVE_QUERY_KEYS = {
+    "apikey",
+    "api_key",
+    "authorization",
+    "listenkey",
+    "secret",
+    "signature",
+    "token",
+}
+
+
+def _sanitize_url_for_logs(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    filtered_params = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() not in _SENSITIVE_QUERY_KEYS
+    ]
+    if not filtered_params:
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(filtered_params), parts.fragment))
 
 
 @dataclass(frozen=True)
@@ -50,7 +78,7 @@ class BinanceHttpError(HTTPError):
         self.request_url = request_url
 
     def __str__(self) -> str:
-        request_label = f"{self.request_method} {self.request_url}".strip()
+        request_label = f"{self.request_method} {_sanitize_url_for_logs(self.request_url)}".strip()
         if self.response_body:
             return f"HTTP Error {self.status_code}: {self.msg} request={request_label} body={self.response_body}"
         return super().__str__()
@@ -67,6 +95,7 @@ class BinanceRestClient:
         retry_delays: tuple[float, ...] = (),
         sleep_fn=None,
         timeout_seconds: float = 10.0,
+        logger: object | None = None,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
@@ -75,6 +104,7 @@ class BinanceRestClient:
         self.retry_delays = retry_delays
         self.sleep_fn = sleep_fn or time.sleep
         self.timeout_seconds = timeout_seconds
+        self.logger = logger or logging.getLogger(__name__)
 
     def _headers(self) -> dict[str, str]:
         return {"X-MBX-APIKEY": self.api_key}
@@ -146,26 +176,80 @@ class BinanceRestClient:
         )
         attempts = len(self.retry_delays) + 1
         for attempt in range(attempts):
+            attempt_started_at = time.perf_counter()
             try:
                 try:
                     response_context = self.opener(raw_request, timeout=self.timeout_seconds)
                 except TypeError:
                     response_context = self.opener(raw_request)
                 with response_context as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    payload = json.loads(response.read().decode("utf-8"))
+                    elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
+                    emit_structured_log(
+                        self.logger,
+                        service="binance-client",
+                        event="request",
+                        method=request.method,
+                        endpoint=urlsplit(request.url).path,
+                        attempt=attempt + 1,
+                        retries=attempt,
+                        elapsed_ms=elapsed_ms,
+                        status_code=getattr(response, "status", getattr(response, "code", None)),
+                    )
+                    return payload
             except HTTPError as exc:
                 response_body = ""
                 if exc.fp is not None:
                     response_body = exc.fp.read().decode("utf-8", errors="replace")
+                elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
+                emit_structured_log(
+                    self.logger,
+                    service="binance-client",
+                    event="request-failed",
+                    level="ERROR",
+                    method=request.method,
+                    endpoint=urlsplit(request.url).path,
+                    attempt=attempt + 1,
+                    retries=len(self.retry_delays),
+                    elapsed_ms=elapsed_ms,
+                    status_code=exc.code,
+                    response_body=response_body,
+                )
                 raise BinanceHttpError(
                     exc,
                     response_body,
                     request_method=request.method,
                     request_url=request.url,
                 ) from exc
-            except URLError:
+            except URLError as exc:
+                elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
                 if attempt >= len(self.retry_delays):
+                    emit_structured_log(
+                        self.logger,
+                        service="binance-client",
+                        event="request-failed",
+                        level="ERROR",
+                        method=request.method,
+                        endpoint=urlsplit(request.url).path,
+                        attempt=attempt + 1,
+                        retries=len(self.retry_delays),
+                        elapsed_ms=elapsed_ms,
+                        error=str(exc),
+                    )
                     raise
+                emit_structured_log(
+                    self.logger,
+                    service="binance-client",
+                    event="request-retry",
+                    level="WARNING",
+                    method=request.method,
+                    endpoint=urlsplit(request.url).path,
+                    attempt=attempt + 1,
+                    retries=len(self.retry_delays),
+                    elapsed_ms=elapsed_ms,
+                    error=str(exc),
+                    sleep_seconds=self.retry_delays[attempt],
+                )
                 self.sleep_fn(self.retry_delays[attempt])
 
     def fetch_exchange_info(self) -> dict:

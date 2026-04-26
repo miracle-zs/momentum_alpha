@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from io import StringIO
 from pathlib import Path
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -1503,6 +1503,7 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0]["symbols"], ["BTCUSDT"])
+        self.assertTrue(hasattr(calls[0]["logger"], "info"))
 
     def test_cli_main_run_once_live_passes_testnet_to_client_factory(self) -> None:
         from momentum_alpha.main import cli_main
@@ -1559,13 +1560,13 @@ class MainTests(unittest.TestCase):
                     kwargs.get("reconnect_on_stream_end"),
                 )
             )
-            kwargs.get("logger")("user-stream-started")
+            kwargs.get("logger").info("user-stream-started")
             return 0
 
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            out = StringIO()
-            with redirect_stdout(out):
+            err = StringIO()
+            with redirect_stderr(err):
                 exit_code = cli_main(
                     argv=["user-stream", "--testnet", "--runtime-db-file", str(runtime_db_path)],
                     client_factory=fake_client_factory,
@@ -1574,7 +1575,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0], ("client", True))
         self.assertEqual(calls[1], ("stream", True, "FakeClient", True))
-        self.assertIn("user-stream-started", out.getvalue())
+        self.assertIn("user-stream-started", err.getvalue())
 
     def test_cli_main_supports_healthcheck_command(self) -> None:
         from momentum_alpha.main import cli_main
@@ -2034,6 +2035,44 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertEqual(calls[0]["path"], Path("/tmp/runtime.db"))
+
+    def test_cli_main_supports_prune_runtime_db_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        def fake_prune_runtime_db(**kwargs):
+            calls.append(kwargs)
+            return {
+                "audit_cutoff": "2026-04-19T08:00:00+00:00",
+                "snapshot_cutoff": "2026-04-19T08:00:00+00:00",
+                "audit_events_deleted": 2,
+                "position_snapshots_deleted": 3,
+                "account_snapshots_deleted": 4,
+            }
+
+        out = StringIO()
+        with redirect_stdout(out):
+            exit_code = cli_main(
+                argv=[
+                    "prune-runtime-db",
+                    "--runtime-db-file",
+                    "/tmp/runtime.db",
+                    "--audit-retention-days",
+                    "7",
+                    "--snapshot-retention-days",
+                    "3",
+                ],
+                now_provider=lambda: datetime(2026, 4, 26, 8, 0, tzinfo=timezone.utc),
+                prune_runtime_db_fn=fake_prune_runtime_db,
+            )
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[0]["audit_retention_days"], 7)
+        self.assertEqual(calls[0]["snapshot_retention_days"], 3)
+        self.assertIn("audit_events_deleted=2", out.getvalue())
+        self.assertIn("position_snapshots_deleted=3", out.getvalue())
+        self.assertIn("account_snapshots_deleted=4", out.getvalue())
 
     def test_module_main_invokes_cli_entrypoint(self) -> None:
         result = subprocess.run(
@@ -3102,12 +3141,12 @@ class MainTests(unittest.TestCase):
     def test_cli_main_poll_prints_startup_summary(self) -> None:
         from momentum_alpha.main import cli_main
 
-        out = StringIO()
+        err = StringIO()
 
         def fake_run_forever(**kwargs):
             return 0
 
-        with redirect_stdout(out):
+        with redirect_stderr(err):
             exit_code = cli_main(
                 argv=[
                     "poll",
@@ -3119,13 +3158,14 @@ class MainTests(unittest.TestCase):
                     "--restore-positions",
                 ],
                 run_forever_fn=fake_run_forever,
-        )
+            )
         self.assertEqual(exit_code, 0)
-        output = out.getvalue()
+        output = err.getvalue()
         self.assertIn("service=poll", output)
         self.assertIn("event=start", output)
         self.assertIn("restore_positions=true", output)
-        self.assertIn('symbols=["BTCUSDT","ETHUSDT"]', output)
+        self.assertIn("BTCUSDT", output)
+        self.assertIn("ETHUSDT", output)
 
     def test_cli_main_submit_orders_reports_live_mode(self) -> None:
         from momentum_alpha.main import cli_main
@@ -4288,6 +4328,7 @@ class MainTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
+            logs = []
 
             run_once_live(
                 symbols=["BTCUSDT"],
@@ -4298,6 +4339,7 @@ class MainTests(unittest.TestCase):
                 submit_orders=False,
                 restore_positions=True,
                 execute_stop_replacements=True,
+                logger=lambda message: logs.append(message),
                 audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
 
@@ -4306,6 +4348,64 @@ class MainTests(unittest.TestCase):
         failure_events = [event for event in audit_events if event["event_type"] == "stop_replacement_failures"]
         self.assertEqual(len(failure_events), 1)
         self.assertEqual(failure_events[0]["payload"]["failures"][0]["symbol"], "BTCUSDT")
+
+    def test_run_once_live_logs_stop_replacement_exceptions(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                return {"symbol": symbol, "price": "61200"}
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                return [[0, "0", "0", "61000", "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return [{"symbol": "BTCUSDT", "positionAmt": "0.010", "entryPrice": "61100", "updateTime": 1700000000000}]
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return [{"symbol": "BTCUSDT", "type": "STOP_MARKET", "stopPrice": "60900"}]
+
+        class RaisingBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+            def replace_stop_orders(self, *, replacements):
+                _ = replacements
+                raise RuntimeError("boom")
+
+        logs = []
+        run_once_live(
+            symbols=["BTCUSDT"],
+            now=datetime(2026, 4, 15, 2, 5, tzinfo=timezone.utc),
+            previous_leader_symbol="BTCUSDT",
+            client=FakeClient(),
+            broker=RaisingBroker(),
+            submit_orders=False,
+            restore_positions=True,
+            execute_stop_replacements=True,
+            logger=lambda message: logs.append(message),
+        )
+        self.assertTrue(any("event=stop-replacement-failed" in message for message in logs))
 
     def test_run_once_live_executes_hourly_stop_replacement_before_add_on_orders(self) -> None:
         from momentum_alpha.main import run_once_live

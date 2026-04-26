@@ -100,6 +100,8 @@ class BinanceClientTests(unittest.TestCase):
         from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
 
         class FakeResponse:
+            status = 200
+
             def __enter__(self):
                 return self
 
@@ -138,6 +140,41 @@ class BinanceClientTests(unittest.TestCase):
         self.assertEqual(payload["ok"], True)
         self.assertEqual(opener.calls, 2)
         self.assertEqual(sleeps, [0.5])
+
+    def test_send_logs_request_metrics(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({"ok": True}).encode("utf-8")
+
+        class FakeOpener:
+            def __call__(self, request, timeout=None):
+                self.request = request
+                return FakeResponse()
+
+        client = BinanceRestClient(api_key="key", api_secret="secret", opener=FakeOpener())
+        with self.assertLogs("momentum_alpha.binance_client", level="INFO") as logs:
+            payload = client.send(
+                BinanceRequest(
+                    method="GET",
+                    url="https://fapi.binance.com/fapi/v1/time",
+                    headers={"X-MBX-APIKEY": "key"},
+                )
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertTrue(any("service=binance-client" in line and "event=request" in line for line in logs.output))
+        self.assertTrue(any("endpoint=/fapi/v1/time" in line for line in logs.output))
+        self.assertTrue(any("elapsed_ms=" in line for line in logs.output))
 
     def test_send_passes_timeout_to_opener(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
@@ -205,7 +242,7 @@ class BinanceClientTests(unittest.TestCase):
         class HttpFailOpener:
             def __call__(self, request, timeout=None):
                 raise HTTPError(
-                    url=request.full_url,
+                    url=f"{request.full_url}?timestamp=1700000000000&signature=abc123",
                     code=403,
                     msg="Forbidden",
                     hdrs=None,
@@ -221,13 +258,15 @@ class BinanceClientTests(unittest.TestCase):
             client.send(
                 BinanceRequest(
                     method="GET",
-                    url="https://fapi.binance.com/fapi/v3/positionRisk",
+                    url="https://fapi.binance.com/fapi/v3/positionRisk?symbol=BTCUSDT&timestamp=1700000000000&signature=abc123",
                     headers={"X-MBX-APIKEY": "key"},
                 )
             )
         self.assertEqual(context.exception.status_code, 403)
         self.assertIn("Invalid API-key", context.exception.response_body)
         self.assertIn("/fapi/v3/positionRisk", str(context.exception))
+        self.assertIn("symbol=BTCUSDT", str(context.exception))
+        self.assertNotIn("signature=abc123", str(context.exception))
 
     def test_fetch_ticker_price_uses_symbol_query(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient

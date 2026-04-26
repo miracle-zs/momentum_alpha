@@ -23,6 +23,8 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "install_logrotate.sh").read_text()
         self.assertIn('deploy/logrotate/momentum-alpha', content)
         self.assertIn('/etc/logrotate.d/momentum-alpha', content)
+        self.assertIn('__SERVICE_ROOT__', (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text())
+        self.assertIn('sed "s#__SERVICE_ROOT__#${HOME}/momentum_alpha#g"', content)
 
     def test_install_systemd_script_installs_dashboard_service(self) -> None:
         content = (ROOT / "scripts" / "install_systemd.sh").read_text()
@@ -41,9 +43,12 @@ class DeployArtifactTests(unittest.TestCase):
 
     def test_logrotate_policy_rotates_project_logs(self) -> None:
         content = (ROOT / "deploy" / "logrotate" / "momentum-alpha").read_text()
-        self.assertIn('/var/log/momentum-alpha.log', content)
-        self.assertIn('/var/log/momentum-alpha-user-stream.log', content)
-        self.assertIn('/var/log/momentum-alpha-dashboard.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-user-stream.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-user-stream-healthcheck.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-dashboard.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-rebuild-trade-analytics.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-daily-review-report.log', content)
         self.assertIn('daily', content)
         self.assertIn('rotate 14', content)
 

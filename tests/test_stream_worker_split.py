@@ -354,6 +354,7 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(sleep_calls, [1])
         self.assertTrue(any("stream-ended attempt=1" in message for message in logs))
         self.assertTrue(any("stream-ended attempt=2" in message for message in logs))
+        self.assertFalse(any("listen-" in message for message in logs))
 
     def test_run_user_stream_records_heartbeat_on_start(self) -> None:
         from momentum_alpha import stream_worker_loop

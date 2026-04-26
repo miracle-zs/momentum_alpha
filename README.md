@@ -195,6 +195,8 @@ The dashboard reads:
 - `runtime.db` for event queries and health state
 - `momentum-alpha.log`
 - `momentum-alpha-user-stream.log`
+- `momentum-alpha-rebuild-trade-analytics.log`
+- `momentum-alpha-daily-review-report.log`
 
 It is intentionally read-only in this first version.
 
@@ -209,3 +211,4 @@ Pre-go-live review:
 - Real order submission only happens when `--submit-orders` is explicitly provided.
 - Runtime persistence now stores previous leader, local position view, processed user-stream event ids, tracked order statuses, and notification status in `runtime.db`.
 - Structured audit events are stored in `runtime.db` and can be replayed with `audit-report`.
+- Use `prune-runtime-db` when you want to trim old audit events and snapshot rows from `runtime.db`.

@@ -66,6 +66,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)
 
+    prune_runtime_db_parser = subparsers.add_parser("prune-runtime-db")
+    prune_runtime_db_parser.add_argument("--runtime-db-file", required=True)
+    prune_runtime_db_parser.add_argument("--audit-retention-days", type=int, default=30)
+    prune_runtime_db_parser.add_argument("--snapshot-retention-days", type=int, default=7)
+
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")
     dashboard_parser.add_argument("--port", type=int, default=8080)

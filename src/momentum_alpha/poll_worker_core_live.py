@@ -15,6 +15,7 @@ from momentum_alpha.reconciliation import (
 )
 from momentum_alpha.runtime_store import RuntimeStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
+from momentum_alpha.structured_log import emit_structured_log
 from momentum_alpha.telemetry import (
     _build_market_context_payloads,
     _build_snapshot_market_context_payload,
@@ -43,6 +44,7 @@ def run_once_live(
     market_data_cache: LiveMarketDataCache | None = None,
     audit_recorder: AuditRecorder | None = None,
     last_add_on_hour: int | None = None,
+    logger: object | None = None,
 ) -> RunOnceResult:
     position_side: str | None = None
     fetch_position_mode = getattr(client, "fetch_position_mode", None)
@@ -155,7 +157,16 @@ def run_once_live(
                 )
                 stop_replacement_failures = list(getattr(broker, "last_stop_replacement_failures", []) or [])
             except Exception as exc:
-                print(f"stop replacement failed: {exc}")
+                if logger is not None:
+                    emit_structured_log(
+                        logger,
+                        service="poll",
+                        event="stop-replacement-failed",
+                        level="ERROR",
+                        error=str(exc),
+                    )
+                else:
+                    print(f"stop replacement failed: {exc}")
     broker_responses: list[dict] = []
     if submit_orders:
         broker_responses = broker.submit_execution_plan(result.execution_plan)

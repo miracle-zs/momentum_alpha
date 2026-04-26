@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from momentum_alpha.poll_worker import run_forever as _default_run_forever, run_once_live as _default_run_once_live
 from momentum_alpha.stream_worker import run_user_stream as _default_run_user_stream
 from momentum_alpha.structured_log import emit_structured_log
@@ -70,14 +72,15 @@ def poll_command(
         explicit_path=args.runtime_db_file,
     )
     runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
+    poll_logger = logging.getLogger("momentum_alpha.poll")
     audit_recorder = _build_audit_recorder(
         runtime_db_path=runtime_db_path,
         source="poll",
-        error_logger=print,
+        error_logger=poll_logger.error,
     )
     mode = "LIVE" if args.submit_orders else "DRY_RUN"
     emit_structured_log(
-        print,
+        poll_logger,
         service="poll",
         event="start",
         mode=mode,
@@ -95,6 +98,7 @@ def poll_command(
         client_factory=lambda: _build_client_from_factory(client_factory=client_factory, testnet=use_testnet),
         broker_factory=broker_factory,
         now_provider=now_provider,
+        logger=poll_logger,
         restore_positions=args.restore_positions,
         execute_stop_replacements=args.execute_stop_replacements,
         max_ticks=args.max_ticks,
@@ -120,11 +124,12 @@ def user_stream_command(
         explicit_path=args.runtime_db_file,
     )
     runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
-    emit_structured_log(print, service="user-stream", event="start", testnet=use_testnet)
+    stream_logger = logging.getLogger("momentum_alpha.user_stream")
+    emit_structured_log(stream_logger, service="user-stream", event="start", testnet=use_testnet)
     return run_user_stream_fn(
         client=client,
         testnet=use_testnet,
-        logger=print,
+        logger=stream_logger,
         runtime_state_store=runtime_state_store,
         runtime_db_path=runtime_db_path,
         reconnect_on_stream_end=True,

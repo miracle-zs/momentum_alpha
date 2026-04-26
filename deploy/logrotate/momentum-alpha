@@ -1,4 +1,5 @@
-/root/momentum_alpha/var/log/momentum-alpha.log /root/momentum_alpha/var/log/momentum-alpha-user-stream.log /root/momentum_alpha/var/log/momentum-alpha-user-stream-healthcheck.log /root/momentum_alpha/var/log/momentum-alpha-dashboard.log {
+# Rendered by scripts/install_logrotate.sh for the current service home.
+__SERVICE_ROOT__/var/log/momentum-alpha.log __SERVICE_ROOT__/var/log/momentum-alpha-user-stream.log __SERVICE_ROOT__/var/log/momentum-alpha-user-stream-healthcheck.log __SERVICE_ROOT__/var/log/momentum-alpha-dashboard.log __SERVICE_ROOT__/var/log/momentum-alpha-rebuild-trade-analytics.log __SERVICE_ROOT__/var/log/momentum-alpha-daily-review-report.log {
     daily
     rotate 14
     compress

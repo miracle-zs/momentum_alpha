@@ -27,6 +27,7 @@ class CliSplitTests(unittest.TestCase):
         self.assertTrue(callable(cli_commands_ops.run_ops_commands))
         self.assertTrue(callable(cli_commands_ops.backfill_account_flows_command))
         self.assertTrue(callable(cli_commands_ops.rebuild_trade_analytics_command))
+        self.assertTrue(callable(cli_commands_ops.prune_runtime_db_command))
         self.assertTrue(callable(cli_commands_ops.dashboard_command))
 
 

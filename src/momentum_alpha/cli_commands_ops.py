@@ -4,13 +4,14 @@ import os
 from pathlib import Path
 
 from momentum_alpha.dashboard import run_dashboard_server
-from momentum_alpha.runtime_store import rebuild_trade_analytics
+from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analytics
 
 from .cli_backfill import backfill_account_flows
 from .cli_backfill import backfill_binance_user_trades
 from .cli_env import (
     _build_client_from_factory,
     _parse_cli_datetime,
+    _require_runtime_db_path,
     load_runtime_settings_from_env,
     resolve_runtime_db_path,
 )
@@ -77,6 +78,32 @@ def rebuild_trade_analytics_command(
     return 0
 
 
+def prune_runtime_db_command(
+    *,
+    parser,
+    args,
+    now_provider,
+    prune_runtime_db_fn=prune_runtime_db,
+) -> int:
+    runtime_db_path = _require_runtime_db_path(
+        parser=parser,
+        command=args.command,
+        explicit_path=args.runtime_db_file,
+    )
+    summary = prune_runtime_db_fn(
+        path=runtime_db_path,
+        now=now_provider(),
+        audit_retention_days=args.audit_retention_days,
+        snapshot_retention_days=args.snapshot_retention_days,
+    )
+    print(f"audit_cutoff={summary['audit_cutoff']}")
+    print(f"snapshot_cutoff={summary['snapshot_cutoff']}")
+    print(f"audit_events_deleted={summary['audit_events_deleted']}")
+    print(f"position_snapshots_deleted={summary['position_snapshots_deleted']}")
+    print(f"account_snapshots_deleted={summary['account_snapshots_deleted']}")
+    return 0
+
+
 def dashboard_command(
     *,
     parser,
@@ -110,6 +137,7 @@ def run_ops_commands(
     backfill_account_flows_fn=backfill_account_flows,
     backfill_binance_user_trades_fn=backfill_binance_user_trades,
     rebuild_trade_analytics_fn=rebuild_trade_analytics,
+    prune_runtime_db_fn=prune_runtime_db,
     **_unused,
 ) -> int | None:
     if args.command == "backfill-account-flows":
@@ -132,6 +160,13 @@ def run_ops_commands(
             parser=parser,
             args=args,
             rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
+        )
+    if args.command == "prune-runtime-db":
+        return prune_runtime_db_command(
+            parser=parser,
+            args=args,
+            now_provider=now_provider,
+            prune_runtime_db_fn=prune_runtime_db_fn,
         )
     if args.command == "dashboard":
         return dashboard_command(
