@@ -286,6 +286,31 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("UTC+8 08:30 to UTC+8 08:30 trading window", html)
         self.assertNotIn("Closed Trade Detail", html)
 
+    def test_system_room_renders_console_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["warnings"] = ["account snapshot stale"]
+        html = render_dashboard_html(
+            snapshot,
+            active_room="system",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "系统状态室",
+            "SYSTEM DIAGNOSTICS",
+            "ACTIVE WARNINGS",
+            "SYSTEM HEALTH",
+            "SYSTEM CONFIG",
+            "RECENT EVENTS",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re
