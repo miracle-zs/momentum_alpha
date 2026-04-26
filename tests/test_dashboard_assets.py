@@ -19,6 +19,23 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("render_dashboard_styles", dashboard_assets.render_dashboard_head())
         self.assertIn("ACCOUNT_METRIC_STORAGE_KEY", dashboard_assets.render_dashboard_scripts())
 
+    def test_dashboard_styles_include_complete_live_room_redesign_hooks(self) -> None:
+        from momentum_alpha.dashboard_assets import render_dashboard_styles
+
+        css = render_dashboard_styles()
+        for selector in (
+            ".live-redesign-frame",
+            ".live-priority-band",
+            ".live-signal-stack",
+            ".live-work-surface",
+            ".live-position-workbench",
+            ".live-execution-pulse",
+            ".live-confirmation-grid",
+        ):
+            self.assertIn(selector, css)
+        self.assertIn("@media (max-width: 1200px)", css)
+        self.assertIn(".live-work-surface", css)
+
 
 if __name__ == "__main__":
     unittest.main()

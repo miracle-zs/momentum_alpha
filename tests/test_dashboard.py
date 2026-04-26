@@ -188,6 +188,129 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_live_room_renders_complete_redesign_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="live",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "实时监控室",
+            "ACCOUNT RISK",
+            "CORE LIVE LINES",
+            "ACTIVE SIGNAL",
+            "Deployment Guardrails",
+            "Sequence Monitor",
+            "ACTIVE POSITIONS",
+            "ORDER FLOW",
+            "HOME COMMAND",
+            "EQUITY",
+            "TODAY NET PNL",
+            "OPEN RISK / EQUITY",
+            "SYSTEM HEALTH",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+        self.assertIn("live-redesign-frame", html)
+        self.assertIn("live-priority-band", html)
+        self.assertIn("live-work-surface", html)
+
+    def test_live_room_redesign_preserves_existing_live_content(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="live",
+            account_range_key="1W",
+        )
+        for label in (
+            "?room=live&range=1W",
+            "?room=review&range=1W",
+            "?room=system&range=1W",
+            "POSITION SUMMARY",
+            "ACCOUNT PULSE",
+            "NEXT ACTIONS",
+            "Latest Broker Action",
+            "Latest Stop Order",
+            "Latest Fill",
+            "Latest Stop Exit",
+        ):
+            self.assertIn(label, html)
+        self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
+        self.assertNotIn("SYSTEM OPERATIONS", html)
+
+    def test_review_overview_renders_table_first_redesign_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="review",
+            review_view="overview",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "总体复盘",
+            "每日复盘",
+            "TRADE REVIEW SUMMARY",
+            "Closed Trade Detail",
+            "By Total Leg Count",
+            "By Leg Index",
+            "Stop Slippage Analysis",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+
+    def test_daily_review_renders_inside_review_room(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="review",
+            review_view="daily",
+            account_range_key="1D",
+        )
+        self.assertIn('data-dashboard-review-view-content="daily"', html)
+        self.assertIn("daily-review-frame", html)
+        self.assertIn("总体复盘", html)
+        self.assertIn("每日复盘", html)
+        self.assertIn("UTC+8 08:30 to UTC+8 08:30 trading window", html)
+        self.assertNotIn("Closed Trade Detail", html)
+
+    def test_system_room_renders_console_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["warnings"] = ["account snapshot stale"]
+        html = render_dashboard_html(
+            snapshot,
+            active_room="system",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "系统状态室",
+            "SYSTEM DIAGNOSTICS",
+            "ACTIVE WARNINGS",
+            "SYSTEM HEALTH",
+            "SYSTEM CONFIG",
+            "RECENT EVENTS",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re
