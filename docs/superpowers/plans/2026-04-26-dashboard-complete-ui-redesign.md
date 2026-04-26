@@ -78,10 +78,13 @@ Add this test method to `DashboardTests` in `tests/test_dashboard.py`:
         ]
         last_index = -1
         for label in expected_order:
-            index = html.find(label)
+            index = html.find(label, last_index + 1)
             self.assertNotEqual(index, -1, label)
             self.assertGreater(index, last_index, label)
             last_index = index
+        self.assertIn("live-redesign-frame", html)
+        self.assertIn("live-priority-band", html)
+        self.assertIn("live-work-surface", html)
 ```
 
 - [ ] **Step 2: Run the focused test and verify it fails**
