@@ -188,6 +188,39 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_live_room_renders_complete_redesign_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="live",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "实时监控室",
+            "ACCOUNT RISK",
+            "CORE LIVE LINES",
+            "ACTIVE SIGNAL",
+            "Deployment Guardrails",
+            "Sequence Monitor",
+            "ACTIVE POSITIONS",
+            "ORDER FLOW",
+            "HOME COMMAND",
+            "EQUITY",
+            "TODAY NET PNL",
+            "OPEN RISK / EQUITY",
+            "SYSTEM HEALTH",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+        self.assertIn("live-redesign-frame", html)
+        self.assertIn("live-priority-band", html)
+        self.assertIn("live-work-surface", html)
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re
