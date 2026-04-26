@@ -15,6 +15,7 @@ def _render_dashboard_responsive_styles() -> str:
       .bottom-row { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .live-decision-grid { grid-template-columns: 1fr; }
+      .live-work-surface { grid-template-columns: 1fr; }
       .system-console-grid { grid-template-columns: 1fr; }
       .review-analysis-evidence-grid { grid-template-columns: 1fr; }
       .review-summary-ribbon { flex-direction: column; align-items: flex-start; }
@@ -54,7 +55,9 @@ def _render_dashboard_responsive_styles() -> str:
       .live-account-risk-grid { grid-template-columns: 1fr; }
       .live-core-lines-grid { grid-template-columns: 1fr; }
       .live-decision-grid,
+      .live-work-surface,
       .system-console-grid { grid-template-columns: 1fr; }
+      .live-confirmation-grid { grid-template-columns: 1fr; }
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
       .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
       .daily-review-history-grid { grid-template-columns: 1fr 1fr; }

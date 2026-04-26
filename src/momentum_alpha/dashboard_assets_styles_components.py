@@ -208,6 +208,23 @@ def _render_dashboard_component_styles() -> str:
     .review-analysis-card { display: flex; flex-direction: column; gap: 10px; }
     .review-section-label { font-size: 0.68rem; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
     .live-control-frame { display: flex; flex-direction: column; gap: 16px; }
+    .live-redesign-frame {
+      gap: 18px;
+    }
+    .live-room-topbar {
+      margin-bottom: 2px;
+    }
+    .live-room-title {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+    .live-room-subtitle {
+      margin-top: 4px;
+      color: var(--fg-muted);
+      font-size: 0.72rem;
+      line-height: 1.5;
+    }
     .live-risk-band,
     .live-core-lines-band,
     .live-signal-band,
@@ -217,6 +234,13 @@ def _render_dashboard_component_styles() -> str:
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: linear-gradient(180deg, rgba(245,210,138,0.05), rgba(0,0,0,0.16));
+    }
+    .live-priority-band {
+      border-color: rgba(245,210,138,0.24);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(245,210,138,0.12), transparent 34%),
+        linear-gradient(180deg, rgba(245,210,138,0.08), rgba(0,0,0,0.2));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
     }
     .live-core-lines-band {
       background: linear-gradient(180deg, rgba(245,210,138,0.08), rgba(0,0,0,0.2));
@@ -235,6 +259,9 @@ def _render_dashboard_component_styles() -> str:
     .live-signal-band {
       background: linear-gradient(180deg, rgba(74,201,240,0.06), rgba(0,0,0,0.14));
     }
+    .live-signal-stack .hero-grid {
+      margin-bottom: 0;
+    }
     .live-command-band {
       background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.12));
     }
@@ -243,9 +270,25 @@ def _render_dashboard_component_styles() -> str:
     }
     .live-metrics-grid { margin-bottom: 0; }
     .live-decision-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr); gap: 16px; align-items: start; }
+    .live-work-surface {
+      align-items: stretch;
+    }
     .live-decision-main { min-width: 0; }
     .live-decision-side { min-width: 0; }
     .live-card-shell { margin-bottom: 0; }
+    .live-position-workbench {
+      min-height: 100%;
+      border-color: rgba(245,210,138,0.16);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.035), rgba(0,0,0,0.18));
+    }
+    .live-execution-pulse .execution-flow-panel {
+      height: 100%;
+      margin-bottom: 0;
+    }
+    .live-confirmation-grid {
+      margin-top: 0;
+    }
     .live-ops-grid { display: grid; grid-template-columns: 1fr 0.95fr; gap: 16px; align-items: start; }
     .system-analysis-shell { display: flex; flex-direction: column; gap: 16px; }
     .system-summary-strip { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: linear-gradient(180deg, rgba(138,210,255,0.06), rgba(0,0,0,0.16)); }
