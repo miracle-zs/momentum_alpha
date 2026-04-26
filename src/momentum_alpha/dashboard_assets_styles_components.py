@@ -11,6 +11,8 @@ def _render_dashboard_component_styles() -> str:
     .chart-svg, .bar-svg, .timeline-svg, .pie-svg { width: 100%; height: auto; display: block; }
     .chart-svg .grid-line { stroke: rgba(100,130,170,0.1); stroke-width: 1; }
     .chart-svg .axis-label { font-size: 9px; fill: var(--fg-muted); }
+    .chart-svg .x-axis-line { stroke: rgba(180,200,230,0.28); stroke-width: 1; }
+    .chart-svg .x-axis-label { font-size: 9px; fill: var(--fg-muted); }
     .chart-svg .chart-dot { filter: drop-shadow(0 0 4px currentColor); }
     .chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 160px; color: var(--fg-muted); font-size: 0.85rem; gap: 8px; }
     .chart-empty-icon { font-size: 2rem; opacity: 0.3; }

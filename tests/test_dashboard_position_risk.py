@@ -120,6 +120,41 @@ class DashboardPositionRiskTests(unittest.TestCase):
         x_values = [float(pair.split(",")[0]) for pair in match.group(1).split()]
         self.assertLess(x_values[1] - x_values[0], x_values[2] - x_values[1])
 
+    def test_build_live_core_lines_panel_renders_x_axis_for_each_chart(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _build_live_core_lines_panel
+
+        html = _build_live_core_lines_panel(
+            [
+                {
+                    "timestamp": "2026-04-15T08:48:00+00:00",
+                    "equity": 100.0,
+                    "margin_usage_pct": 0.0,
+                    "position_count": 0,
+                    "open_risk": 0.0,
+                },
+                {
+                    "timestamp": "2026-04-15T08:49:00+00:00",
+                    "equity": 101.0,
+                    "margin_usage_pct": 0.2,
+                    "position_count": 1,
+                    "open_risk": 0.5,
+                },
+                {
+                    "timestamp": "2026-04-15T08:50:00+00:00",
+                    "equity": 102.0,
+                    "margin_usage_pct": 0.4,
+                    "position_count": 2,
+                    "open_risk": 0.9,
+                },
+            ]
+        )
+
+        self.assertEqual(html.count("class='x-axis-line'"), 4)
+        self.assertEqual(html.count("class='x-axis-label'"), 12)
+        self.assertIn(">16:48<", html)
+        self.assertIn(">16:49<", html)
+        self.assertIn(">16:50<", html)
+
     def test_render_line_chart_svg_uses_integer_axis_for_position_count(self) -> None:
         from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
 

@@ -52,6 +52,7 @@ def _render_line_chart_svg(
     chart_width = width - pad_x * 2
     chart_height = height - pad_y * 2
     axis_magnitude = max(abs(min_value), abs(max_value), spread)
+    original_value_count = len(chart_values)
 
     def _format_axis_value(value: float) -> str:
         if integer_axis:
@@ -84,12 +85,21 @@ def _render_line_chart_svg(
 
     timestamp_mode = bool(domain_timestamps) and len(domain_timestamps) == len(points)
     coordinates: list[tuple[float, float]] = []
+    x_axis_ticks: list[tuple[float, str]] = []
     if timestamp_mode:
-        min_timestamp = min(domain_timestamps)
-        max_timestamp = max(domain_timestamps)
-        if min_timestamp == max_timestamp:
-            min_timestamp -= timedelta(seconds=30)
-            max_timestamp += timedelta(seconds=30)
+        raw_min_timestamp = min(domain_timestamps)
+        raw_max_timestamp = max(domain_timestamps)
+        min_timestamp = raw_min_timestamp
+        max_timestamp = raw_max_timestamp
+        if raw_min_timestamp == raw_max_timestamp:
+            min_timestamp = raw_min_timestamp - timedelta(seconds=30)
+            max_timestamp = raw_max_timestamp + timedelta(seconds=30)
+            x_axis_ticks = [(pad_x + (chart_width / 2), _format_time_short(raw_min_timestamp.isoformat()))]
+        else:
+            timestamp_range = raw_max_timestamp - raw_min_timestamp
+            for factor in (0.0, 0.5, 1.0):
+                tick_timestamp = raw_min_timestamp + (timestamp_range * factor)
+                x_axis_ticks.append((pad_x + (chart_width * factor), _format_time_short(tick_timestamp.isoformat())))
         timestamp_spread = max((max_timestamp - min_timestamp).total_seconds(), 1e-9)
         for point in points:
             value = point.get(value_key)
@@ -110,6 +120,12 @@ def _render_line_chart_svg(
             x = pad_x + (chart_width * index / max(len(values) - 1, 1))
             y = pad_y + chart_height - (((value - min_value) / spread) * chart_height)
             coordinates.append((x, y))
+        if original_value_count <= 1:
+            x_axis_ticks = [(pad_x + (chart_width / 2), "1")]
+        else:
+            for factor in (0.0, 0.5, 1.0):
+                label = str(int(round((original_value_count - 1) * factor)) + 1)
+                x_axis_ticks.append((pad_x + (chart_width * factor), label))
     polyline = " ".join(f"{x:.2f},{y:.2f}" for x, y in coordinates)
     area = " ".join([f"{coordinates[0][0]:.2f},{height - pad_y:.2f}", polyline, f"{coordinates[-1][0]:.2f},{height - pad_y:.2f}"])
     grid_lines = ""
@@ -124,6 +140,9 @@ def _render_line_chart_svg(
     for val in tick_values:
         y = pad_y + chart_height - (((val - min_value) / spread) * chart_height)
         y_labels += f"<text x='{pad_x - 8}' y='{y + 4:.2f}' class='axis-label' text-anchor='end'>{_format_axis_value(val)}</text>"
+    x_axis = f"<line x1='{pad_x}' y1='{height - pad_y}' x2='{width - pad_x}' y2='{height - pad_y}' class='x-axis-line'/>"
+    for x, label in x_axis_ticks:
+        x_axis += f"<text x='{x:.2f}' y='{height - 5}' class='x-axis-label' text-anchor='middle'>{escape(label)}</text>"
     dots = ""
     for x, y in coordinates[-3:]:
         dots += f"<circle cx='{x:.2f}' cy='{y:.2f}' r='4' fill='{stroke}' class='chart-dot'/>"
@@ -131,8 +150,9 @@ def _render_line_chart_svg(
         f"<svg viewBox='0 0 {width} {height}' class='chart-svg' role='img' aria-label='{escape(value_key)} chart'>"
         f"<defs><linearGradient id='grad-{escape(value_key)}' x1='0%' y1='0%' x2='0%' y2='100%'>"
         f"<stop offset='0%' stop-color='{stroke}' stop-opacity='0.3'/><stop offset='100%' stop-color='{stroke}' stop-opacity='0.02'/></linearGradient></defs>"
-        f"{grid_lines}{y_labels}"
+        f"{grid_lines}"
         f"<polygon points='{area}' fill='url(#grad-{escape(value_key)})'></polygon>"
+        f"{y_labels}{x_axis}"
         f"<polyline points='{polyline}' fill='none' stroke='{stroke}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'></polyline>"
         f"{dots}"
         f"</svg>"
