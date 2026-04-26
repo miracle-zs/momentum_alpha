@@ -270,6 +270,22 @@ class DashboardTests(unittest.TestCase):
             self.assertGreater(index, last_index, label)
             last_index = index
 
+    def test_daily_review_renders_inside_review_room(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="review",
+            review_view="daily",
+            account_range_key="1D",
+        )
+        self.assertIn('data-dashboard-review-view-content="daily"', html)
+        self.assertIn("daily-review-frame", html)
+        self.assertIn("总体复盘", html)
+        self.assertIn("每日复盘", html)
+        self.assertIn("UTC+8 08:30 to UTC+8 08:30 trading window", html)
+        self.assertNotIn("Closed Trade Detail", html)
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re

@@ -80,7 +80,7 @@ def render_dashboard_review_tabs(active_review_view: str, *, account_range_key: 
 def render_daily_review_room(*, daily_review_html: str) -> str:
     return (
         '<div class="dashboard-tab-panel" data-dashboard-review-view-content="daily">'
-        "<section class='section-frame' data-collapsible-section='review-daily'>"
+        "<section class='section-frame daily-review-frame' data-collapsible-section='review-daily'>"
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>每日复盘</div>"

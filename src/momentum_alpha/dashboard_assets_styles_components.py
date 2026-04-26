@@ -373,6 +373,11 @@ def _render_dashboard_component_styles() -> str:
     .analytics-card { padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 14px; }
     .analytics-card-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; font-size: 0.86rem; }
     .analytics-card-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--fg-muted); font-size: 0.74rem; }
+    .daily-review-frame .section-body {
+      border-color: rgba(245,210,138,0.16);
+      background:
+        linear-gradient(180deg, rgba(245,210,138,0.04), rgba(0,0,0,0.16));
+    }
     .section-header { font-size: 0.7rem; color: var(--accent); padding: 4px 0; margin-bottom: 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.1em; }
     .config-panel { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; font-size: 0.8rem; }
     .config-row { display: flex; justify-content: space-between; padding: 4px 0; }
