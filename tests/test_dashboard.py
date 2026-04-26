@@ -245,6 +245,31 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
         self.assertNotIn("SYSTEM OPERATIONS", html)
 
+    def test_review_overview_renders_table_first_redesign_sections_in_order(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="review",
+            review_view="overview",
+            account_range_key="1D",
+        )
+        expected_order = [
+            "总体复盘",
+            "每日复盘",
+            "TRADE REVIEW SUMMARY",
+            "Closed Trade Detail",
+            "By Total Leg Count",
+            "By Leg Index",
+            "Stop Slippage Analysis",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re
