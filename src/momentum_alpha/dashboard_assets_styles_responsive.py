@@ -4,6 +4,8 @@ from __future__ import annotations
 def _render_dashboard_responsive_styles() -> str:
     return """
     @media (max-width: 1200px) {
+      .terminal-topbar { position: relative; grid-template-columns: 1fr; }
+      .top-room-nav .dashboard-tab { min-height: 48px; }
       .cosmic-identity-panel { grid-template-columns: 1fr; }
       .cosmic-identity-grid { grid-template-columns: 1fr; }
       .cosmic-visual-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -25,6 +27,7 @@ def _render_dashboard_responsive_styles() -> str:
       .system-summary-head { flex-direction: column; align-items: flex-start; }
       .system-summary-copy { max-width: none; text-align: left; }
       .system-summary-strip .decision-grid { grid-template-columns: 1fr; }
+      .system-diagnostics-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .system-health-path { width: 100%; }
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
@@ -38,6 +41,12 @@ def _render_dashboard_responsive_styles() -> str:
     @media (max-width: 768px) {
       .app { padding: 12px; }
       .app-shell { padding: 18px; border-radius: 18px; }
+      .terminal-topbar { margin: -6px -6px 12px; padding: 6px; gap: 8px; }
+      .top-room-nav .dashboard-tabs { flex-direction: column; }
+      .top-room-nav .dashboard-tab { flex: 1 1 auto; min-height: 42px; }
+      .operator-toolbar { align-items: stretch; }
+      .operator-toolbar .status-line,
+      .operator-toolbar .action-button { width: 100%; justify-content: center; }
       .cosmic-identity-panel { padding: 16px; }
       .cosmic-identity-title { font-size: 2rem; letter-spacing: 0.14em; }
       .cosmic-visual-tiles { grid-template-columns: 1fr; }
@@ -67,6 +76,7 @@ def _render_dashboard_responsive_styles() -> str:
       .account-overview-grid { grid-template-columns: 1fr; }
       .account-snapshot-grid { grid-template-columns: 1fr; }
       .execution-flow-grid { grid-template-columns: 1fr; }
+      .system-diagnostics-grid { grid-template-columns: 1fr; }
       .desktop-only { display: none; }
       .mobile-only { display: block; }
       .analytics-table.desktop-only { display: none; }

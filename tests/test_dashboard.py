@@ -221,6 +221,57 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("live-priority-band", html)
         self.assertIn("live-work-surface", html)
 
+    def test_dashboard_shell_places_room_navigation_in_terminal_topbar(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="live",
+            account_range_key="1D",
+        )
+
+        expected_order = [
+            "terminal-topbar",
+            "header-left",
+            "top-room-nav",
+            'data-dashboard-section="room-nav"',
+            "header-status",
+            "operator-toolbar",
+        ]
+        last_index = -1
+        for label in expected_order:
+            index = html.find(label, last_index + 1)
+            self.assertNotEqual(index, -1, label)
+            self.assertGreater(index, last_index, label)
+            last_index = index
+
+    def test_redesigned_pages_expose_page_specific_layout_surfaces(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        snapshot = self._build_tabbed_snapshot()
+
+        live_html = render_dashboard_html(snapshot, active_room="live")
+        self.assertIn('data-ui-redesign-page="live"', live_html)
+        self.assertIn("live-cockpit-grid", live_html)
+        self.assertIn("live-command-deck", live_html)
+
+        review_html = render_dashboard_html(snapshot, active_room="review", review_view="overview")
+        self.assertIn('data-ui-redesign-page="review-overview"', review_html)
+        self.assertIn("review-command-bar", review_html)
+        self.assertIn("review-ledger-card", review_html)
+        self.assertIn("review-evidence-deck", review_html)
+
+        daily_html = render_dashboard_html(snapshot, active_room="review", review_view="daily")
+        self.assertIn('data-ui-redesign-page="daily-review"', daily_html)
+        self.assertIn("daily-room-command-strip", daily_html)
+        self.assertIn("daily-review-board", daily_html)
+
+        system_html = render_dashboard_html(snapshot, active_room="system")
+        self.assertIn('data-ui-redesign-page="system-status"', system_html)
+        self.assertIn("system-diagnostics-grid", system_html)
+        self.assertIn("system-diagnostic-card", system_html)
+        self.assertIn("system-event-console", system_html)
+
     def test_live_room_redesign_preserves_existing_live_content(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
@@ -3267,7 +3318,7 @@ console.log(JSON.stringify(cases));
         self.assertLess(html.index("OPEN RISK / EQUITY"), html.index("Today Net PnL"))
         self.assertLess(html.index("Position Count"), html.index("Open Risk"))
 
-    def test_render_dashboard_html_uses_two_column_live_core_lines_grid(self) -> None:
+    def test_render_dashboard_html_uses_four_column_live_core_lines_grid(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
         html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
@@ -3278,7 +3329,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("Open Risk", html)
         self.assertLess(html.index("Position Count"), html.index("Open Risk"))
         self.assertIn(
-            ".live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }",
+            ".live-core-lines-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }",
             html,
         )
         self.assertIn(".live-core-lines-grid { grid-template-columns: 1fr; }", html)

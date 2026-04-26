@@ -196,7 +196,7 @@ def render_dashboard_shell(
         "<body>"
         "<div class='app'>"
         "<div class='app-shell'>"
-        "<header class='header'>"
+        "<header class='header terminal-topbar'>"
         "<div class='header-left'>"
         "<div class='logo'>M</div>"
         "<div class='title-group'>"
@@ -204,18 +204,18 @@ def render_dashboard_shell(
         "<p>Leader Rotation Strategy · Real-time Trading Monitor</p>"
         "</div>"
         "</div>"
+        f"<div class='top-room-nav'>{room_nav_html}</div>"
         "<div class='header-status' data-dashboard-section='status'>"
         f"<div class='mode-badge {escape(execution_mode_state)}'>{escape(execution_mode_label)}</div>"
         f"<div class='status-badge {'ok' if health_status == 'OK' else 'fail'}'>{escape(health_status)}</div>"
         "</div>"
         "</header>"
-        "<div class='toolbar' data-dashboard-section='toolbar'>"
+        "<div class='toolbar operator-toolbar' data-dashboard-section='toolbar'>"
         f"<div class='status-line'>Last update <strong id='last-updated-text'>{escape(format_timestamp_for_display(latest_update_display))}</strong></div>"
         "<div class='status-line'>Auto refresh 5s</div>"
         "<div class='toolbar-spacer'></div>"
         "<button type='button' class='action-button' id='manual-refresh-button'>MANUAL REFRESH</button>"
         "</div>"
-        f"{room_nav_html}"
         f"<div class='dashboard-tab-shell' data-dashboard-active-room='{active_room}'>{room_content_html}</div>"
         "</div>"
         "</div>"
@@ -345,15 +345,32 @@ def render_dashboard_body(
         for item in snapshot["health"]["items"]
     )
     warnings = snapshot.get("warnings", [])
+    system_diagnostic_items = [
+        ("Health Status", str(health_status), "All Systems Normal" if health_status == "OK" else "Inspect failed checks"),
+        ("Data Freshness", format_timestamp_for_display(latest_update_display), "Latest dashboard event"),
+        ("Warning Count", str(len(warnings)), "Active warnings"),
+        ("Runtime DB", str(runtime_db_path_display or "n/a"), "Persistence source"),
+        ("Health Checks", str(len(snapshot["health"]["items"])), "Tracked services"),
+        ("Action Events", str(len(recent_events)), "Recent runtime events"),
+        ("Execution Mode", execution_mode_label, "Current deployment guard"),
+        ("Submit Orders", "ON" if config.get("submit_orders") else "OFF", "Order submission switch"),
+    ]
     diagnostics_html = (
         "<div class='dashboard-section system-diagnostics-panel section-body'>"
         "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
-        "</div>"
-        "</div>"
+        "<div class='system-diagnostics-grid'>"
+        + "".join(
+            (
+                "<div class='system-diagnostic-card'>"
+                f"<div class='system-diagnostic-label'>{escape(label)}</div>"
+                f"<div class='system-diagnostic-value'>{escape(value)}</div>"
+                f"<div class='system-diagnostic-sub'>{escape(support)}</div>"
+                "</div>"
+            )
+            for label, value, support in system_diagnostic_items
+        )
+        + "</div>"
+        + "</div>"
     )
     warning_list_html = (
         "<div class='dashboard-section system-warning-panel section-body'>"

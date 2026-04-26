@@ -12,8 +12,8 @@ def render_dashboard_live_room(
     execution_flow_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-room-content="live">'
-        "<section class='section-frame live-control-frame live-redesign-frame'>"
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="live" data-ui-redesign-page="live">'
+        "<section class='section-frame live-control-frame live-redesign-frame live-cockpit-grid'>"
         "<div class='section-topbar live-room-topbar'>"
         "<div>"
         "<div class='section-header live-room-title'>实时监控室</div>"
@@ -30,7 +30,7 @@ def render_dashboard_live_room(
         "</section>"
         f"<div class='live-decision-side live-execution-pulse'>{execution_flow_html}</div>"
         "</div>"
-        f"<div class='live-command-band'>{home_command_html}</div>"
+        f"<div class='live-command-band live-command-deck'>{home_command_html}</div>"
         f"<div class='metrics-grid live-metrics-grid live-confirmation-grid' data-live-metrics-panel>{top_metrics_html}</div>"
         "</section>"
         "</div>"

@@ -14,14 +14,19 @@ def render_dashboard_performance_tab(
     stop_slippage_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-room-content="review">'
-        "<section class='section-frame' data-collapsible-section='review'>"
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="review" data-ui-redesign-page="review-overview">'
+        "<section class='section-frame review-overview-frame' data-collapsible-section='review'>"
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>复盘室</div>"
         "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Trade review analysis starts with the summary strip, then drills into trade detail and evidence tables.</div>"
         "</div>"
         "<button type='button' class='section-toggle' data-section-toggle='review'>Collapse</button>"
+        "</div>"
+        "<div class='review-command-bar'>"
+        "<div class='review-command-pill'>Range · ALL</div>"
+        "<div class='review-command-pill'>Closed lifecycle ledger</div>"
+        "<div class='review-command-pill review-command-pill-muted'>Export-ready review surface</div>"
         "</div>"
         "<div class='dashboard-section section-body review-analysis-shell'>"
         "<div class='review-summary-strip'>"
@@ -34,12 +39,12 @@ def render_dashboard_performance_tab(
         "</div>"
         "</div>"
         "<div class='review-analysis-main-row'>"
-        "<div class='chart-card review-analysis-main'>"
+        "<div class='chart-card review-analysis-main review-ledger-card'>"
         "<div class='review-section-label'>Closed Trade Detail</div>"
         f"<div class='table-scroll'>{round_trip_detail_html}</div>"
         "</div>"
         "</div>"
-        "<div class='review-analysis-evidence-grid'>"
+        "<div class='review-analysis-evidence-grid review-evidence-deck'>"
         "<div class='chart-card review-analysis-card'>"
         "<div class='review-section-label'>By Total Leg Count</div>"
         f"<div class='table-scroll'>{leg_count_aggregate_html}</div>"
@@ -79,14 +84,19 @@ def render_dashboard_review_tabs(active_review_view: str, *, account_range_key: 
 
 def render_daily_review_room(*, daily_review_html: str) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-review-view-content="daily">'
-        "<section class='section-frame daily-review-frame' data-collapsible-section='review-daily'>"
+        '<div class="dashboard-tab-panel" data-dashboard-review-view-content="daily" data-ui-redesign-page="daily-review">'
+        "<section class='section-frame daily-review-frame daily-review-board' data-collapsible-section='review-daily'>"
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>每日复盘</div>"
         "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>UTC+8 08:30 to UTC+8 08:30 trading window.</div>"
         "</div>"
         "<button type='button' class='section-toggle' data-section-toggle='review-daily'>Collapse</button>"
+        "</div>"
+        "<div class='daily-room-command-strip'>"
+        "<div class='daily-command-pill'>UTC+8 review window</div>"
+        "<div class='daily-command-pill'>Selected report workflow</div>"
+        "<div class='daily-command-pill daily-command-pill-ok'>Completed / stored report</div>"
         "</div>"
         "<div class='dashboard-section section-body'>"
         f"{daily_review_html}"

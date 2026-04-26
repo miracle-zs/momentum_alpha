@@ -36,6 +36,36 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("@media (max-width: 1200px)", css)
         self.assertIn(".live-work-surface", css)
 
+    def test_dashboard_styles_include_full_page_redesign_surfaces(self) -> None:
+        from momentum_alpha.dashboard_assets import render_dashboard_styles
+
+        css = render_dashboard_styles()
+        for selector in (
+            ".terminal-topbar",
+            ".top-room-nav",
+            ".operator-toolbar",
+            ".live-cockpit-grid",
+            ".live-command-deck",
+            ".review-command-bar",
+            ".review-ledger-card",
+            ".review-evidence-deck",
+            ".daily-room-command-strip",
+            ".daily-review-board",
+            ".system-diagnostics-grid",
+            ".system-diagnostic-card",
+            ".system-event-console",
+        ):
+            self.assertIn(selector, css)
+        self.assertIn("grid-template-columns: repeat(8, minmax(0, 1fr))", css)
+        self.assertIn("grid-template-columns: repeat(4, minmax(0, 1fr))", css)
+
+    def test_live_execution_pulse_uses_readable_card_grid(self) -> None:
+        from momentum_alpha.dashboard_assets import render_dashboard_styles
+
+        css = render_dashboard_styles()
+        self.assertIn(".live-execution-pulse .execution-flow-grid", css)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr))", css)
+
 
 if __name__ == "__main__":
     unittest.main()
