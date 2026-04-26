@@ -13,8 +13,8 @@ def render_dashboard_system_room(
     runtime_db_path_display: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-room-content="system" data-ui-redesign-page="system-status">'
-        "<section class='section-frame system-status-frame' data-collapsible-section='system'>"
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="system">'
+        "<section class='section-frame' data-collapsible-section='system'>"
         "<div class='section-topbar'>"
         "<div class='section-header'>系统状态室</div>"
         "<button type='button' class='section-toggle' data-section-toggle='system'>Collapse</button>"
@@ -41,7 +41,7 @@ def render_dashboard_system_room(
         f"{config_html}"
         "</div>"
         "</div>"
-        "<div class='chart-card system-console-events system-event-console'>"
+        "<div class='chart-card system-console-events'>"
         "<div class='section-header'>RECENT EVENTS</div>"
         "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Actions only. Poll heartbeats are filtered out.</div>"
         f"<div class='event-list' style='max-height:320px;overflow-y:auto;'>{recent_events_html}</div>"

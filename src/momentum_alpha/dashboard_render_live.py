@@ -12,27 +12,26 @@ def render_dashboard_live_room(
     execution_flow_html: str,
 ) -> str:
     return (
-        '<div class="dashboard-tab-panel" data-dashboard-room-content="live" data-ui-redesign-page="live">'
-        "<section class='section-frame live-control-frame live-redesign-frame live-cockpit-grid'>"
-        "<div class='section-topbar live-room-topbar'>"
+        '<div class="dashboard-tab-panel" data-dashboard-room-content="live">'
+        "<section class='section-frame live-control-frame'>"
+        "<div class='section-topbar'>"
         "<div>"
-        "<div class='section-header live-room-title'>实时监控室</div>"
-        "<div class='section-subtitle live-room-subtitle'>Use the cockpit to read account pressure, live trend, signal context, and execution pulse in one pass.</div>"
+        "<div class='section-header'>实时监控室</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Use the cockpit to read risk, trend, and action surface in one pass.</div>"
         "</div>"
         "</div>"
-        f"<div class='live-risk-band live-priority-band'>{account_risk_html}</div>"
+        f"<div class='live-risk-band'>{account_risk_html}</div>"
         f"<div class='live-core-lines-band'>{core_lines_html}</div>"
-        f"<div class='live-signal-band live-signal-stack'>{hero_html}</div>"
-        "<div class='live-decision-grid live-work-surface'>"
-        "<section class='dashboard-section active-positions-panel live-card-shell live-position-workbench'>"
+        f"<div class='live-signal-band'>{hero_html}</div>"
+        "<div class='live-decision-grid'>"
+        "<section class='dashboard-section active-positions-panel live-card-shell'>"
         "<div class='section-header'>ACTIVE POSITIONS</div>"
         f"{positions_html}"
         "</section>"
-        f"<div class='live-decision-side live-execution-pulse'>{execution_flow_html}</div>"
+        f"<div class='live-decision-side'>{execution_flow_html}</div>"
         "</div>"
-        f"<div class='live-command-band live-command-deck'>{home_command_html}</div>"
-        f"<div class='metrics-grid live-metrics-grid live-confirmation-grid' data-live-metrics-panel>{top_metrics_html}</div>"
-        "</section>"
+        f"<div class='live-command-band'>{home_command_html}</div>"
+        f"<div class='metrics-grid live-metrics-grid' data-live-metrics-panel>{top_metrics_html}</div>"
         "</div>"
     )
 
