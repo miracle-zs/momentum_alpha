@@ -217,7 +217,7 @@ def render_dashboard_head() -> str:
     }}
     .hero-grid {{
       display: grid;
-      grid-template-columns: 1.2fr 0.9fr 0.9fr;
+      grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
       gap: 16px;
       margin-bottom: 20px;
     }}
@@ -265,114 +265,10 @@ def render_dashboard_head() -> str:
       color: var(--fg-muted);
       margin-bottom: 16px;
     }}
-    .home-command-panel {{ padding: 20px; }}
     .active-positions-panel {{
       padding: 18px;
       border-color: rgba(0,212,255,0.22);
       background: linear-gradient(145deg, rgba(11,18,31,0.96), rgba(6,10,17,0.98));
-    }}
-    .home-command-grid {{
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 16px;
-    }}
-    .home-command-column {{
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }}
-    .home-command-card {{
-      background: rgba(0,0,0,0.2);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 16px;
-    }}
-    .home-command-card-muted {{
-      background: linear-gradient(145deg, rgba(11,19,32,0.92), rgba(10,14,24,0.88));
-    }}
-    .home-command-card-header {{
-      font-size: 0.72rem;
-      color: var(--accent);
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      margin-bottom: 14px;
-    }}
-    .home-command-stat-grid {{
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-    }}
-    .home-command-stat {{
-      padding: 14px;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.02);
-      border: 1px solid var(--border);
-    }}
-    .home-command-label {{
-      font-size: 0.68rem;
-      color: var(--fg-muted);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-    }}
-    .home-command-value {{
-      font-size: 1.02rem;
-      font-weight: 700;
-      word-break: break-word;
-    }}
-    .home-command-chip-grid {{
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
-    }}
-    .home-command-chip {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: rgba(0,212,255,0.05);
-      border: 1px solid rgba(0,212,255,0.12);
-      color: var(--fg-muted);
-      font-size: 0.76rem;
-    }}
-    .home-command-chip strong {{
-      color: var(--fg);
-      font-size: 0.92rem;
-      font-weight: 700;
-    }}
-    .next-actions-grid {{
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 12px;
-    }}
-    .next-action-card {{
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 16px;
-      border-radius: 16px;
-      text-decoration: none;
-      color: var(--fg);
-      background: linear-gradient(145deg, rgba(9,17,29,0.95), rgba(7,13,23,0.9));
-      border: 1px solid rgba(100,130,170,0.18);
-      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
-    }}
-    .next-action-card:hover {{
-      transform: translateY(-2px);
-      border-color: var(--border-accent);
-      box-shadow: 0 10px 24px rgba(0,0,0,0.22);
-    }}
-    .next-action-label {{
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--fg);
-    }}
-    .next-action-copy {{
-      font-size: 0.8rem;
-      line-height: 1.5;
-      color: var(--fg-muted);
     }}
     .toolbar {{
       display: flex;

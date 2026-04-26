@@ -5,10 +5,8 @@ def render_dashboard_live_room(
     *,
     account_risk_html: str,
     core_lines_html: str,
-    top_metrics_html: str,
     hero_html: str,
     positions_html: str,
-    home_command_html: str,
     execution_flow_html: str,
 ) -> str:
     return (
@@ -17,7 +15,6 @@ def render_dashboard_live_room(
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>实时监控室</div>"
-        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>Use the cockpit to read risk, trend, and action surface in one pass.</div>"
         "</div>"
         "</div>"
         f"<div class='live-risk-band'>{account_risk_html}</div>"
@@ -30,8 +27,6 @@ def render_dashboard_live_room(
         "</section>"
         f"<div class='live-decision-side'>{execution_flow_html}</div>"
         "</div>"
-        f"<div class='live-command-band'>{home_command_html}</div>"
-        f"<div class='metrics-grid live-metrics-grid' data-live-metrics-panel>{top_metrics_html}</div>"
         "</div>"
     )
 
@@ -39,19 +34,15 @@ def render_dashboard_overview_tab(
     *,
     account_risk_html: str,
     core_lines_html: str,
-    top_metrics_html: str,
     hero_html: str,
     positions_html: str,
-    home_command_html: str,
     execution_flow_html: str,
 ) -> str:
     return render_dashboard_live_room(
         account_risk_html=account_risk_html,
         core_lines_html=core_lines_html,
-        top_metrics_html=top_metrics_html,
         hero_html=hero_html,
         positions_html=positions_html,
-        home_command_html=home_command_html,
         execution_flow_html=execution_flow_html,
     )
 

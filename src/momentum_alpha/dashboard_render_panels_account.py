@@ -117,6 +117,17 @@ def _build_live_account_risk_panel(
     account_range_stats: dict[str, float | None],
 ) -> str:
     account_metrics = trader_metrics["account"]
+    try:
+        open_risk_pct = float(account_metrics.get("open_risk_pct"))
+    except (TypeError, ValueError):
+        open_risk_state = ""
+    else:
+        if open_risk_pct > 60:
+            open_risk_state = " danger"
+        elif open_risk_pct >= 30:
+            open_risk_state = " warning"
+        else:
+            open_risk_state = ""
     return (
         "<section class='dashboard-section live-account-risk-panel'>"
         "<div class='section-header'>ACCOUNT RISK</div>"
@@ -124,7 +135,7 @@ def _build_live_account_risk_panel(
         f"<div class='decision-item'><div class='decision-label'>Equity</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_equity')))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Available Balance</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_available_balance')))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Margin Usage</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('margin_usage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>OPEN RISK / EQUITY</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('open_risk_pct')))}</div><div class='decision-support'>{escape(_format_metric(account_metrics.get('open_risk')))} USDT at risk</div></div>"
+        f"<div class='decision-item{open_risk_state}'><div class='decision-label'>OPEN RISK / EQUITY</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('open_risk_pct')))}</div><div class='decision-support'>{escape(_format_metric(account_metrics.get('open_risk')))} USDT at risk</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Today Net PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('today_net_pnl'), signed=True))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Unrealized PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_unrealized_pnl'), signed=True))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct_value(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"

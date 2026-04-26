@@ -25,7 +25,6 @@ from .dashboard_render_panels import (
     _build_execution_flow_panel,
     _build_live_account_risk_panel,
     _build_live_core_lines_panel,
-    _build_overview_home_command,
     render_daily_review_panel,
 )
 from .dashboard_render_review import (

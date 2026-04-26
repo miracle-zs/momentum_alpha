@@ -45,13 +45,11 @@ class DashboardRenderSplitTests(unittest.TestCase):
         from momentum_alpha import (
             dashboard_render_panels_account,
             dashboard_render_panels_execution,
-            dashboard_render_panels_overview,
             dashboard_render_panels_review,
         )
 
         self.assertTrue(callable(dashboard_render_panels_account._build_account_metrics_panel))
         self.assertTrue(callable(dashboard_render_panels_account._build_live_core_lines_panel))
-        self.assertTrue(callable(dashboard_render_panels_overview._build_overview_home_command))
         self.assertTrue(callable(dashboard_render_panels_execution._build_execution_flow_panel))
         self.assertTrue(callable(dashboard_render_panels_review.render_daily_review_panel))
 

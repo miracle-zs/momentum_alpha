@@ -9,7 +9,6 @@ def _render_dashboard_responsive_styles() -> str:
       .cosmic-visual-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .metrics-grid { grid-template-columns: repeat(2, 1fr); }
       .hero-grid { grid-template-columns: 1fr; }
-      .home-command-grid { grid-template-columns: 1fr; }
       .charts-row { grid-template-columns: 1fr; }
       .decision-row { grid-template-columns: 1fr; }
       .bottom-row { grid-template-columns: 1fr; }
@@ -46,8 +45,6 @@ def _render_dashboard_responsive_styles() -> str:
       .dashboard-tabs { padding: 8px; gap: 8px; }
       .dashboard-tab { flex: 1 1 calc(50% - 8px); min-width: 0; }
       .decision-grid { grid-template-columns: 1fr; }
-      .home-command-stat-grid,
-      .home-command-chip-grid { grid-template-columns: 1fr; }
       .positions-grid { grid-template-columns: 1fr; }
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }

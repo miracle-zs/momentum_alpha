@@ -47,6 +47,8 @@ def _render_dashboard_component_styles() -> str:
     .health-msg { font-size: 0.75rem; color: var(--fg-muted); }
     .decision-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .decision-item { background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; }
+    .decision-item.warning { border-color: rgba(255,184,0,0.35); box-shadow: 0 0 0 1px rgba(255,184,0,0.08); }
+    .decision-item.danger { border-color: rgba(255,68,102,0.38); box-shadow: 0 0 0 1px rgba(255,68,102,0.1); }
     .decision-label { font-size: 0.68rem; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
     .decision-value { font-size: 1rem; font-weight: 600; word-break: break-word; }
     .signal-breakdown { display: flex; flex-direction: column; gap: 8px; }
@@ -210,8 +212,7 @@ def _render_dashboard_component_styles() -> str:
     .live-control-frame { display: flex; flex-direction: column; gap: 16px; }
     .live-risk-band,
     .live-core-lines-band,
-    .live-signal-band,
-    .live-command-band {
+    .live-signal-band {
       width: 100%;
       padding: 16px;
       border: 1px solid var(--border);
@@ -235,13 +236,9 @@ def _render_dashboard_component_styles() -> str:
     .live-signal-band {
       background: linear-gradient(180deg, rgba(74,201,240,0.06), rgba(0,0,0,0.14));
     }
-    .live-command-band {
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.12));
-    }
     .live-account-risk-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
-    .live-metrics-grid { margin-bottom: 0; }
     .live-decision-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr); gap: 16px; align-items: start; }
     .live-decision-main { min-width: 0; }
     .live-decision-side { min-width: 0; }

@@ -11,7 +11,6 @@ from .dashboard_render_panels import (
     _build_execution_flow_panel,
     _build_live_account_risk_panel,
     _build_live_core_lines_panel,
-    _build_overview_home_command,
     _render_timeline_svg,
     render_cosmic_identity_panel,
     render_daily_review_panel,
@@ -286,13 +285,6 @@ def render_dashboard_body(
         account_range_stats=account_range_stats,
     )
     core_lines_html = _build_live_core_lines_panel(timeseries["core_live_timeline"])
-    home_command_html = _build_overview_home_command(
-        position_details=position_details,
-        trader_metrics=trader_metrics,
-        account_range_stats=account_range_stats,
-        health_status=health_status,
-        account_range_key=account_range_key,
-    )
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_signal_decisions = snapshot.get("recent_signal_decisions") or []
     recent_events = snapshot.get("recent_events") or []
@@ -374,7 +366,6 @@ def render_dashboard_body(
         return f"{value:+,.2f}%" if signed else f"{value:,.2f}%"
 
     performance_win_rate = review_metrics["performance"].get("win_rate")
-    health_metric_state = "danger" if health_status != "OK" else ""
     blocked_reason_counts = trader_metrics["signals"].get("blocked_reason_counts", {})
     blocked_reason_summary = ", ".join(
         f"{reason}: {count}"
@@ -395,51 +386,6 @@ def render_dashboard_body(
         " \u2192 ".join(recent_leader_sequence)
         if len(recent_leader_sequence) >= 2
         else "insufficient history"
-    )
-    open_risk_pct = trader_metrics["account"].get("open_risk_pct")
-    if open_risk_pct is None:
-        open_risk_state = ""
-    elif open_risk_pct > 60:
-        open_risk_state = "danger"
-    elif open_risk_pct >= 30:
-        open_risk_state = "warning"
-    else:
-        open_risk_state = "normal"
-    top_metric_cards = [
-        (
-            "EQUITY",
-            _format_metric(trader_metrics["account"].get("current_equity")),
-            "Latest account snapshot",
-            "",
-        ),
-        (
-            "TODAY NET PNL",
-            _format_metric(trader_metrics["account"].get("today_net_pnl"), signed=True),
-            "Adjusted equity delta across visible account history",
-            "",
-        ),
-        (
-            "OPEN RISK / EQUITY",
-            _format_pct(trader_metrics["account"].get("open_risk_pct")),
-            f"{_format_metric(trader_metrics['account'].get('open_risk'))} USDT at risk",
-            open_risk_state,
-        ),
-        (
-            "SYSTEM HEALTH",
-            escape(health_status),
-            f"Last update {format_timestamp_for_display(latest_update_display)}",
-            health_metric_state,
-        ),
-    ]
-    live_metrics_html = "".join(
-        (
-            f"<div class='metric {metric_state}'>"
-            f"<div class='metric-label'>{label}</div>"
-            f"<div class='metric-value {'negative' if str(value).startswith('-') else 'positive' if str(value).startswith('+') else ''}'>{escape(str(value))}</div>"
-            f"<div class='metric-sub'>{escape(subtext)}</div>"
-            "</div>"
-        )
-        for label, value, subtext, metric_state in top_metric_cards
     )
     execution_summary_html = (
         "<div class='decision-grid'>"
@@ -467,23 +413,6 @@ def render_dashboard_body(
             "</div>"
         )
         for label, value in performance_summary_items
-    )
-    risk_overview_html = (
-        "<div class='decision-grid decision-grid-stack'>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Guardrail</div>"
-        "<div class='decision-value'>ACCOUNT RISK already carries the live numbers.</div>"
-        "<div class='decision-support'>This card stays qualitative and frames the deployment posture only.</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Sizing Rule</div>"
-        "<div class='decision-value'>Keep deployment light when pressure rises.</div>"
-        "</div>"
-        "<div class='decision-item'>"
-        "<div class='decision-label'>Action</div>"
-        "<div class='decision-value'>Add risk only when the book still has room.</div>"
-        "</div>"
-        "</div>"
     )
     hero_html = (
         "<section class='hero-grid'>"
@@ -520,12 +449,6 @@ def render_dashboard_body(
         "</div>"
         "</div>"
         "<div class='hero-card hero-card-compact'>"
-        "<div class='hero-eyebrow'>RISK &amp; DEPLOYMENT</div>"
-        "<div class='hero-title'>Deployment Guardrails</div>"
-        "<div class='hero-copy'>ACCOUNT RISK already holds the live figures. This panel is a short reminder of when to stay light and when the book has room to deploy.</div>"
-        f"{risk_overview_html}"
-        "</div>"
-        "<div class='hero-card hero-card-compact'>"
         "<div class='hero-eyebrow'>LEADER ROTATION</div>"
         "<div class='hero-title'>Sequence Monitor</div>"
         f"<div class='chart-container'>{timeline_chart}</div>"
@@ -546,10 +469,8 @@ def render_dashboard_body(
         "live": render_dashboard_live_room(
             account_risk_html=account_risk_html,
             core_lines_html=core_lines_html,
-            top_metrics_html=live_metrics_html,
             hero_html=hero_html,
             positions_html=render_position_cards(position_details),
-            home_command_html=home_command_html,
             execution_flow_html=execution_flow_html,
         ),
         "review": render_dashboard_review_room(

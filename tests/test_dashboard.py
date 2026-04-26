@@ -176,9 +176,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('?room=system&range=1W', html)
         self.assertIn('dashboard-tab is-active', html)
         self.assertIn('data-dashboard-room-content="live"', html)
-        self.assertIn("POSITION SUMMARY", html)
-        self.assertIn("HOME COMMAND", html)
-        self.assertIn("NEXT ACTIONS", html)
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("ORDER FLOW", html)
+        self.assertNotIn("POSITION SUMMARY", html)
+        self.assertNotIn("HOME COMMAND", html)
+        self.assertNotIn("NEXT ACTIONS", html)
+        self.assertNotIn("data-live-metrics-panel", html)
         self.assertNotIn("DESIGN SYSTEM", html)
         self.assertNotIn("COSMIC GRAVITY", html)
         self.assertNotIn("UI COMPONENTS", html)
@@ -727,11 +730,12 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
-        self.assertIn("POSITION SUMMARY", overview_html)
-        self.assertIn("HOME COMMAND", overview_html)
         self.assertIn("LIVE OVERVIEW", overview_html)
         self.assertIn("LEADER ROTATION", overview_html)
-        self.assertIn("SYSTEM HEALTH", overview_html)
+        self.assertNotIn("POSITION SUMMARY", overview_html)
+        self.assertNotIn("HOME COMMAND", overview_html)
+        self.assertNotIn("SYSTEM HEALTH", overview_html)
+        self.assertNotIn("data-live-metrics-panel", overview_html)
         self.assertNotIn("DESIGN SYSTEM", overview_html)
         self.assertNotIn("COSMIC GRAVITY", overview_html)
         self.assertNotIn("BLACK HOLE", overview_html)
@@ -890,13 +894,19 @@ class DashboardTests(unittest.TestCase):
 
         for label in (
             "EQUITY",
-            "TODAY NET PNL",
+            "Today Net PnL",
             "OPEN RISK / EQUITY",
-            "SYSTEM HEALTH",
-            "POSITION SUMMARY",
             "LIVE OVERVIEW",
         ):
             self.assertIn(label, overview_html)
+        for duplicate_label in (
+            "SYSTEM HEALTH",
+            "POSITION SUMMARY",
+            "HOME COMMAND",
+            "RISK &amp; DEPLOYMENT",
+            "data-live-metrics-panel",
+        ):
+            self.assertNotIn(duplicate_label, overview_html)
 
         self.assertNotIn("DESIGN SYSTEM", overview_html)
         self.assertNotIn("UI COMPONENTS", overview_html)
@@ -908,21 +918,22 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("STRATEGY PERFORMANCE", overview_html)
         self.assertNotIn("SYSTEM OPERATIONS", overview_html)
-        self.assertLess(overview_html.index("LIVE OVERVIEW"), overview_html.index("POSITION SUMMARY"))
+        self.assertLess(overview_html.index("LIVE OVERVIEW"), overview_html.index("ACTIVE POSITIONS"))
 
-    def test_render_dashboard_html_refocuses_overview_as_home_entry(self) -> None:
+    def test_render_dashboard_html_refocuses_overview_as_live_workbench(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
         html = render_dashboard_html(self._build_tabbed_snapshot())
 
-        self.assertIn("HOME COMMAND", html)
-        self.assertIn("POSITION SUMMARY", html)
         self.assertIn("ACTIVE POSITIONS", html)
-        self.assertIn("NEXT ACTIONS", html)
+        self.assertIn("ORDER FLOW", html)
         self.assertIn("实时监控室", html)
         self.assertIn("复盘室", html)
         self.assertIn("系统状态室", html)
         self.assertNotIn("ACCOUNT SNAPSHOT", html)
+        self.assertNotIn("HOME COMMAND", html)
+        self.assertNotIn("POSITION SUMMARY", html)
+        self.assertNotIn("NEXT ACTIONS", html)
 
     def test_render_dashboard_html_overview_surfaces_live_position_cockpit(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -938,12 +949,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("Distance", html)
         self.assertIn("R Multiple", html)
 
-    def test_render_dashboard_html_home_command_uses_computed_mtm_pnl(self) -> None:
+    def test_render_dashboard_html_active_positions_use_computed_mtm_pnl_without_home_command_duplicate(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
         html = render_dashboard_html(self._build_tabbed_snapshot())
 
-        self.assertIn("MTM</div><div class='home-command-value'>+15.00", html)
+        self.assertIn("MTM", html)
+        self.assertIn("15.00", html)
+        self.assertNotIn("home-command-value", html)
 
     def test_render_dashboard_html_surfaces_execution_mode_in_global_header(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -1120,9 +1133,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("1,000.00", html)
         self.assertIn("Available Balance", html)
         self.assertIn("850.00", html)
-        self.assertIn("Deployment Guardrails", html)
         self.assertIn("Margin Usage", html)
         self.assertIn("15.00%", html)
+        self.assertNotIn("Deployment Guardrails", html)
 
     def test_build_trader_summary_metrics_limits_today_net_pnl_to_display_calendar_day(self) -> None:
         from momentum_alpha.dashboard import build_trader_summary_metrics
@@ -2810,14 +2823,14 @@ console.log(JSON.stringify(cases));
             active_tab="system",
         )
 
-        self.assertIn("POSITION SUMMARY", overview_html)
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertLess(overview_html.index("ACCOUNT RISK"), overview_html.index("CORE LIVE LINES"))
         self.assertLess(overview_html.index("CORE LIVE LINES"), overview_html.index("ACTIVE SIGNAL"))
         self.assertLess(overview_html.index("ACTIVE SIGNAL"), overview_html.index("ACTIVE POSITIONS"))
         self.assertLess(overview_html.index("ACTIVE POSITIONS"), overview_html.index("ORDER FLOW"))
-        self.assertLess(overview_html.index("ORDER FLOW"), overview_html.index("HOME COMMAND"))
-        self.assertLess(overview_html.index("HOME COMMAND"), overview_html.index("data-live-metrics-panel"))
+        self.assertNotIn("HOME COMMAND", overview_html)
+        self.assertNotIn("POSITION SUMMARY", overview_html)
+        self.assertNotIn("data-live-metrics-panel", overview_html)
         self.assertIn("SYSTEM CONFIG", system_html)
         self.assertIn("Stop Budget", system_html)
         self.assertIn("10", system_html)
@@ -3130,7 +3143,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("CORE LIVE LINES", html)
         self.assertIn("LIVE OVERVIEW", html)
         self.assertIn("OPEN RISK / EQUITY", html)
-        self.assertIn("SYSTEM HEALTH", html)
+        self.assertIn("Account Equity", html)
+        self.assertIn("Margin Usage %", html)
         self.assertIn("Position Count", html)
         self.assertIn("Margin Usage", html)
         self.assertIn("Open Risk", html)
@@ -3565,7 +3579,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("10.0000", review_html)
         self.assertIn("20.0000", review_html)
         self.assertIn("No blocked signals", overview_html)
-        blocked_section = overview_html[overview_html.index("Blocked Reasons"):overview_html.index("RISK &amp; DEPLOYMENT", overview_html.index("Blocked Reasons"))]
+        blocked_section = overview_html[overview_html.index("Blocked Reasons"):overview_html.index("LEADER ROTATION", overview_html.index("Blocked Reasons"))]
         self.assertNotIn('class="decision-value"', blocked_section)
 
     def test_render_dashboard_html_surfaces_rotation_summary_and_risk_state(self) -> None:
@@ -3655,7 +3669,7 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("Recent Sequence", html)
         self.assertIn("BASEUSDT → ORDIUSDT → BASEUSDT", html)
-        self.assertIn("metric warning", html)
+        self.assertIn("decision-item warning", html)
         self.assertIn("No blocked signals", html)
 
     def test_render_dashboard_html_refreshes_in_place_and_persists_account_controls(self) -> None:
@@ -3802,10 +3816,7 @@ console.log(JSON.stringify(cases));
         )
 
         self.assertIn("LIVE OVERVIEW", html)
-        self.assertIn("RISK &amp; DEPLOYMENT", html)
         self.assertIn("ACTIVE SIGNAL", html)
-        self.assertIn("POSITION SUMMARY", html)
-        self.assertIn("SYSTEM HEALTH", html)
         self.assertIn("MANUAL REFRESH", html)
         self.assertIn("Last update", html)
         self.assertIn("ACTIVE POSITIONS", html)
@@ -3815,9 +3826,12 @@ console.log(JSON.stringify(cases));
         self.assertIn("live-core-lines-band", html)
         self.assertIn("live-signal-band", html)
         self.assertIn("live-decision-grid", html)
-        self.assertIn("live-command-band", html)
+        self.assertNotIn("RISK &amp; DEPLOYMENT", html)
+        self.assertNotIn("POSITION SUMMARY", html)
+        self.assertNotIn("SYSTEM HEALTH", html)
+        self.assertNotIn("live-command-band", html)
 
-    def test_render_dashboard_html_keeps_risk_deployment_panel_qualitative(self) -> None:
+    def test_render_dashboard_html_removes_duplicate_live_summary_panels(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
 
         html = render_dashboard_html(
@@ -3887,11 +3901,15 @@ console.log(JSON.stringify(cases));
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False},
         )
 
-        risk_section = html[html.index("RISK &amp; DEPLOYMENT"):html.index("LEADER ROTATION", html.index("RISK &amp; DEPLOYMENT"))]
-        self.assertIn("Deployment Guardrails", risk_section)
-        self.assertNotIn("Available Balance", risk_section)
-        self.assertNotIn("Current Drawdown", risk_section)
-        self.assertNotIn("Positions / Orders", risk_section)
+        self.assertIn("ACCOUNT RISK", html)
+        self.assertIn("ACTIVE SIGNAL", html)
+        self.assertIn("ACTIVE POSITIONS", html)
+        self.assertIn("ORDER FLOW", html)
+        self.assertIn("LEADER ROTATION", html)
+        self.assertNotIn("RISK &amp; DEPLOYMENT", html)
+        self.assertNotIn("Deployment Guardrails", html)
+        self.assertNotIn("HOME COMMAND", html)
+        self.assertNotIn("data-live-metrics-panel", html)
 
     def test_render_dashboard_html_supports_collapsible_sections_and_refresh_failure_state(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
