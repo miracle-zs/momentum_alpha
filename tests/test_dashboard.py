@@ -221,6 +221,30 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("live-priority-band", html)
         self.assertIn("live-work-surface", html)
 
+    def test_live_room_redesign_preserves_existing_live_content(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(
+            self._build_tabbed_snapshot(),
+            active_room="live",
+            account_range_key="1W",
+        )
+        for label in (
+            "?room=live&range=1W",
+            "?room=review&range=1W",
+            "?room=system&range=1W",
+            "POSITION SUMMARY",
+            "ACCOUNT PULSE",
+            "NEXT ACTIONS",
+            "Latest Broker Action",
+            "Latest Stop Order",
+            "Latest Fill",
+            "Latest Stop Exit",
+        ):
+            self.assertIn(label, html)
+        self.assertNotIn("STOP SLIPPAGE ANALYSIS", html)
+        self.assertNotIn("SYSTEM OPERATIONS", html)
+
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
         import re
