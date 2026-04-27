@@ -318,6 +318,57 @@ class MainTests(unittest.TestCase):
             self.assertIn("BTCUSDT", loaded.positions)
             self.assertEqual(loaded.positions["BTCUSDT"].symbol, "BTCUSDT")
 
+    def test_save_strategy_state_allows_position_opened_after_previous_stop_exit(self) -> None:
+        from momentum_alpha.main import _save_strategy_state
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+                )
+            )
+
+            reopened_position = Position(
+                symbol="ETHUSDT",
+                stop_price=Decimal("120"),
+                legs=(
+                    PositionLeg(
+                        symbol="ETHUSDT",
+                        quantity=Decimal("1"),
+                        entry_price=Decimal("130"),
+                        stop_price=Decimal("120"),
+                        opened_at=datetime(2026, 4, 15, 2, 10, tzinfo=timezone.utc),
+                        leg_type="restored",
+                    ),
+                ),
+            )
+
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={"ETHUSDT": reopened_position},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+                ),
+            )
+
+            loaded = store.load()
+
+        self.assertIn("ETHUSDT", loaded.positions)
+        self.assertEqual(loaded.positions["ETHUSDT"].legs[0].opened_at, reopened_position.legs[0].opened_at)
+
     def test_account_flow_exists_closes_sqlite_connection(self) -> None:
         from momentum_alpha.main import _account_flow_exists
 
@@ -1610,6 +1661,13 @@ class MainTests(unittest.TestCase):
                 timestamp=now,
                 event_type="user_stream_event",
                 payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db,
+                timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
                 source="user-stream",
             )
 
@@ -3933,6 +3991,94 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(result.execution_plan.entry_orders, [])
         self.assertIn("BTCUSDT", result.runtime_result.next_state.positions)
+
+    def test_run_once_live_records_stop_cooldown_when_restored_position_disappears(self) -> None:
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "SONICUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.00001"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.1", "stepSize": "0.1"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.1", "stepSize": "0.1"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                return {"symbol": symbol, "price": "0.05000"}
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "0.04000", "0", "0", "0"]]
+                return [[0, "0", "0", "0.04500", "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return []
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return []
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+        now = datetime(2026, 4, 27, 3, 35, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-27",
+                    previous_leader_symbol="BSBUSDT",
+                    positions={
+                        "SONICUSDT": Position(
+                            symbol="SONICUSDT",
+                            stop_price=Decimal("0.04500"),
+                            legs=(
+                                PositionLeg(
+                                    symbol="SONICUSDT",
+                                    quantity=Decimal("2109.7"),
+                                    entry_price=Decimal("0.05000"),
+                                    stop_price=Decimal("0.04500"),
+                                    opened_at=datetime(2026, 4, 27, 1, 12, tzinfo=timezone.utc),
+                                    leg_type="restored",
+                                ),
+                            ),
+                        )
+                    },
+                    recent_stop_loss_exits={},
+                )
+            )
+
+            result = run_once_live(
+                symbols=["SONICUSDT"],
+                now=now,
+                previous_leader_symbol=None,
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=False,
+                restore_positions=True,
+                runtime_state_store=store,
+                last_add_on_hour=3,
+            )
+
+            stored = store.load()
+
+        self.assertEqual(result.runtime_result.decision.base_entries, [])
+        self.assertEqual(result.runtime_result.decision.blocked_reason, "stop_loss_cooldown")
+        self.assertNotIn("SONICUSDT", stored.positions)
+        self.assertEqual(stored.recent_stop_loss_exits["SONICUSDT"], now.isoformat())
 
     def test_run_once_live_reports_stop_replacements_from_restored_state(self) -> None:
         from momentum_alpha.main import run_once_live

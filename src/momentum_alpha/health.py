@@ -100,6 +100,7 @@ def _check_audit_event_freshness(
     now: datetime,
     max_age_seconds: int,
     event_types: tuple[str, ...],
+    no_events_status: str = "WARN",
     stale_status: str = "FAIL",
 ) -> HealthCheckItem:
     if not path.exists():
@@ -123,7 +124,8 @@ def _check_audit_event_freshness(
     except sqlite3.Error as exc:
         return HealthCheckItem(name=name, status="FAIL", message=f"invalid path={path} error={exc}")
     if row is None or not row[0]:
-        return HealthCheckItem(name=name, status="WARN", message=f"no events event_types={','.join(event_types)}")
+        status = no_events_status if no_events_status in {"FAIL", "WARN"} else "WARN"
+        return HealthCheckItem(name=name, status=status, message=f"no events event_types={','.join(event_types)}")
     latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
@@ -143,6 +145,7 @@ def build_runtime_health_report(
     runtime_db_file: Path,
     max_poll_event_age_seconds: int = 180,
     max_user_stream_event_age_seconds: int = 1800,
+    max_user_stream_heartbeat_age_seconds: int = 180,
     max_runtime_db_age_seconds: int = 1800,
     max_state_age_seconds: int = 3600,
 ) -> RuntimeHealthReport:
@@ -156,11 +159,20 @@ def build_runtime_health_report(
             event_types=("poll_tick", "poll_worker_start", "tick_result"),
         ),
         _check_audit_event_freshness(
+            name="user_stream_heartbeat",
+            path=runtime_db_file,
+            now=now,
+            max_age_seconds=max_user_stream_heartbeat_age_seconds,
+            event_types=("user_stream_heartbeat",),
+            no_events_status="FAIL",
+        ),
+        _check_audit_event_freshness(
             name="user_stream_events",
             path=runtime_db_file,
             now=now,
             max_age_seconds=max_user_stream_event_age_seconds,
-            event_types=("user_stream_heartbeat", "user_stream_event"),
+            event_types=("user_stream_event",),
+            no_events_status="FAIL",
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
     ]

@@ -33,6 +33,13 @@ class HealthTests(unittest.TestCase):
             insert_audit_event(
                 path=runtime_db_file,
                 timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
                 event_type="user_stream_event",
                 payload={"event_type": "ACCOUNT_UPDATE"},
                 source="user-stream",
@@ -45,8 +52,9 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.overall_status, "OK")
             self.assertTrue(all(item.status == "OK" for item in report.items))
             self.assertEqual(report.items[1].name, "poll_events")
-            self.assertEqual(report.items[2].name, "user_stream_events")
-            self.assertEqual(report.items[3].name, "runtime_db")
+            self.assertEqual(report.items[2].name, "user_stream_heartbeat")
+            self.assertEqual(report.items[3].name, "user_stream_events")
+            self.assertEqual(report.items[4].name, "runtime_db")
 
     def test_build_health_report_marks_stale_poll_events_fail(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
@@ -90,6 +98,13 @@ class HealthTests(unittest.TestCase):
             insert_audit_event(
                 path=runtime_db_file,
                 timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
                 event_type="poll_tick",
                 payload={"symbol_count": 538},
                 source="poll",
@@ -109,11 +124,13 @@ class HealthTests(unittest.TestCase):
             )
 
             self.assertEqual(report.overall_status, "FAIL")
-            self.assertEqual(report.items[2].name, "user_stream_events")
-            self.assertEqual(report.items[2].status, "FAIL")
-            self.assertIn("stale", report.items[2].message)
+            self.assertEqual(report.items[2].name, "user_stream_heartbeat")
+            self.assertEqual(report.items[2].status, "OK")
+            self.assertEqual(report.items[3].name, "user_stream_events")
+            self.assertEqual(report.items[3].status, "FAIL")
+            self.assertIn("stale", report.items[3].message)
 
-    def test_build_health_report_accepts_recent_user_stream_heartbeat(self) -> None:
+    def test_build_health_report_rejects_heartbeat_without_business_events(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
@@ -144,6 +161,9 @@ class HealthTests(unittest.TestCase):
                 runtime_db_file=runtime_db_file,
             )
 
-            self.assertEqual(report.overall_status, "OK")
-            self.assertEqual(report.items[2].name, "user_stream_events")
+            self.assertEqual(report.overall_status, "FAIL")
+            self.assertEqual(report.items[2].name, "user_stream_heartbeat")
             self.assertEqual(report.items[2].status, "OK")
+            self.assertEqual(report.items[3].name, "user_stream_events")
+            self.assertEqual(report.items[3].status, "FAIL")
+            self.assertIn("no events", report.items[3].message)

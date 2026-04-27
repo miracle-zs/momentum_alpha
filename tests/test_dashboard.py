@@ -611,6 +611,13 @@ class DashboardTests(unittest.TestCase):
                 payload={"event_type": "ACCOUNT_UPDATE"},
                 source="user-stream",
             )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
+                source="user-stream",
+            )
 
             for path in (poll_log_file, user_stream_log_file):
                 os.utime(path, (now.timestamp(), now.timestamp()))
@@ -1916,6 +1923,13 @@ class DashboardTests(unittest.TestCase):
                 timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
                 event_type="user_stream_event",
                 payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=datetime(2026, 4, 15, 6, 59, tzinfo=timezone.utc),
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
                 source="user-stream",
             )
 

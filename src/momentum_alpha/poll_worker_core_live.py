@@ -7,6 +7,8 @@ from decimal import Decimal
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.market_data import LiveMarketDataCache, _build_live_snapshots, _resolve_symbols
+from momentum_alpha.models import Position, StrategyState
+from momentum_alpha.orders import is_strategy_client_order_id
 from momentum_alpha.reconciliation import (
     build_missing_stop_reconciliation_plan,
     build_stale_stop_reconciliation_plan,
@@ -28,6 +30,56 @@ from momentum_alpha.trace_ids import build_decision_id, build_order_intent_id
 
 from .poll_worker_core_execution import RunOnceResult, build_runtime_from_snapshots, run_once
 from .poll_worker_core_state import _save_strategy_state
+
+
+def _has_strategy_stop_evidence(
+    *,
+    symbol: str,
+    position: Position,
+    order_statuses: dict[str, dict] | None,
+) -> bool:
+    if position.stop_price > Decimal("0"):
+        return True
+    for snapshot in (order_statuses or {}).values():
+        if snapshot is None or snapshot.get("symbol") != symbol:
+            continue
+        order_type = snapshot.get("original_order_type") or snapshot.get("type") or snapshot.get("orderType")
+        client_order_id = (
+            snapshot.get("client_order_id")
+            or snapshot.get("clientOrderId")
+            or snapshot.get("clientAlgoId")
+        )
+        if order_type == "STOP_MARKET":
+            return True
+        if is_strategy_client_order_id(client_order_id) and str(client_order_id).endswith("s"):
+            return True
+    return False
+
+
+def _apply_restored_stop_loss_cooldowns(
+    *,
+    restored_state: StrategyState,
+    stored_state: StoredStrategyState | None,
+    now: datetime,
+) -> StrategyState:
+    if stored_state is None or not stored_state.positions:
+        return restored_state
+
+    recent_stop_loss_exits = dict(restored_state.recent_stop_loss_exits)
+    current_symbols = set(restored_state.positions)
+    for symbol, previous_position in stored_state.positions.items():
+        if symbol in current_symbols or symbol in recent_stop_loss_exits:
+            continue
+        if _has_strategy_stop_evidence(
+            symbol=symbol,
+            position=previous_position,
+            order_statuses=stored_state.order_statuses,
+        ):
+            recent_stop_loss_exits[symbol] = now
+
+    if recent_stop_loss_exits == restored_state.recent_stop_loss_exits:
+        return restored_state
+    return replace(restored_state, recent_stop_loss_exits=recent_stop_loss_exits)
 
 
 def run_once_live(
@@ -82,6 +134,11 @@ def run_once_live(
                         symbol: datetime.fromisoformat(timestamp)
                         for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
                     },
+                )
+                initial_state = _apply_restored_stop_loss_cooldowns(
+                    restored_state=initial_state,
+                    stored_state=stored_state,
+                    now=now,
                 )
 
     resolved_symbols = (
