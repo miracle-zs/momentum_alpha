@@ -14,6 +14,15 @@ if str(SRC) not in sys.path:
 
 
 class UserStreamTests(unittest.TestCase):
+    def test_build_stream_url_uses_private_mainnet_endpoint(self) -> None:
+        from momentum_alpha.user_stream import BinanceUserStreamClient
+
+        client = BinanceUserStreamClient(rest_client=object(), testnet=False)
+        self.assertEqual(
+            client.build_stream_url(listen_key="abc"),
+            "wss://fstream.binance.com/private/ws/abc",
+        )
+
     def test_build_stream_url_uses_testnet_when_enabled(self) -> None:
         from momentum_alpha.user_stream import BinanceUserStreamClient
 
@@ -150,7 +159,7 @@ class UserStreamTests(unittest.TestCase):
         client = BinanceUserStreamClient(rest_client=FakeRestClient(), websocket_runner=fake_runner)
         listen_key = client.run_once(on_event=lambda event: events.append(event))
         self.assertEqual(listen_key, "abc")
-        self.assertEqual(calls, ["wss://fstream.binance.com/ws/abc"])
+        self.assertEqual(calls, ["wss://fstream.binance.com/private/ws/abc"])
         self.assertEqual(events[0].event_type, "ORDER_TRADE_UPDATE")
 
     def test_run_forever_closes_listen_key_after_runner_returns(self) -> None:
@@ -337,7 +346,7 @@ class UserStreamTests(unittest.TestCase):
 
         self.assertEqual(rest_client.closed, ["abc"])
 
-    def test_default_websocket_runner_logs_lifecycle_and_uses_ping(self) -> None:
+    def test_default_websocket_runner_logs_lifecycle_and_disables_client_ping(self) -> None:
         from momentum_alpha.user_stream import _default_websocket_runner
 
         calls: dict[str, object] = {}
@@ -366,7 +375,7 @@ class UserStreamTests(unittest.TestCase):
             )
 
         self.assertEqual(calls["url"], "wss://example.test/ws/listen")
-        self.assertEqual(calls["run_forever_kwargs"], {"ping_interval": 30, "ping_timeout": 10})
+        self.assertEqual(calls["run_forever_kwargs"], {"ping_interval": 0})
         self.assertTrue(any("websocket-open" in message for message in logs))
         self.assertTrue(any("websocket-error error=socket closed" in message for message in logs))
         self.assertTrue(any("websocket-close status=1006 reason=abnormal closure" in message for message in logs))

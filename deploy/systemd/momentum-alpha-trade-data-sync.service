@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync Momentum Alpha trade data for review analytics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=-%h/momentum_alpha/.env
+ExecStart=%h/momentum_alpha/scripts/run_trade_data_sync.sh
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log

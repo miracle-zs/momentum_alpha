@@ -170,7 +170,7 @@ def _default_websocket_runner(*, url: str, on_message, logger: Callable[[str], N
                     close()
 
         threading.Thread(target=_close_when_stopped, daemon=True).start()
-    app.run_forever(ping_interval=30, ping_timeout=10)
+    app.run_forever(ping_interval=0)
 
 
 def _default_keepalive_runner(*, rest_client, listen_key: str, stop_event, interval_seconds: int) -> None:

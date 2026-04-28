@@ -15,7 +15,7 @@ from momentum_alpha.structured_log import emit_structured_log
 
 BINANCE_FAPI_BASE_URL = "https://fapi.binance.com"
 BINANCE_TESTNET_FAPI_BASE_URL = "https://testnet.binancefuture.com"
-BINANCE_FSTREAM_WS_URL = "wss://fstream.binance.com/ws"
+BINANCE_FSTREAM_WS_URL = "wss://fstream.binance.com/private/ws"
 BINANCE_TESTNET_FSTREAM_WS_URL = "wss://stream.binancefuture.com/ws"
 
 

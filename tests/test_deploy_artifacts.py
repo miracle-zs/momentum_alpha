@@ -30,11 +30,14 @@ class DeployArtifactTests(unittest.TestCase):
         content = (ROOT / "scripts" / "install_systemd.sh").read_text()
         self.assertIn('deploy/systemd/momentum-alpha-dashboard.service', content)
         self.assertIn('deploy/systemd/momentum-alpha-rebuild-trade-analytics.service', content)
+        self.assertIn('deploy/systemd/momentum-alpha-trade-data-sync.service', content)
+        self.assertIn('deploy/systemd/momentum-alpha-trade-data-sync.timer', content)
         self.assertIn('deploy/systemd/momentum-alpha-daily-review-report.service', content)
         self.assertIn('deploy/systemd/momentum-alpha-daily-review-report.timer', content)
         self.assertIn('deploy/systemd/momentum-alpha-user-stream-healthcheck.service', content)
         self.assertIn('deploy/systemd/momentum-alpha-user-stream-healthcheck.timer', content)
         self.assertIn('systemctl start momentum-alpha-rebuild-trade-analytics.service', content)
+        self.assertIn('enable --now momentum-alpha-trade-data-sync.timer', content)
         self.assertIn('enable --now momentum-alpha-dashboard.service', content)
         self.assertIn('enable --now momentum-alpha-user-stream.service', content)
         self.assertIn('enable --now momentum-alpha.service', content)
@@ -48,6 +51,7 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-user-stream-healthcheck.log', content)
         self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-dashboard.log', content)
         self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-rebuild-trade-analytics.log', content)
+        self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-trade-data-sync.log', content)
         self.assertIn('__SERVICE_ROOT__/var/log/momentum-alpha-daily-review-report.log', content)
         self.assertIn('daily', content)
         self.assertIn('rotate 14', content)
@@ -117,6 +121,32 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("RUNTIME_DB_FILE", content)
         self.assertNotIn("momentum-alpha.log", content)
         self.assertNotIn("momentum-alpha-user-stream.log", content)
+
+    def test_run_trade_data_sync_script_backfills_and_rebuilds_analytics(self) -> None:
+        content = (ROOT / "scripts" / "run_trade_data_sync.sh").read_text()
+        self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
+        self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
+        self.assertIn('TRADE_SYNC_LOOKBACK_HOURS="${TRADE_SYNC_LOOKBACK_HOURS:-36}"', content)
+        self.assertIn("backfill-binance-trades", content)
+        self.assertIn("backfill-account-flows", content)
+        self.assertIn("REALIZED_PNL", content)
+        self.assertIn("COMMISSION", content)
+        self.assertIn("FUNDING_FEE", content)
+        self.assertIn("TRANSFER", content)
+        self.assertIn("rebuild-trade-analytics", content)
+
+    def test_trade_data_sync_systemd_timer_keeps_review_data_fresh(self) -> None:
+        service = (ROOT / "deploy" / "systemd" / "momentum-alpha-trade-data-sync.service").read_text()
+        timer = (ROOT / "deploy" / "systemd" / "momentum-alpha-trade-data-sync.timer").read_text()
+        self.assertIn("Type=oneshot", service)
+        self.assertIn("ExecStart=%h/momentum_alpha/scripts/run_trade_data_sync.sh", service)
+        self.assertIn(
+            "StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log",
+            service,
+        )
+        self.assertIn("OnBootSec=2min", timer)
+        self.assertIn("OnUnitActiveSec=15min", timer)
+        self.assertIn("Persistent=true", timer)
 
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
         content = (ROOT / "scripts" / "audit_report.sh").read_text()

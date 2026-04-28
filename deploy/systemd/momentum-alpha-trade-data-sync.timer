@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Momentum Alpha trade data sync periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=momentum-alpha-trade-data-sync.service
+
+[Install]
+WantedBy=timers.target

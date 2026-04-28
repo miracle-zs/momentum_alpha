@@ -111,10 +111,24 @@ class HealthTests(unittest.TestCase):
             )
             insert_audit_event(
                 path=runtime_db_file,
-                timestamp=now - timedelta(minutes=30),
+                timestamp=now - timedelta(minutes=45),
+                event_type="user_stream_worker_start",
+                payload={"reconnect_on_stream_end": True},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=40),
                 event_type="user_stream_event",
                 payload={"event_type": "ACCOUNT_UPDATE"},
                 source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=30),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="broker",
             )
 
             report = build_runtime_health_report(
@@ -128,9 +142,10 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.items[2].status, "OK")
             self.assertEqual(report.items[3].name, "user_stream_events")
             self.assertEqual(report.items[3].status, "FAIL")
-            self.assertIn("stale", report.items[3].message)
+            self.assertIn("stale_after_action", report.items[3].message)
+            self.assertIn("broker_submit", report.items[3].message)
 
-    def test_build_health_report_rejects_heartbeat_without_business_events(self) -> None:
+    def test_build_health_report_allows_idle_user_stream_without_business_events(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
 
@@ -155,15 +170,72 @@ class HealthTests(unittest.TestCase):
                 payload={"stream_active": True},
                 source="user-stream",
             )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=5),
+                event_type="user_stream_worker_start",
+                payload={"reconnect_on_stream_end": True},
+                source="user-stream",
+            )
 
             report = build_runtime_health_report(
                 now=now,
                 runtime_db_file=runtime_db_file,
             )
 
-            self.assertEqual(report.overall_status, "FAIL")
+            self.assertEqual(report.overall_status, "OK")
             self.assertEqual(report.items[2].name, "user_stream_heartbeat")
             self.assertEqual(report.items[2].status, "OK")
             self.assertEqual(report.items[3].name, "user_stream_events")
-            self.assertEqual(report.items[3].status, "FAIL")
-            self.assertIn("no events", report.items[3].message)
+            self.assertEqual(report.items[3].status, "OK")
+            self.assertIn("idle", report.items[3].message)
+
+    def test_build_health_report_ignores_old_user_stream_event_when_current_cycle_is_idle(self) -> None:
+        from momentum_alpha.health import build_runtime_health_report
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
+
+        with TemporaryDirectory() as tmpdir:
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="poll_tick",
+                payload={"symbol_count": 538},
+                source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="user_stream_heartbeat",
+                payload={"stream_active": True},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now - timedelta(days=3),
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=5),
+                event_type="user_stream_worker_start",
+                payload={"reconnect_on_stream_end": True},
+                source="user-stream",
+            )
+
+            report = build_runtime_health_report(
+                now=now,
+                runtime_db_file=runtime_db_file,
+            )
+
+            self.assertEqual(report.overall_status, "OK")
+            self.assertEqual(report.items[3].name, "user_stream_events")
+            self.assertEqual(report.items[3].status, "OK")
+            self.assertIn("idle", report.items[3].message)
