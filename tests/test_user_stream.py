@@ -181,6 +181,67 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(rest_client.closed, ["abc"])
         self.assertEqual(events[0].order_status, "FILLED")
 
+    def test_run_forever_logs_raw_websocket_messages_before_handling_event(self) -> None:
+        from momentum_alpha.user_stream import BinanceUserStreamClient
+
+        class FakeRestClient:
+            def create_listen_key(self):
+                return {"listenKey": "abc"}
+
+        def fake_runner(*, url, on_message):
+            _ = url
+            on_message('{"e":"ORDER_TRADE_UPDATE","o":{"s":"BTCUSDT","X":"FILLED","x":"TRADE"}}')
+
+        logs: list[str] = []
+        events = []
+        client = BinanceUserStreamClient(
+            rest_client=FakeRestClient(),
+            websocket_runner=fake_runner,
+            logger=lambda message: logs.append(message),
+        )
+
+        client.run_forever(on_event=lambda event: events.append(event))
+
+        self.assertEqual(events[0].event_type, "ORDER_TRADE_UPDATE")
+        self.assertTrue(
+            any(
+                "event=websocket-message-raw" in message
+                and "payload_event_type=ORDER_TRADE_UPDATE" in message
+                and "message_bytes=" in message
+                for message in logs
+            )
+        )
+
+    def test_run_forever_logs_parse_errors_for_malformed_websocket_messages(self) -> None:
+        from momentum_alpha.user_stream import BinanceUserStreamClient
+
+        class FakeRestClient:
+            def create_listen_key(self):
+                return {"listenKey": "abc"}
+
+        def fake_runner(*, url, on_message):
+            _ = url
+            on_message('{"e":"ORDER_TRADE_UPDATE"')
+
+        logs: list[str] = []
+        client = BinanceUserStreamClient(
+            rest_client=FakeRestClient(),
+            websocket_runner=fake_runner,
+            logger=lambda message: logs.append(message),
+        )
+
+        with self.assertRaises(ValueError):
+            client.run_forever(on_event=lambda event: None)
+
+        self.assertTrue(
+            any(
+                "level=ERROR" in message
+                and "event=websocket-message-parse-error" in message
+                and "message_bytes=" in message
+                for message in logs
+            )
+        )
+
     def test_run_forever_starts_and_stops_keepalive_loop(self) -> None:
         from momentum_alpha.user_stream import BinanceUserStreamClient
 

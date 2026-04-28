@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 import threading
-from dataclasses import replace
+import sqlite3
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +33,79 @@ from .stream_worker_core import (
     build_user_stream_event_handler,
 )
 from .stream_worker_rebuild_scheduler import DebouncedRebuildScheduler
+
+
+_USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_replacements")
+
+
+@dataclass(frozen=True)
+class UserStreamWatchdogResult:
+    should_reconnect: bool
+    silence_seconds: int | None = None
+    latest_action_event_type: str | None = None
+    latest_action_timestamp: str | None = None
+    latest_user_stream_event_timestamp: str | None = None
+
+
+def _latest_audit_event(*, runtime_db_path: Path, event_types: tuple[str, ...]) -> tuple[datetime, str, str] | None:
+    if not runtime_db_path.exists():
+        return None
+    placeholders = ", ".join("?" for _ in event_types)
+    connection = None
+    try:
+        connection = sqlite3.connect(runtime_db_path)
+        row = connection.execute(
+            f"""
+            SELECT timestamp, event_type
+            FROM audit_events
+            WHERE event_type IN ({placeholders})
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+            """,
+            event_types,
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        if connection is not None:
+            connection.close()
+    if row is None or not row[0]:
+        return None
+    timestamp_text = str(row[0])
+    return datetime.fromisoformat(timestamp_text).astimezone(timezone.utc), str(row[1]), timestamp_text
+
+
+def _should_reconnect_stale_user_stream(
+    *,
+    runtime_db_path: Path,
+    now: datetime,
+    max_silence_seconds: int,
+) -> UserStreamWatchdogResult:
+    latest_action = _latest_audit_event(
+        runtime_db_path=runtime_db_path,
+        event_types=_USER_STREAM_ACTION_EVENT_TYPES,
+    )
+    if latest_action is None:
+        return UserStreamWatchdogResult(should_reconnect=False)
+
+    latest_action_time, latest_action_event_type, latest_action_timestamp = latest_action
+    latest_event = _latest_audit_event(runtime_db_path=runtime_db_path, event_types=("user_stream_event",))
+    if latest_event is not None and latest_event[0] >= latest_action_time:
+        return UserStreamWatchdogResult(
+            should_reconnect=False,
+            latest_action_event_type=latest_action_event_type,
+            latest_action_timestamp=latest_action_timestamp,
+            latest_user_stream_event_timestamp=latest_event[2],
+        )
+
+    silence_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_action_time.timestamp())
+    return UserStreamWatchdogResult(
+        should_reconnect=silence_seconds > max_silence_seconds,
+        silence_seconds=silence_seconds,
+        latest_action_event_type=latest_action_event_type,
+        latest_action_timestamp=latest_action_timestamp,
+        latest_user_stream_event_timestamp=None if latest_event is None else latest_event[2],
+    )
 
 
 def _build_initial_user_stream_state(
@@ -88,6 +162,7 @@ def run_user_stream(
     reconnect_on_stream_end: bool = False,
     max_stream_cycles: int | None = None,
     heartbeat_interval_seconds: int = 60,
+    max_user_stream_silence_after_action_seconds: int = 1800,
 ) -> int:
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
     reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
@@ -146,7 +221,7 @@ def run_user_stream(
             },
         )
 
-    def _start_heartbeat(*, reconnect_attempt: int):
+    def _start_heartbeat(*, reconnect_attempt: int, stream_stop_event):
         if audit_recorder is None:
             return None, None
         stop_event = threading.Event()
@@ -154,6 +229,22 @@ def run_user_stream(
         def _run() -> None:
             while not stop_event.is_set():
                 _record_heartbeat(reconnect_attempt=reconnect_attempt)
+                watchdog_result = _should_reconnect_stale_user_stream(
+                    runtime_db_path=audit_recorder.runtime_db_path,
+                    now=now_provider(),
+                    max_silence_seconds=max_user_stream_silence_after_action_seconds,
+                )
+                if watchdog_result.should_reconnect:
+                    _log(
+                        "watchdog-reconnect",
+                        level="WARNING",
+                        silence_seconds=watchdog_result.silence_seconds,
+                        latest_action_event_type=watchdog_result.latest_action_event_type,
+                        latest_action_timestamp=watchdog_result.latest_action_timestamp,
+                        latest_user_stream_event_timestamp=watchdog_result.latest_user_stream_event_timestamp,
+                    )
+                    stream_stop_event.set()
+                    break
                 if stop_event.wait(heartbeat_interval_seconds):
                     break
 
@@ -283,8 +374,14 @@ def run_user_stream(
                     order_status_count=len(context.order_statuses),
                     payload={"event_type": "user_stream_worker_start", "testnet": testnet},
                 )
+            stream_stop_event = threading.Event()
             stream_client = stream_client_factory(rest_client=client, testnet=testnet)
-            heartbeat_stop_event, heartbeat_thread = _start_heartbeat(reconnect_attempt=reconnect_attempt)
+            if hasattr(stream_client, "stop_event_factory"):
+                stream_client.stop_event_factory = lambda: stream_stop_event
+            heartbeat_stop_event, heartbeat_thread = _start_heartbeat(
+                reconnect_attempt=reconnect_attempt,
+                stream_stop_event=stream_stop_event,
+            )
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
                 _log("stream-ended")

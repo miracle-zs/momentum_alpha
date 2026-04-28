@@ -257,7 +257,8 @@ class DashboardTests(unittest.TestCase):
         open_risk_x_values = [float(pair.split(",")[0]) for pair in open_risk_match.group(1).split()]
         self.assertEqual(len(account_x_values), 3)
         self.assertEqual(len(open_risk_x_values), 2)
-        self.assertGreater(open_risk_x_values[0], account_x_values[0])
+        self.assertEqual(open_risk_x_values[0], account_x_values[0])
+        self.assertEqual(open_risk_x_values[-1], account_x_values[-1])
 
     def test_render_cosmic_identity_panel_composes_design_system_sections(self) -> None:
         from momentum_alpha.dashboard import (

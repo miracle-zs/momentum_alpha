@@ -388,3 +388,115 @@ class StreamWorkerSplitTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertTrue(any(event["event_type"] == "user_stream_heartbeat" for event in events))
+
+    def test_user_stream_watchdog_requests_reconnect_when_broker_action_has_no_stream_event(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 5, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+
+            result = stream_worker_loop._should_reconnect_stale_user_stream(
+                runtime_db_path=runtime_db_path,
+                now=now,
+                max_silence_seconds=1800,
+            )
+
+        self.assertTrue(result.should_reconnect)
+        self.assertEqual(result.latest_action_event_type, "broker_submit")
+        self.assertEqual(result.silence_seconds, 2100)
+
+    def test_user_stream_watchdog_stays_quiet_when_stream_event_follows_broker_action(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 5, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 6, tzinfo=timezone.utc),
+                event_type="user_stream_event",
+                payload={"event_type": "ORDER_TRADE_UPDATE"},
+                source="user-stream",
+            )
+
+            result = stream_worker_loop._should_reconnect_stale_user_stream(
+                runtime_db_path=runtime_db_path,
+                now=now,
+                max_silence_seconds=1800,
+            )
+
+        self.assertFalse(result.should_reconnect)
+
+    def test_run_user_stream_watchdog_sets_stream_stop_event_for_stale_business_events(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        logs: list[str] = []
+        captured: dict[str, bool] = {}
+
+        class FakeStreamClient:
+            stop_event_factory = None
+
+            def run_forever(self, on_event):
+                _ = on_event
+                stop_event = self.stop_event_factory()
+                captured["stop_event_set"] = stop_event.wait(timeout=1)
+                return "listen-key"
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+                event_type="user_stream_event",
+                payload={"event_type": "ACCOUNT_UPDATE"},
+                source="user-stream",
+            )
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 5, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+
+            result = stream_worker_loop.run_user_stream(
+                client=object(),
+                testnet=False,
+                logger=lambda message: logs.append(message),
+                runtime_state_store=None,
+                now_provider=lambda: now,
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                reconnect_sleep_fn=lambda seconds: None,
+                runtime_db_path=runtime_db_path,
+                max_user_stream_silence_after_action_seconds=1800,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(captured["stop_event_set"])
+        self.assertTrue(any("event=watchdog-reconnect" in message for message in logs))

@@ -16,18 +16,19 @@ def _render_line_chart_svg(
     show_grid: bool = True,
     integer_axis: bool = False,
 ) -> str:
-    domain_timestamps: list[datetime] = []
+    timestamped_values: list[tuple[datetime, float]] = []
     chart_values: list[float] = []
     for point in points:
-        timestamp = point.get("timestamp")
-        if timestamp:
-            try:
-                domain_timestamps.append(datetime.fromisoformat(timestamp))
-            except ValueError:
-                pass
         value = point.get(value_key)
         if isinstance(value, (int, float)):
-            chart_values.append(float(value))
+            numeric_value = float(value)
+            chart_values.append(numeric_value)
+            timestamp = point.get("timestamp")
+            if timestamp:
+                try:
+                    timestamped_values.append((datetime.fromisoformat(timestamp), numeric_value))
+                except ValueError:
+                    pass
     if not chart_values:
         return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for data</span></div>"
     values = list(chart_values)
@@ -83,12 +84,12 @@ def _render_line_chart_svg(
     else:
         tick_values = [max_value - (spread * i / 4) for i in range(5)]
 
-    timestamp_mode = bool(domain_timestamps) and len(domain_timestamps) == len(points)
+    timestamp_mode = bool(timestamped_values) and len(timestamped_values) == len(chart_values)
     coordinates: list[tuple[float, float]] = []
     x_axis_ticks: list[tuple[float, str]] = []
     if timestamp_mode:
-        raw_min_timestamp = min(domain_timestamps)
-        raw_max_timestamp = max(domain_timestamps)
+        raw_min_timestamp = min(timestamp for timestamp, _ in timestamped_values)
+        raw_max_timestamp = max(timestamp for timestamp, _ in timestamped_values)
         min_timestamp = raw_min_timestamp
         max_timestamp = raw_max_timestamp
         if raw_min_timestamp == raw_max_timestamp:
@@ -101,19 +102,9 @@ def _render_line_chart_svg(
                 tick_timestamp = raw_min_timestamp + (timestamp_range * factor)
                 x_axis_ticks.append((pad_x + (chart_width * factor), _format_time_short(tick_timestamp.isoformat())))
         timestamp_spread = max((max_timestamp - min_timestamp).total_seconds(), 1e-9)
-        for point in points:
-            value = point.get(value_key)
-            if not isinstance(value, (int, float)):
-                continue
-            timestamp = point.get("timestamp")
-            if not timestamp:
-                continue
-            try:
-                parsed_timestamp = datetime.fromisoformat(timestamp)
-            except ValueError:
-                continue
+        for parsed_timestamp, value in timestamped_values:
             x = pad_x + (((parsed_timestamp - min_timestamp).total_seconds()) / timestamp_spread) * chart_width
-            y = pad_y + chart_height - (((float(value) - min_value) / spread) * chart_height)
+            y = pad_y + chart_height - (((value - min_value) / spread) * chart_height)
             coordinates.append((x, y))
     else:
         for index, value in enumerate(values):

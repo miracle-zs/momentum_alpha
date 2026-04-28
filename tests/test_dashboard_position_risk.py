@@ -120,6 +120,30 @@ class DashboardPositionRiskTests(unittest.TestCase):
         x_values = [float(pair.split(",")[0]) for pair in match.group(1).split()]
         self.assertLess(x_values[1] - x_values[0], x_values[2] - x_values[1])
 
+    def test_render_line_chart_svg_uses_metric_timestamp_domain_when_values_are_missing(self) -> None:
+        from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
+        import re
+
+        svg = _render_line_chart_svg(
+            points=[
+                {"timestamp": "2026-04-23T09:00:00+00:00", "open_risk": None},
+                {"timestamp": "2026-04-23T09:02:00+00:00", "open_risk": 10.0},
+                {"timestamp": "2026-04-23T09:05:00+00:00", "open_risk": 10.0},
+            ],
+            value_key="open_risk",
+            stroke="#ff5d73",
+            fill="#ff5d73",
+        )
+
+        match = re.search(r"<polyline points='([^']+)'", svg)
+        self.assertIsNotNone(match)
+        x_values = [float(pair.split(",")[0]) for pair in match.group(1).split()]
+        self.assertEqual(x_values, [50.0, 550.0])
+        self.assertIn(">17:02<", svg)
+        self.assertIn(">17:03<", svg)
+        self.assertIn(">17:05<", svg)
+        self.assertNotIn(">17:00<", svg)
+
     def test_build_live_core_lines_panel_renders_x_axis_for_each_chart(self) -> None:
         from momentum_alpha.dashboard_render_panels import _build_live_core_lines_panel
 
