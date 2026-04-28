@@ -451,13 +451,42 @@ class StreamWorkerSplitTests(unittest.TestCase):
 
         self.assertFalse(result.should_reconnect)
 
-    def test_run_user_stream_watchdog_sets_stream_stop_event_for_stale_business_events(self) -> None:
+    def test_user_stream_watchdog_ignores_broker_actions_before_current_stream_cycle(self) -> None:
         from momentum_alpha import stream_worker_loop
         from momentum_alpha.runtime_store import insert_audit_event
 
         now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+
+            result = stream_worker_loop._should_reconnect_stale_user_stream(
+                runtime_db_path=runtime_db_path,
+                now=now,
+                max_silence_seconds=1800,
+                not_before=datetime(2026, 4, 21, 8, 30, tzinfo=timezone.utc),
+            )
+
+        self.assertFalse(result.should_reconnect)
+
+    def test_run_user_stream_watchdog_sets_stream_stop_event_for_stale_business_events(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        cycle_start = datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
         logs: list[str] = []
         captured: dict[str, bool] = {}
+        now_values = [cycle_start, cycle_start, cycle_start, cycle_start, cycle_start]
+
+        def fake_now_provider():
+            return now_values.pop(0) if now_values else now
 
         class FakeStreamClient:
             stop_event_factory = None
@@ -490,7 +519,7 @@ class StreamWorkerSplitTests(unittest.TestCase):
                 testnet=False,
                 logger=lambda message: logs.append(message),
                 runtime_state_store=None,
-                now_provider=lambda: now,
+                now_provider=fake_now_provider,
                 stream_client_factory=lambda **kwargs: FakeStreamClient(),
                 reconnect_sleep_fn=lambda seconds: None,
                 runtime_db_path=runtime_db_path,
@@ -500,3 +529,44 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(captured["stop_event_set"])
         self.assertTrue(any("event=watchdog-reconnect" in message for message in logs))
+
+    def test_run_user_stream_watchdog_does_not_stop_stream_for_old_broker_action(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        captured: dict[str, bool] = {}
+
+        class FakeStreamClient:
+            stop_event_factory = None
+
+            def run_forever(self, on_event):
+                _ = on_event
+                stop_event = self.stop_event_factory()
+                captured["stop_event_set"] = stop_event.wait(timeout=0.05)
+                return "listen-key"
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+
+            result = stream_worker_loop.run_user_stream(
+                client=object(),
+                testnet=False,
+                logger=lambda message: None,
+                runtime_state_store=None,
+                now_provider=lambda: now,
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                reconnect_sleep_fn=lambda seconds: None,
+                runtime_db_path=runtime_db_path,
+                max_user_stream_silence_after_action_seconds=1800,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertFalse(captured["stop_event_set"])

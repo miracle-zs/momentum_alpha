@@ -47,10 +47,20 @@ class UserStreamWatchdogResult:
     latest_user_stream_event_timestamp: str | None = None
 
 
-def _latest_audit_event(*, runtime_db_path: Path, event_types: tuple[str, ...]) -> tuple[datetime, str, str] | None:
+def _latest_audit_event(
+    *,
+    runtime_db_path: Path,
+    event_types: tuple[str, ...],
+    not_before: datetime | None = None,
+) -> tuple[datetime, str, str] | None:
     if not runtime_db_path.exists():
         return None
     placeholders = ", ".join("?" for _ in event_types)
+    params: list[str] = list(event_types)
+    timestamp_filter = ""
+    if not_before is not None:
+        timestamp_filter = "AND timestamp >= ?"
+        params.append(not_before.astimezone(timezone.utc).isoformat())
     connection = None
     try:
         connection = sqlite3.connect(runtime_db_path)
@@ -59,10 +69,11 @@ def _latest_audit_event(*, runtime_db_path: Path, event_types: tuple[str, ...]) 
             SELECT timestamp, event_type
             FROM audit_events
             WHERE event_type IN ({placeholders})
+              {timestamp_filter}
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
             """,
-            event_types,
+            params,
         ).fetchone()
     except sqlite3.Error:
         return None
@@ -80,16 +91,22 @@ def _should_reconnect_stale_user_stream(
     runtime_db_path: Path,
     now: datetime,
     max_silence_seconds: int,
+    not_before: datetime | None = None,
 ) -> UserStreamWatchdogResult:
     latest_action = _latest_audit_event(
         runtime_db_path=runtime_db_path,
         event_types=_USER_STREAM_ACTION_EVENT_TYPES,
+        not_before=not_before,
     )
     if latest_action is None:
         return UserStreamWatchdogResult(should_reconnect=False)
 
     latest_action_time, latest_action_event_type, latest_action_timestamp = latest_action
-    latest_event = _latest_audit_event(runtime_db_path=runtime_db_path, event_types=("user_stream_event",))
+    latest_event = _latest_audit_event(
+        runtime_db_path=runtime_db_path,
+        event_types=("user_stream_event",),
+        not_before=not_before,
+    )
     if latest_event is not None and latest_event[0] >= latest_action_time:
         return UserStreamWatchdogResult(
             should_reconnect=False,
@@ -221,7 +238,7 @@ def run_user_stream(
             },
         )
 
-    def _start_heartbeat(*, reconnect_attempt: int, stream_stop_event):
+    def _start_heartbeat(*, reconnect_attempt: int, stream_stop_event, stream_cycle_started_at: datetime):
         if audit_recorder is None:
             return None, None
         stop_event = threading.Event()
@@ -233,6 +250,7 @@ def run_user_stream(
                     runtime_db_path=audit_recorder.runtime_db_path,
                     now=now_provider(),
                     max_silence_seconds=max_user_stream_silence_after_action_seconds,
+                    not_before=stream_cycle_started_at,
                 )
                 if watchdog_result.should_reconnect:
                     _log(
@@ -374,6 +392,7 @@ def run_user_stream(
                     order_status_count=len(context.order_statuses),
                     payload={"event_type": "user_stream_worker_start", "testnet": testnet},
                 )
+            stream_cycle_started_at = now_provider()
             stream_stop_event = threading.Event()
             stream_client = stream_client_factory(rest_client=client, testnet=testnet)
             if hasattr(stream_client, "stop_event_factory"):
@@ -381,6 +400,7 @@ def run_user_stream(
             heartbeat_stop_event, heartbeat_thread = _start_heartbeat(
                 reconnect_attempt=reconnect_attempt,
                 stream_stop_event=stream_stop_event,
+                stream_cycle_started_at=stream_cycle_started_at,
             )
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
