@@ -139,6 +139,7 @@ class DeployArtifactTests(unittest.TestCase):
         service = (ROOT / "deploy" / "systemd" / "momentum-alpha-trade-data-sync.service").read_text()
         timer = (ROOT / "deploy" / "systemd" / "momentum-alpha-trade-data-sync.timer").read_text()
         self.assertIn("Type=oneshot", service)
+        self.assertIn("EnvironmentFile=%h/momentum_alpha/deploy/env.local", service)
         self.assertIn("ExecStart=%h/momentum_alpha/scripts/run_trade_data_sync.sh", service)
         self.assertIn(
             "StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log",

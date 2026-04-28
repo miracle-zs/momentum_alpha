@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=%h/momentum_alpha
-EnvironmentFile=-%h/momentum_alpha/.env
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
 ExecStart=%h/momentum_alpha/scripts/run_trade_data_sync.sh
 StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log
 StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log
