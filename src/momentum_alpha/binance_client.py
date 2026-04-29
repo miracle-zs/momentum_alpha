@@ -259,27 +259,27 @@ class BinanceRestClient:
         return self.send(self.build_api_key_request(method="POST", path="/fapi/v1/listenKey"))
 
     def keepalive_listen_key(self, *, listen_key: str) -> dict:
+        _ = listen_key
         return self.send(
             self.build_api_key_request(
                 method="PUT",
                 path="/fapi/v1/listenKey",
-                params={"listenKey": listen_key},
             )
         )
 
     def close_listen_key(self, *, listen_key: str) -> dict:
+        _ = listen_key
         return self.send(
             self.build_api_key_request(
                 method="DELETE",
                 path="/fapi/v1/listenKey",
-                params={"listenKey": listen_key},
             )
         )
 
     def fetch_ticker_price(self, *, symbol: str) -> dict:
         return self.send(
             self.build_public_request(
-                path="/fapi/v1/ticker/price",
+                path="/fapi/v2/ticker/price",
                 params={"symbol": symbol},
             )
         )
@@ -287,7 +287,7 @@ class BinanceRestClient:
     def fetch_ticker_prices(self) -> list[dict]:
         return self.send(
             self.build_public_request(
-                path="/fapi/v1/ticker/price",
+                path="/fapi/v2/ticker/price",
             )
         )
 

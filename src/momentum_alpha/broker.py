@@ -64,11 +64,12 @@ class BinanceBroker:
                 "quantity": quantity,
                 "stopPrice": stop_price,
                 "workingType": "CONTRACT_PRICE",
-                "reduceOnly": "true",
                 "newClientOrderId": _build_replacement_stop_client_order_id(symbol),
             }
             if position_side is not None:
                 order_params["positionSide"] = position_side
+            else:
+                order_params["reduceOnly"] = "true"
             try:
                 responses.append(
                     self.client.send(self.client.new_algo_order(**order_params))

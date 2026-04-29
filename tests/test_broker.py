@@ -128,9 +128,10 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.new_algo_order_calls[0]["stopPrice"], "61000.0")
         # 单向持仓模式: positionSide=None 时不应该传递该参数
         self.assertNotIn("positionSide", broker.client.new_algo_order_calls[0])
-        # 止损单应该设置 reduceOnly=true 以确保只平仓不开新仓
+        # 单向持仓模式的止损单应该设置 reduceOnly=true 以确保只平仓不开新仓
         self.assertEqual(broker.client.new_algo_order_calls[0]["reduceOnly"], "true")
-        self.assertEqual(broker.client.new_algo_order_calls[1]["reduceOnly"], "true")
+        # 双向持仓模式不能同时传 reduceOnly 和 positionSide
+        self.assertNotIn("reduceOnly", broker.client.new_algo_order_calls[1])
         self.assertTrue(broker.client.new_algo_order_calls[0]["newClientOrderId"].startswith("ma_"))
         self.assertTrue(broker.client.new_algo_order_calls[0]["newClientOrderId"].endswith("s"))
         self.assertIn("BTCUSDT", broker.client.new_algo_order_calls[0]["newClientOrderId"])

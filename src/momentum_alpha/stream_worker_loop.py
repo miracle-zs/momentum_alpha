@@ -284,11 +284,12 @@ def run_user_stream(
                 open_algo_orders = fetch_open_algo_orders()
             except Exception:
                 open_algo_orders = []
+        restored_open_orders = [*open_orders, *open_algo_orders]
         restored_state = restore_state(
             current_day=context.state.current_day.isoformat(),
             previous_leader_symbol=context.state.previous_leader_symbol,
             position_risk=position_risk,
-            open_orders=open_orders,
+            open_orders=restored_open_orders,
         )
         context.state = replace(context.state, positions=restored_state.positions)
         context.order_statuses = {

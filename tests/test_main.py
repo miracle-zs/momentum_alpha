@@ -2574,6 +2574,60 @@ class MainTests(unittest.TestCase):
             self.assertEqual(client.position_risk_calls, 1)
             self.assertEqual(client.open_orders_calls, 1)
 
+    def test_run_user_stream_prewarms_restored_stop_from_open_algo_orders(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import RuntimeStateStore
+
+        class FakeClient:
+            def fetch_position_risk(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "positionAmt": "2",
+                        "entryPrice": "108",
+                        "updateTime": 1776215100000,
+                    }
+                ]
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_open_algo_orders(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "algoId": 456,
+                        "clientAlgoId": "ma_260415221700_ETHUSDT_b00s",
+                        "orderType": "STOP_MARKET",
+                        "side": "SELL",
+                        "algoStatus": "NEW",
+                        "triggerPrice": "106",
+                    }
+                ]
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                runtime_state_store=store,
+                now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            )
+            loaded = store.load()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(loaded.positions["ETHUSDT"].stop_price, Decimal("106"))
+        self.assertEqual(
+            loaded.order_statuses["algo:ma_260415221700_ETHUSDT_b00s"]["stop_price"],
+            "106",
+        )
+
     def test_run_user_stream_reconnects_after_stream_failure_and_reprewarms_state(self) -> None:
         from momentum_alpha.main import run_user_stream
         from momentum_alpha.runtime_store import RuntimeStateStore
@@ -3427,7 +3481,7 @@ class MainTests(unittest.TestCase):
             calls.append(kwargs)
             if len(calls) == 1:
                 raise HTTPError(
-                    url="https://fapi.binance.com/fapi/v1/ticker/price",
+                    url="https://fapi.binance.com/fapi/v2/ticker/price",
                     code=429,
                     msg="Too Many Requests",
                     hdrs=None,

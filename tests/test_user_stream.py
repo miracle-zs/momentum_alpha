@@ -840,6 +840,41 @@ class UserStreamTests(unittest.TestCase):
         self.assertEqual(event.side, "SELL")
         self.assertEqual(event.trigger_price, Decimal("61000.0"))
 
+    def test_parse_official_nested_algo_update_event(self) -> None:
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "T": 1750515742297,
+                "E": 1750515742303,
+                "o": {
+                    "caid": "ma_260415221700_BTCUSDT_b00s",
+                    "aid": 2148719,
+                    "at": "CONDITIONAL",
+                    "o": "STOP_MARKET",
+                    "s": "BTCUSDT",
+                    "S": "SELL",
+                    "ps": "LONG",
+                    "q": "0.010",
+                    "X": "CANCELED",
+                    "tp": "61000.0",
+                    "wt": "CONTRACT_PRICE",
+                    "R": False,
+                },
+            }
+        )
+
+        self.assertEqual(event.event_type, "ALGO_UPDATE")
+        self.assertEqual(event.symbol, "BTCUSDT")
+        self.assertEqual(event.algo_id, 2148719)
+        self.assertEqual(event.client_algo_id, "ma_260415221700_BTCUSDT_b00s")
+        self.assertEqual(event.algo_status, "CANCELED")
+        self.assertEqual(event.order_status, "CANCELED")
+        self.assertEqual(event.side, "SELL")
+        self.assertEqual(event.original_order_type, "STOP_MARKET")
+        self.assertEqual(event.trigger_price, Decimal("61000.0"))
+
     def test_extract_algo_update_event_without_algo_id_is_still_persistable(self) -> None:
         from momentum_alpha.user_stream import extract_algo_order_event, extract_algo_order_status_update, parse_user_stream_event
 
@@ -918,6 +953,33 @@ class UserStreamTests(unittest.TestCase):
         key, snapshot = result
         self.assertEqual(key, "algo:2000000786682809")
         self.assertIsNone(snapshot)
+
+    def test_extract_algo_order_status_update_returns_delete_for_canceled_order(self) -> None:
+        from momentum_alpha.user_stream import extract_algo_order_status_update, parse_user_stream_event
+
+        event = parse_user_stream_event(
+            {
+                "e": "ALGO_UPDATE",
+                "E": 1776215100000,
+                "o": {
+                    "s": "BTCUSDT",
+                    "aid": 2000000786682809,
+                    "caid": "ma_260415221700_BTCUSDT_b00s",
+                    "X": "CANCELED",
+                    "S": "SELL",
+                    "o": "STOP_MARKET",
+                    "tp": "61000.0",
+                },
+            }
+        )
+
+        result = extract_algo_order_status_update(event)
+
+        self.assertIsNotNone(result)
+        key, snapshot = result
+        self.assertEqual(key, "algo:ma_260415221700_BTCUSDT_b00s")
+        self.assertIsNone(snapshot)
+
 
     def test_resolve_stop_price_from_order_statuses_includes_algo_orders(self) -> None:
         from momentum_alpha.user_stream import resolve_stop_price_from_order_statuses

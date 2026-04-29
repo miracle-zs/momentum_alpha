@@ -99,7 +99,7 @@ def extract_algo_order_status_update(event: UserStreamEvent) -> tuple[str, dict 
     # Prefer clientAlgoId so updates remain stable even if algoId is absent.
     key = f"algo:{key_id}"
     # Terminal states - remove from tracking
-    terminal_statuses = {"TRIGGERED", "CANCELLED", "EXPIRED", "FAILED"}
+    terminal_statuses = {"TRIGGERED", "FINISHED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED", "FAILED"}
     if event.algo_status in terminal_statuses:
         return (key, None)
     return (

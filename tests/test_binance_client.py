@@ -284,6 +284,7 @@ class BinanceClientTests(unittest.TestCase):
         payload = client.fetch_ticker_price(symbol="BTCUSDT")
         self.assertEqual(payload["symbol"], "BTCUSDT")
         self.assertIn("symbol=BTCUSDT", client.requests[0].url)
+        self.assertIn("/fapi/v2/ticker/price", client.requests[0].url)
 
     def test_fetch_ticker_prices_without_symbol_uses_batch_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -300,7 +301,7 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         payload = client.fetch_ticker_prices()
         self.assertEqual(payload[0]["symbol"], "BTCUSDT")
-        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v1/ticker/price")
+        self.assertEqual(client.requests[0].url, "https://fapi.binance.com/fapi/v2/ticker/price")
 
     def test_fetch_klines_uses_interval_and_limit(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -640,7 +641,7 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         client.keepalive_listen_key(listen_key="abc")
         self.assertEqual(client.requests[0].method, "PUT")
-        self.assertIn("listenKey=abc", client.requests[0].body)
+        self.assertIsNone(client.requests[0].body)
 
     def test_close_listen_key_uses_delete(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
@@ -657,4 +658,4 @@ class BinanceClientTests(unittest.TestCase):
         client = FakeClient()
         client.close_listen_key(listen_key="abc")
         self.assertEqual(client.requests[0].method, "DELETE")
-        self.assertIn("listenKey=abc", client.requests[0].body)
+        self.assertIsNone(client.requests[0].body)

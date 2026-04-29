@@ -68,6 +68,7 @@ class BinanceOrderPayloadTests(unittest.TestCase):
         self.assertEqual(payload["type"], "STOP_MARKET")
         self.assertEqual(payload["side"], "SELL")
         self.assertEqual(payload["workingType"], "CONTRACT_PRICE")
+        self.assertEqual(payload["reduceOnly"], "true")
         self.assertEqual(payload["quantity"], "0.123")
         self.assertEqual(payload["stopPrice"], "61234.50")
 
@@ -90,6 +91,7 @@ class BinanceOrderPayloadTests(unittest.TestCase):
             position_side="LONG",
         )
         self.assertEqual(payload["positionSide"], "LONG")
+        self.assertNotIn("reduceOnly", payload)
 
     def test_order_payloads_include_client_order_id_when_provided(self) -> None:
         from momentum_alpha.binance_filters import SymbolFilters

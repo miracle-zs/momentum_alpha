@@ -77,6 +77,8 @@ def build_stop_market_order(
         "stopPrice": _format_decimal(normalized_stop_price.quantize(symbol.filters.tick_size)),
         "workingType": "CONTRACT_PRICE",
     }
+    if not position_side:
+        payload["reduceOnly"] = "true"
     if client_order_id:
         payload["newClientOrderId"] = client_order_id
     if position_side:
