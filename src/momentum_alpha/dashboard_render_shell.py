@@ -145,6 +145,134 @@ def _build_recent_action_events_html(*, recent_signal_decisions: list[dict], rec
     ) or "<div class='event-item empty'>No recent action events</div>"
 
 
+def _normalize_health_name(name: object) -> str:
+    return str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _normalize_health_status(status: object) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"ok", "healthy", "fresh", "ready"}:
+        return "ok"
+    if normalized in {"warn", "warning", "degraded", "stale"}:
+        return "warn"
+    if normalized in {"fail", "failed", "error", "critical"}:
+        return "fail"
+    return "unknown"
+
+
+def _find_health_item(health_items: list[dict], names: tuple[str, ...]) -> dict | None:
+    wanted = {_normalize_health_name(name) for name in names}
+    for item in health_items:
+        if _normalize_health_name(item.get("name")) in wanted:
+            return item
+    return None
+
+
+def _format_age_seconds_from_message(message: object) -> str | None:
+    for token in str(message or "").replace(",", " ").replace(";", " ").split():
+        if not token.startswith("age_seconds="):
+            continue
+        raw_value = token.split("=", 1)[1].strip()
+        try:
+            seconds = float(raw_value)
+        except ValueError:
+            continue
+        return f"{int(seconds)}s" if seconds.is_integer() else f"{seconds:.1f}s"
+    return None
+
+
+def _health_freshness_value(item: dict | None) -> str:
+    if not item:
+        return "n/a"
+    age_value = _format_age_seconds_from_message(item.get("message"))
+    if age_value:
+        return age_value
+    message = str(item.get("message") or "").strip().lower()
+    if "fresh" in message:
+        return "fresh"
+    if "idle" in message:
+        return "idle"
+    if "stale" in message:
+        return "stale"
+    return "n/a"
+
+
+def _build_system_diagnostic_card(
+    *,
+    key: str,
+    label: str,
+    value: object,
+    support: str,
+    status: object,
+    icon_text: str,
+) -> str:
+    status_class = _normalize_health_status(status)
+    return (
+        f"<div class='system-diagnostic-card status-{escape(status_class)}'>"
+        f"<span class='system-diagnostic-icon system-diagnostic-icon-{escape(key)}' aria-hidden='true'>{escape(icon_text)}</span>"
+        "<div class='system-diagnostic-body'>"
+        f"<div class='system-diagnostic-label'>{escape(label)}</div>"
+        f"<div class='system-diagnostic-value'>{escape(str(value))}</div>"
+        f"<div class='system-diagnostic-support'>{escape(support)}</div>"
+        "</div>"
+        "</div>"
+    )
+
+
+def _build_service_latency_card(
+    *,
+    label: str,
+    support: str,
+    item: dict | None,
+) -> str:
+    status_value = item.get("status") if item else "n/a"
+    status_class = _normalize_health_status(status_value)
+    freshness_value = _health_freshness_value(item)
+    return (
+        f"<div class='service-latency-card status-{escape(status_class)}'>"
+        f"<div class='service-latency-label'>{escape(label)}</div>"
+        f"<div class='service-latency-value'>{escape(freshness_value)}</div>"
+        f"<div class='service-latency-support'>{escape(support)}</div>"
+        f"<div class='service-latency-status'>{escape(str(status_value).upper())}</div>"
+        "</div>"
+    )
+
+
+def _build_system_service_latency_html(health_items: list[dict]) -> str:
+    service_items = [
+        (
+            "Runtime DB",
+            "SQLite runtime store",
+            _find_health_item(health_items, ("runtime_db", "strategy_state", "sqlite_store")),
+        ),
+        (
+            "Poll Worker",
+            "Poll cycle freshness",
+            _find_health_item(health_items, ("poll_events", "poll", "poll_worker")),
+        ),
+        (
+            "User Stream",
+            "Listen key heartbeat",
+            _find_health_item(health_items, ("user_stream_heartbeat", "user_stream_events", "user_stream")),
+        ),
+        (
+            "Local System",
+            "Dashboard render",
+            _find_health_item(health_items, ("local_system", "dashboard_render")),
+        ),
+    ]
+    cards_html = "".join(
+        _build_service_latency_card(label=label, support=support, item=item)
+        for label, support, item in service_items
+    )
+    return (
+        "<div class='service-latency-panel'>"
+        "<div class='section-header'>SERVICE LATENCY / FRESHNESS</div>"
+        f"<div class='service-latency-grid'>{cards_html}</div>"
+        "</div>"
+    )
+
+
 def normalize_dashboard_tab(value: str | None) -> str:
     room = normalize_dashboard_room(value)
     return {"live": "overview", "review": "performance", "system": "system"}[room]
@@ -328,24 +456,59 @@ def render_dashboard_body(
         ],
         default=None,
     )
+    health_items = snapshot["health"]["items"]
     health_items_html = "".join(
-        f"<div class='health-item status-{escape(item['status'].lower())}'>"
+        f"<div class='health-item status-{escape(_normalize_health_status(item.get('status')))}'>"
         f"<span class='health-status-dot'></span>"
-        f"<span class='health-name'>{escape(item['name'])}</span>"
-        f"<span class='health-status'>{escape(item['status'])}</span>"
-        f"<span class='health-msg'>{escape(item['message'])}</span></div>"
-        for item in snapshot["health"]["items"]
+        f"<span class='health-name'>{escape(str(item.get('name') or 'n/a'))}</span>"
+        f"<span class='health-status'>{escape(str(item.get('status') or 'n/a'))}</span>"
+        f"<span class='health-msg'>{escape(str(item.get('message') or ''))}</span></div>"
+        for item in health_items
     )
     warnings = snapshot.get("warnings", [])
+    runtime_db_item = _find_health_item(health_items, ("runtime_db", "strategy_state", "sqlite_store"))
+    runtime_db_status = str(runtime_db_item.get("status") if runtime_db_item else "n/a").upper()
+    diagnostic_cards_html = "".join(
+        [
+            _build_system_diagnostic_card(
+                key="health",
+                label="Health Status",
+                value=health_status,
+                support="Overall runtime state",
+                status=health_status,
+                icon_text="HS",
+            ),
+            _build_system_diagnostic_card(
+                key="freshness",
+                label="Data Freshness",
+                value=format_timestamp_for_display(latest_update_display),
+                support="Latest tick, signal, or event",
+                status="ok" if latest_update_display else "warn",
+                icon_text="FR",
+            ),
+            _build_system_diagnostic_card(
+                key="warning",
+                label="Warning Count",
+                value=len(warnings),
+                support="Active warnings below",
+                status="warn" if warnings else "ok",
+                icon_text="WC",
+            ),
+            _build_system_diagnostic_card(
+                key="db",
+                label="Runtime DB",
+                value=runtime_db_status,
+                support="SQLite runtime store",
+                status=runtime_db_item.get("status") if runtime_db_item else "unknown",
+                icon_text="DB",
+            ),
+        ]
+    )
     diagnostics_html = (
-        "<div class='dashboard-section system-diagnostics-panel section-body'>"
-        "<div class='section-header'>SYSTEM DIAGNOSTICS</div>"
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Health Status</div><div class='decision-value'>{escape(str(health_status))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Data Freshness</div><div class='decision-value'>{escape(format_timestamp_for_display(latest_update_display))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Warning Count</div><div class='decision-value'>{escape(str(len(warnings)))}</div></div>"
+        "<div class='system-diagnostics-panel'>"
+        f"<div class='system-diagnostics-grid'>{diagnostic_cards_html}</div>"
         "</div>"
-        "</div>"
+        f"{_build_system_service_latency_html(health_items)}"
     )
     warning_list_html = (
         "<div class='dashboard-section system-warning-panel section-body'>"

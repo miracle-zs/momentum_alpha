@@ -23,6 +23,8 @@ def _render_dashboard_responsive_styles() -> str:
       .system-summary-head { flex-direction: column; align-items: flex-start; }
       .system-summary-copy { max-width: none; text-align: left; }
       .system-summary-strip .decision-grid { grid-template-columns: 1fr; }
+      .system-diagnostics-grid,
+      .service-latency-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .system-health-path { width: 100%; }
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
@@ -53,6 +55,8 @@ def _render_dashboard_responsive_styles() -> str:
       .live-core-lines-grid { grid-template-columns: 1fr; }
       .live-decision-grid,
       .system-console-grid { grid-template-columns: 1fr; }
+      .system-diagnostics-grid,
+      .service-latency-grid { grid-template-columns: 1fr; }
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
       .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
       .daily-review-history-grid { grid-template-columns: 1fr 1fr; }
