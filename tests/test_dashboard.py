@@ -951,7 +951,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("BTCUSDT", html)
         self.assertIn("81000", html)
-        self.assertIn("MTM", html)
+        self.assertIn("Unrealized PnL", html)
         self.assertIn("15.00", html)
         self.assertIn("PnL %", html)
         self.assertIn("Distance", html)
@@ -962,7 +962,7 @@ class DashboardTests(unittest.TestCase):
 
         html = render_dashboard_html(self._build_tabbed_snapshot())
 
-        self.assertIn("MTM", html)
+        self.assertIn("Unrealized PnL", html)
         self.assertIn("15.00", html)
         self.assertNotIn("home-command-value", html)
 
@@ -2653,6 +2653,14 @@ console.log(JSON.stringify(cases));
 
         html = render_position_cards(positions)
 
+        self.assertIn("<div class='positions-table-shell'>", html)
+        self.assertIn("<table class='positions-table'>", html)
+        self.assertIn("<th scope='col'>Symbol</th>", html)
+        self.assertIn("<th scope='col'>Unrealized PnL</th>", html)
+        self.assertIn("<th scope='col'>Open Risk</th>", html)
+        self.assertIn("<th scope='col'>Stop / Distance</th>", html)
+        self.assertIn("<td class='position-index-cell'>1</td>", html)
+        self.assertIn("2 legs", html)
         self.assertIn("BTCUSDT", html)
         self.assertIn("LONG", html)
         self.assertIn("0.015", html)
@@ -2666,7 +2674,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("1245.00", html)
         self.assertIn("Distance to Stop %", html)
         self.assertIn("2.00", html)
-        self.assertIn("R Multiple vs Risk", html)
+        self.assertIn("R Multiple", html)
         self.assertIn("0.25", html)
         self.assertIn("base", html)
         self.assertIn("add_on", html)
@@ -2708,10 +2716,11 @@ console.log(JSON.stringify(cases));
         html = render_position_cards(positions)
 
         self.assertLess(html.index("HIGHUSDT"), html.index("LOWUSDT"))
-        self.assertIn("Risk %", html)
+        self.assertIn("Open Risk", html)
+        self.assertIn("Risk % of Equity", html)
         self.assertIn("Legs", html)
-        self.assertIn("Opened", html)
-        self.assertIn("MTM", html)
+        self.assertIn("Entry Time", html)
+        self.assertIn("Unrealized PnL", html)
         self.assertIn("n/a", html)
         self.assertNotIn("waiting for live price data", html)
 

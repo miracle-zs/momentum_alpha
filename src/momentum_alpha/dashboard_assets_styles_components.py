@@ -78,19 +78,25 @@ def _render_dashboard_component_styles() -> str:
     .refresh-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; animation: blink 1s infinite; }
     .refresh-indicator.error .refresh-dot { background: var(--danger); animation: none; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .positions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .position-card { background: rgba(0,0,0,0.3); padding: 14px; border-radius: 8px; border-left: 3px solid var(--success); }
-    .position-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
-    .position-symbol { font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', 'SF Mono', monospace; }
-    .position-direction { font-size: 0.75rem; color: var(--fg-muted); }
-    .position-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 0.82rem; }
-    .position-metric { text-align: center; padding: 4px 2px; }
-    .position-metric.position-live { background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.12); border-radius: 8px; }
-    .position-metric.position-live .metric-value { font-size: 0.96rem; font-weight: 700; }
-    .position-metric.position-risk .metric-value { font-size: 0.92rem; font-weight: 700; }
+    .positions-table-shell { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(0,0,0,0.24); }
+    .positions-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 0.72rem; }
+    .positions-table th { padding: 9px 10px; color: var(--fg-muted); font-weight: 600; text-align: left; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.025); white-space: nowrap; }
+    .positions-table td { padding: 9px 10px; border-bottom: 1px solid rgba(100,130,170,0.12); color: var(--fg); white-space: nowrap; vertical-align: middle; }
+    .positions-table tbody tr:last-child td { border-bottom: 0; }
+    .positions-table tbody tr:hover { background: rgba(0,212,255,0.045); }
+    .position-index-cell { color: var(--fg-muted); text-align: center; width: 34px; }
+    .position-symbol-cell { color: var(--accent); font-family: 'JetBrains Mono', 'SF Mono', monospace; font-weight: 700; letter-spacing: 0.02em; }
+    .position-side { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; padding: 2px 7px; border-radius: 6px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; }
+    .position-side-long { color: var(--success); background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.18); }
+    .position-side-short { color: var(--danger); background: rgba(255,68,102,0.08); border: 1px solid rgba(255,68,102,0.2); }
+    .position-primary { display: block; font-weight: 700; }
+    .position-subtle { display: block; margin-top: 3px; color: var(--fg-muted); font-size: 0.64rem; }
+    .position-legs-summary { color: var(--fg-muted); border-bottom: 1px dotted rgba(180,200,230,0.35); cursor: help; }
+    .value-positive { color: var(--success); font-weight: 700; }
+    .value-negative { color: var(--danger); font-weight: 700; }
+    .value-neutral { color: var(--fg-muted); }
     .metric-danger { color: var(--danger); }
     .metric-note { display: block; margin-top: 4px; font-size: 0.62rem; color: var(--fg-muted); }
-    .position-legs { margin-top: 8px; font-size: 0.7rem; color: var(--fg-muted); }
     .positions-empty { color: var(--fg-muted); text-align: center; padding: 20px; }
     .trade-history { max-height: 200px; overflow-y: auto; }
     .trade-history-empty { color: var(--fg-muted); text-align: center; padding: 20px; }

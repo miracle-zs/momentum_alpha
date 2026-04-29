@@ -6,7 +6,7 @@ from .dashboard_render_utils import _format_metric, _parse_numeric, format_times
 
 
 def render_position_cards(positions: list[dict]) -> str:
-    """Render HTML for position detail cards."""
+    """Render HTML for active position details."""
     if not positions:
         return "<div class='positions-empty'>No positions</div>"
 
@@ -26,16 +26,44 @@ def render_position_cards(positions: list[dict]) -> str:
             return f"{_format_metric(float(value))}{suffix}"
         return f"{escape(str(value))}{suffix}"
 
-    cards = ""
-    for pos in sorted(positions, key=_position_sort_key):
+    def _value_state_class(value: object | None) -> str:
+        parsed = _parse_numeric(value)
+        if parsed is None:
+            return "value-neutral"
+        if parsed > 0:
+            return "value-positive"
+        if parsed < 0:
+            return "value-negative"
+        return "value-neutral"
+
+    headers = (
+        "#",
+        "Symbol",
+        "Side",
+        "Size",
+        "Entry",
+        "Mark",
+        "Unrealized PnL",
+        "PnL %",
+        "R Multiple",
+        "Open Risk",
+        "Stop / Distance",
+        "Notional",
+        "Entry Time",
+        "Legs",
+    )
+    header_html = "".join(f"<th scope='col'>{escape(header)}</th>" for header in headers)
+    rows = ""
+    for index, pos in enumerate(sorted(positions, key=_position_sort_key), start=1):
         symbol = escape(str(pos.get("symbol") or "-"))
-        direction = escape(str(pos.get("direction") or "LONG"))
+        raw_direction = str(pos.get("direction") or "LONG").upper()
+        direction = escape(raw_direction)
+        direction_state = "short" if raw_direction == "SHORT" else "long"
         qty = escape(str(pos.get("total_quantity") or "0"))
         entry = escape(str(pos.get("entry_price") or "n/a"))
         stop = escape(str(pos.get("stop_price") or "n/a"))
         risk = _display_metric_value(pos.get("risk"), suffix=" USDT")
         risk_pct = _display_metric_value(pos.get("risk_pct_of_equity"), suffix="%")
-        leg_count = _display_metric_value(pos.get("leg_count"))
         opened_at = _display_metric_value(format_timestamp_for_display(pos.get("opened_at")))
         latest_price = _display_live_price_metric(pos.get("latest_price"))
         mtm_pnl = _display_live_price_metric(pos.get("mtm_pnl"))
@@ -44,35 +72,33 @@ def render_position_cards(positions: list[dict]) -> str:
         notional = _display_live_price_metric(pos.get("notional_exposure"))
         r_multiple = _display_live_price_metric(pos.get("r_multiple"), suffix="R")
         legs = pos.get("legs") or []
+        leg_count = pos.get("leg_count")
+        if leg_count in (None, ""):
+            leg_count = len(legs) if legs else None
 
-        legs_str = " | ".join(
+        legs_detail = " | ".join(
             f"Leg {i+1}: {escape(str(leg.get('type') or '-'))} · {escape(str((leg.get('time') or '')[:10]))}"
             for i, leg in enumerate(legs)
         ) if legs else "No legs"
+        legs_summary = "n/a" if leg_count in (None, "") else f"{escape(str(leg_count))} leg{'s' if str(leg_count) != '1' else ''}"
 
-        cards += (
-            f"<div class='position-card'>"
-            f"<div class='position-header'>"
-            f"<span class='position-symbol'>{symbol}</span>"
-            f"<span class='position-direction'>{direction}</span>"
-            f"</div>"
-            f"<div class='position-metrics'>"
-            f"<div class='position-metric'><span class='metric-label'>Qty</span><span class='metric-value'>{qty}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Entry</span><span class='metric-value'>{entry}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Stop</span><span class='metric-value metric-danger'>{stop}</span></div>"
-            f"<div class='position-metric position-risk'><span class='metric-label'>Risk</span><span class='metric-value'>{risk}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Risk % of Equity</span><span class='metric-value'>{risk_pct}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Legs</span><span class='metric-value'>{leg_count}</span></div>"
-            f"<div class='position-metric'><span class='metric-label'>Opened</span><span class='metric-value'>{opened_at}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>Last</span><span class='metric-value'>{latest_price}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>MTM</span><span class='metric-value'>{mtm_pnl}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>PnL %</span><span class='metric-value'>{pnl_pct}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>Distance to Stop %</span><span class='metric-value'>{distance_to_stop}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>Notional</span><span class='metric-value'>{notional}</span></div>"
-            f"<div class='position-metric position-live'><span class='metric-label'>R Multiple vs Risk</span><span class='metric-value'>{r_multiple}</span></div>"
-            f"</div>"
-            f"<div class='position-legs'>{escape(legs_str)}</div>"
-            f"</div>"
+        rows += (
+            "<tr>"
+            f"<td class='position-index-cell'>{index}</td>"
+            f"<td class='position-symbol-cell'>{symbol}</td>"
+            f"<td><span class='position-side position-side-{direction_state}'>{direction}</span></td>"
+            f"<td>{qty}</td>"
+            f"<td>{entry}</td>"
+            f"<td>{latest_price}</td>"
+            f"<td class='{_value_state_class(pos.get('mtm_pnl'))}'>{mtm_pnl}</td>"
+            f"<td class='{_value_state_class(pos.get('pnl_pct'))}'>{pnl_pct}</td>"
+            f"<td class='{_value_state_class(pos.get('r_multiple'))}'>{r_multiple}</td>"
+            f"<td><span class='position-primary'>{risk}</span><span class='position-subtle'>Risk % of Equity {risk_pct}</span></td>"
+            f"<td><span class='position-primary metric-danger'>{stop}</span><span class='position-subtle'>Distance to Stop % {distance_to_stop}</span></td>"
+            f"<td>{notional}</td>"
+            f"<td>{opened_at}</td>"
+            f"<td><span class='position-legs-summary' title='{escape(legs_detail)}'>{legs_summary}</span></td>"
+            "</tr>"
         )
 
-    return f"<div class='positions-grid'>{cards}</div>"
+    return f"<div class='positions-table-shell'><table class='positions-table'><thead><tr>{header_html}</tr></thead><tbody>{rows}</tbody></table></div>"

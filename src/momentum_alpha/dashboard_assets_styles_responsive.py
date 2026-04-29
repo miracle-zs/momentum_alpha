@@ -45,7 +45,8 @@ def _render_dashboard_responsive_styles() -> str:
       .dashboard-tabs { padding: 8px; gap: 8px; }
       .dashboard-tab { flex: 1 1 calc(50% - 8px); min-width: 0; }
       .decision-grid { grid-template-columns: 1fr; }
-      .positions-grid { grid-template-columns: 1fr; }
+      .positions-table { min-width: 1040px; font-size: 0.68rem; }
+      .positions-table th, .positions-table td { padding: 8px; }
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: 1fr; }
