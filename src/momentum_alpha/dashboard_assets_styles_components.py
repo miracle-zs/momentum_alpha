@@ -38,16 +38,13 @@ def _render_dashboard_component_styles() -> str:
     .health-grid { display: flex; flex-direction: column; gap: 10px; }
     .health-item { display: grid; grid-template-columns: 8px 1fr 80px 1fr; gap: 12px; align-items: center; padding: 12px 14px; background: rgba(0,0,0,0.2); border-radius: var(--radius-sm); border-left: 3px solid transparent; }
     .health-item.status-ok { border-left-color: var(--success); }
-    .health-item.status-warn { border-left-color: var(--warning); }
     .health-item.status-fail { border-left-color: var(--danger); }
     .health-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); }
     .status-ok .health-status-dot { background: var(--success); box-shadow: 0 0 8px var(--success); }
-    .status-warn .health-status-dot { background: var(--warning); box-shadow: 0 0 8px rgba(255,184,0,0.6); }
     .status-fail .health-status-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
     .health-name { font-size: 0.8rem; font-weight: 500; }
     .health-status { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
     .status-ok .health-status { color: var(--success); }
-    .status-warn .health-status { color: var(--warning); }
     .status-fail .health-status { color: var(--danger); }
     .health-msg { font-size: 0.75rem; color: var(--fg-muted); }
     .decision-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -261,35 +258,6 @@ def _render_dashboard_component_styles() -> str:
     .system-summary-kicker { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
     .system-summary-copy { color: var(--fg-muted); font-size: 0.78rem; max-width: 520px; text-align: right; }
     .system-summary-strip .decision-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .system-diagnostics-panel { margin-bottom: 14px; }
-    .system-diagnostics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .system-diagnostic-card { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; min-height: 108px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.22); }
-    .system-diagnostic-card.status-ok { border-color: rgba(0,255,136,0.18); }
-    .system-diagnostic-card.status-warn { border-color: rgba(255,184,0,0.24); background: rgba(255,184,0,0.045); }
-    .system-diagnostic-card.status-fail { border-color: rgba(255,68,102,0.28); background: rgba(255,68,102,0.045); }
-    .system-diagnostic-icon { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 8px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.04em; color: var(--fg); border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); }
-    .system-diagnostic-icon-health { color: var(--success); background: rgba(0,255,136,0.08); border-color: rgba(0,255,136,0.22); }
-    .system-diagnostic-icon-freshness { color: var(--accent); background: rgba(0,212,255,0.08); border-color: rgba(0,212,255,0.22); }
-    .system-diagnostic-icon-warning { color: var(--warning); background: rgba(255,184,0,0.08); border-color: rgba(255,184,0,0.24); }
-    .system-diagnostic-icon-db { color: var(--accent-strong); background: rgba(138,210,255,0.08); border-color: rgba(138,210,255,0.24); }
-    .system-diagnostic-body { min-width: 0; }
-    .system-diagnostic-label { color: var(--fg-muted); font-size: 0.66rem; line-height: 1.2; text-transform: uppercase; letter-spacing: 0.08em; }
-    .system-diagnostic-value { margin-top: 7px; color: var(--fg); font-size: 0.98rem; font-weight: 800; line-height: 1.1; word-break: break-word; }
-    .system-diagnostic-support { margin-top: 8px; color: var(--fg-muted); font-size: 0.7rem; line-height: 1.35; }
-    .service-latency-panel { margin-top: 4px; padding-top: 12px; border-top: 1px solid rgba(100,130,170,0.14); }
-    .service-latency-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .service-latency-card { position: relative; min-height: 98px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.2); overflow: hidden; }
-    .service-latency-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: rgba(180,200,230,0.24); }
-    .service-latency-card.status-ok::before { background: var(--success); }
-    .service-latency-card.status-warn::before { background: var(--warning); }
-    .service-latency-card.status-fail::before { background: var(--danger); }
-    .service-latency-label { color: var(--fg-muted); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; }
-    .service-latency-value { margin-top: 8px; color: var(--fg); font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 1.1rem; font-weight: 800; line-height: 1.1; }
-    .service-latency-support { margin-top: 8px; color: var(--fg-muted); font-size: 0.7rem; line-height: 1.35; }
-    .service-latency-status { position: absolute; right: 10px; top: 10px; color: var(--fg-muted); font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; }
-    .service-latency-card.status-ok .service-latency-status { color: var(--success); }
-    .service-latency-card.status-warn .service-latency-status { color: var(--warning); }
-    .service-latency-card.status-fail .service-latency-status { color: var(--danger); }
     .system-health-path { margin: 2px 0 10px; padding: 8px 12px; border: 1px solid rgba(245,210,138,0.18); border-radius: var(--radius-sm); background: rgba(245,210,138,0.06); color: var(--accent); font-size: 0.72rem; font-family: 'JetBrains Mono', 'SF Mono', monospace; word-break: break-all; }
     .system-health-panel { display: flex; flex-direction: column; gap: 10px; }
     .system-console-grid { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: 16px; align-items: stretch; }

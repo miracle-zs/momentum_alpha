@@ -760,12 +760,7 @@ class DashboardTests(unittest.TestCase):
         snapshot = self._build_tabbed_snapshot()
         snapshot["health"] = {
             "overall_status": "DEGRADED",
-            "items": [
-                {"name": "runtime_db", "status": "OK", "message": "fresh age_seconds=12"},
-                {"name": "poll_events", "status": "WARN", "message": "stale age_seconds=75 max_age_seconds=60"},
-                {"name": "user_stream_heartbeat", "status": "OK", "message": "fresh age_seconds=18"},
-                {"name": "user_stream_events", "status": "OK", "message": "idle no broker actions"},
-            ],
+            "items": [{"name": "poll", "status": "WARN", "message": "lagging"}],
         }
         snapshot["runtime"]["latest_tick_result_timestamp"] = "2026-04-17T01:05:00+00:00"
         snapshot["recent_events"] = [
@@ -782,24 +777,12 @@ class DashboardTests(unittest.TestCase):
         html = render_dashboard_html(snapshot, active_room="system")
 
         self.assertIn("SYSTEM DIAGNOSTICS", html)
-        self.assertIn("system-diagnostics-grid", html)
-        self.assertIn("system-diagnostic-icon system-diagnostic-icon-health", html)
-        self.assertIn("system-diagnostic-icon system-diagnostic-icon-freshness", html)
-        self.assertIn("system-diagnostic-icon system-diagnostic-icon-warning", html)
-        self.assertIn("system-diagnostic-icon system-diagnostic-icon-db", html)
         self.assertIn("Health Status", html)
         self.assertIn("DEGRADED", html)
         self.assertIn("Data Freshness", html)
         self.assertIn("2026-04-17 09:05:00", html)
         self.assertIn("Warning Count", html)
         self.assertIn(">2<", html)
-        self.assertIn("Runtime DB", html)
-        self.assertIn("SQLite runtime store", html)
-        self.assertIn("SERVICE LATENCY / FRESHNESS", html)
-        self.assertIn("Runtime DB</div><div class='service-latency-value'>12s", html)
-        self.assertIn("Poll Worker</div><div class='service-latency-value'>75s", html)
-        self.assertIn("User Stream</div><div class='service-latency-value'>18s", html)
-        self.assertIn("Local System</div><div class='service-latency-value'>n/a", html)
         self.assertLess(html.index("SYSTEM HEALTH"), html.index("Runtime DB: /tmp/runtime.db"))
         self.assertLess(html.index("SYSTEM HEALTH"), html.index("SYSTEM CONFIG"))
         self.assertLess(html.index("SYSTEM CONFIG"), html.index("RECENT EVENTS"))
