@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from .dashboard_assets_styles import render_dashboard_styles
 
+ECHARTS_CDN_URL = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+
 def render_dashboard_head() -> str:
     return f"""<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Momentum Alpha | 交易监控面板</title>
+  <script src="{ECHARTS_CDN_URL}" defer onload="window.dispatchEvent(new Event('echarts-ready'))"></script>
     <style>
     :root {{
       --bg-deep: #050507;

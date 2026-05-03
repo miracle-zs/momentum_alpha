@@ -144,7 +144,7 @@ class DashboardPositionRiskTests(unittest.TestCase):
         self.assertIn(">17:05<", svg)
         self.assertNotIn(">17:00<", svg)
 
-    def test_build_live_core_lines_panel_renders_x_axis_for_each_chart(self) -> None:
+    def test_build_live_core_lines_panel_renders_echarts_mounts_and_payload(self) -> None:
         from momentum_alpha.dashboard_render_panels import _build_live_core_lines_panel
 
         html = _build_live_core_lines_panel(
@@ -173,11 +173,15 @@ class DashboardPositionRiskTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(html.count("class='x-axis-line'"), 4)
-        self.assertEqual(html.count("class='x-axis-label'"), 12)
-        self.assertIn(">16:48<", html)
-        self.assertIn(">16:49<", html)
-        self.assertIn(">16:50<", html)
+        self.assertEqual(html.count("data-core-live-chart"), 4)
+        self.assertIn("id='core-live-lines-json'", html)
+        self.assertIn("data-core-metric='equity'", html)
+        self.assertIn("data-core-metric='margin_usage_pct'", html)
+        self.assertIn("data-core-metric='position_count'", html)
+        self.assertIn("data-core-metric='open_risk'", html)
+        self.assertIn('"timestamp": "2026-04-15T08:48:00+00:00"', html)
+        self.assertIn('"open_risk": 0.9', html)
+        self.assertNotIn("chart-svg", html)
 
     def test_render_line_chart_svg_uses_integer_axis_for_position_count(self) -> None:
         from momentum_alpha.dashboard_render_panels import _render_line_chart_svg
@@ -230,11 +234,9 @@ class DashboardPositionRiskTests(unittest.TestCase):
         )
 
         position_count_section = html.split("Position Count", 1)[1].split("Open Risk", 1)[0]
-        self.assertIn(">2<", position_count_section)
-        self.assertIn(">1<", position_count_section)
-        self.assertIn(">0<", position_count_section)
-        self.assertNotIn(">2.0<", position_count_section)
-        self.assertNotIn(">1.5<", position_count_section)
+        self.assertIn("data-core-metric='position_count'", position_count_section)
+        self.assertIn("data-core-integer-axis='true'", position_count_section)
+        self.assertNotIn("chart-svg", position_count_section)
 
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:
         from momentum_alpha.dashboard import build_dashboard_timeseries_payload

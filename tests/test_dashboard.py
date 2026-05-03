@@ -193,6 +193,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_render_dashboard_html_uses_shared_live_core_timeline(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
+        import json
         import re
 
         snapshot = self._build_tabbed_snapshot()
@@ -248,17 +249,26 @@ class DashboardTests(unittest.TestCase):
         ]
 
         html = render_dashboard_html(snapshot, account_range_key="1W")
-        account_match = re.search(r"Account Equity.*?<polyline points='([^']+)'", html, re.S)
-        open_risk_match = re.search(r"Open Risk.*?<polyline points='([^']+)'", html, re.S)
+        payload_match = re.search(
+            r"<script id='core-live-lines-json' type='application/json'>(.*?)</script>",
+            html,
+            re.S,
+        )
 
-        self.assertIsNotNone(account_match)
-        self.assertIsNotNone(open_risk_match)
-        account_x_values = [float(pair.split(",")[0]) for pair in account_match.group(1).split()]
-        open_risk_x_values = [float(pair.split(",")[0]) for pair in open_risk_match.group(1).split()]
-        self.assertEqual(len(account_x_values), 3)
-        self.assertEqual(len(open_risk_x_values), 2)
-        self.assertEqual(open_risk_x_values[0], account_x_values[0])
-        self.assertEqual(open_risk_x_values[-1], account_x_values[-1])
+        self.assertIsNotNone(payload_match)
+        payload = json.loads(payload_match.group(1))
+        self.assertEqual(
+            [point["timestamp"] for point in payload],
+            [
+                "2026-04-23T09:00:00+00:00",
+                "2026-04-23T09:02:00+00:00",
+                "2026-04-23T09:05:00+00:00",
+            ],
+        )
+        self.assertEqual([point["open_risk"] for point in payload], [None, 10.0, 10.0])
+        self.assertIn("function getCoreLiveDomain", html)
+        self.assertIn("min: domain[0]", html)
+        self.assertIn("max: domain[1]", html)
 
     def test_render_cosmic_identity_panel_composes_design_system_sections(self) -> None:
         from momentum_alpha.dashboard import (
@@ -3189,6 +3199,12 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("CORE LIVE LINES", html)
         self.assertIn("live-core-lines-grid", html)
+        self.assertIn("https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js", html)
+        self.assertIn("initializeCoreLiveCharts", html)
+        self.assertIn("disposeCoreLiveCharts", html)
+        self.assertIn("data-core-live-chart", html)
+        core_lines_section = html.split("CORE LIVE LINES", 1)[1].split("ACTIVE SIGNAL", 1)[0]
+        self.assertNotIn("chart-svg", core_lines_section)
         self.assertIn("Position Count", html)
         self.assertIn("Open Risk", html)
         self.assertLess(html.index("Position Count"), html.index("Open Risk"))

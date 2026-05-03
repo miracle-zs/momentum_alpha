@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from html import escape
 
-from .dashboard_render_charts import _render_line_chart_svg
 from .dashboard_render_utils import _format_metric, _format_pct_value
 from .dashboard_view_model import _compute_account_range_stats, _detect_account_discontinuity
 
@@ -145,19 +144,25 @@ def _build_live_account_risk_panel(
     )
 def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
     chart_specs = (
-        ("Account Equity", "equity", "#4cc9f0", core_live_points, "", False),
-        ("Margin Usage %", "margin_usage_pct", "#ff8c42", core_live_points, "", False),
-        ("Position Count", "position_count", "#36d98a", core_live_points, "", True),
-        ("Open Risk", "open_risk", "#ff5d73", core_live_points, "live-core-line-card--open-risk", False),
+        ("Account Equity", "equity", "#4cc9f0", "", False),
+        ("Margin Usage %", "margin_usage_pct", "#ff8c42", "", False),
+        ("Position Count", "position_count", "#36d98a", "", True),
+        ("Open Risk", "open_risk", "#ff5d73", "live-core-line-card--open-risk", False),
     )
+    data_json = json.dumps(core_live_points, ensure_ascii=False).replace("</", "<\\/")
     chart_cards = "".join(
         (
             f"<div class='chart-card live-core-line-card {card_class}'>"
             f"<div class='section-header'>{escape(label)}</div>"
-            f"{_render_line_chart_svg(points=points, value_key=value_key, stroke=color, fill=color, integer_axis=integer_axis)}"
+            f"<div class='live-core-chart' data-core-live-chart data-core-metric='{escape(value_key)}' "
+            f"data-core-label='{escape(label)}' data-core-color='{escape(color)}' "
+            f"data-core-integer-axis='{'true' if integer_axis else 'false'}' "
+            f"role='img' aria-label='{escape(label)} chart'>"
+            "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for data</span></div>"
+            "</div>"
             "</div>"
         )
-        for label, value_key, color, points, card_class, integer_axis in chart_specs
+        for label, value_key, color, card_class, integer_axis in chart_specs
     )
     return (
         "<section class='dashboard-section live-core-lines-panel'>"
@@ -165,5 +170,6 @@ def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
         "<div class='live-core-lines-grid'>"
         f"{chart_cards}"
         "</div>"
+        f"<script id='core-live-lines-json' type='application/json'>{data_json}</script>"
         "</section>"
     )
