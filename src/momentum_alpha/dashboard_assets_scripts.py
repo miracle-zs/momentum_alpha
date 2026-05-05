@@ -1,16 +1,12 @@
 from __future__ import annotations
 
+from .dashboard_assets_scripts_core_live import render_dashboard_core_live_script
+
 def render_dashboard_scripts() -> str:
     return """  <script>
     const ACCOUNT_METRIC_STORAGE_KEY = 'dashboard.account.metric';
     const ACCOUNT_RANGE_STORAGE_KEY = 'dashboard.account.range';
     const COLLAPSED_SECTIONS_STORAGE_KEY = 'dashboard.collapsed-sections';
-    const DASHBOARD_SECTION_SELECTORS = [
-      '[data-dashboard-section="status"]',
-      '[data-dashboard-section="toolbar"]',
-      '[data-dashboard-section="room-nav"]',
-      '[data-dashboard-active-room]',
-    ];
 
     function getAccountMetricsData() {{
       const jsonNode = document.getElementById('account-metrics-json');
@@ -22,184 +18,7 @@ def render_dashboard_scripts() -> str:
         return [];
       }}
     }}
-    let coreLiveCharts = [];
-    let coreLiveResizeBound = false;
-    function getCoreLiveLinesData() {{
-      const jsonNode = document.getElementById('core-live-lines-json');
-      if (!jsonNode) return [];
-      try {{
-        const parsed = JSON.parse(jsonNode.textContent || '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      }} catch (error) {{
-        console.error(error);
-        return [];
-      }}
-    }}
-    function renderCoreLiveEmpty(chartNode, message = 'waiting for data') {{
-      chartNode.innerHTML = '<div class="chart-empty"><span class="chart-empty-icon">◎</span><span>' + message + '</span></div>';
-    }}
-    function getCoreLiveDomain(points) {{
-      const timestamps = points
-        .map((point) => new Date(point.timestamp).getTime())
-        .filter((value) => Number.isFinite(value));
-      if (!timestamps.length) return null;
-      let min = Math.min(...timestamps);
-      let max = Math.max(...timestamps);
-      if (min === max) {{
-        min -= 30000;
-        max += 30000;
-      }}
-      return [min, max];
-    }}
-    function getCoreLiveSeries(points, metric) {{
-      return points
-        .filter((point) => typeof point[metric] === 'number' && Number.isFinite(point[metric]))
-        .map((point) => [new Date(point.timestamp).getTime(), point[metric]])
-        .filter((pair) => Number.isFinite(pair[0]));
-    }}
-    function formatCoreLiveTime(value) {{
-      const date = new Date(value);
-      const parts = new Intl.DateTimeFormat('zh-CN', {{
-        hour12: false,
-        timeZone: 'Asia/Shanghai',
-        hour: '2-digit',
-        minute: '2-digit'
-      }}).formatToParts(date);
-      const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-      return `${{lookup.hour}}:${{lookup.minute}}`;
-    }}
-    function formatCoreLiveValue(value, integerAxis = false) {{
-      const numericValue = Number(value);
-      if (!Number.isFinite(numericValue)) return 'n/a';
-      if (integerAxis) return Math.round(numericValue).toLocaleString();
-      const magnitude = Math.abs(numericValue);
-      if (magnitude >= 100) return numericValue.toLocaleString(undefined, {{ maximumFractionDigits: 0 }});
-      if (magnitude >= 10) return numericValue.toLocaleString(undefined, {{ minimumFractionDigits: 1, maximumFractionDigits: 1 }});
-      if (magnitude >= 1) return numericValue.toLocaleString(undefined, {{ minimumFractionDigits: 1, maximumFractionDigits: 1 }});
-      if (magnitude >= 0.1) return numericValue.toLocaleString(undefined, {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
-      return numericValue.toLocaleString(undefined, {{ minimumFractionDigits: 3, maximumFractionDigits: 3 }});
-    }}
-    function buildCoreLiveChartOption(config) {{
-      const label = config.label;
-      const metric = config.metric;
-      const color = config.color;
-      const integerAxis = config.integerAxis;
-      const seriesData = config.seriesData;
-      const domain = config.domain;
-      return {{
-        backgroundColor: 'transparent',
-        animation: false,
-        color: [color],
-        grid: {{ top: 18, right: 16, bottom: 28, left: 54 }},
-        tooltip: {{
-          trigger: 'axis',
-          backgroundColor: 'rgba(8,10,15,0.94)',
-          borderColor: 'rgba(245,210,138,0.24)',
-          textStyle: {{ color: '#f5f6f8', fontSize: 12 }},
-          axisPointer: {{ type: 'line', lineStyle: {{ color: 'rgba(245,210,138,0.34)' }} }},
-          formatter: (params) => {{
-            const point = Array.isArray(params) ? params[0] : params;
-            if (!point || !point.value) return '';
-            return formatCoreLiveTime(point.value[0]) + '<br/>' + label + ': ' + formatCoreLiveValue(point.value[1], integerAxis);
-          }}
-        }},
-        xAxis: {{
-          type: 'time',
-          min: domain[0],
-          max: domain[1],
-          boundaryGap: false,
-          axisLine: {{ lineStyle: {{ color: 'rgba(180,200,230,0.28)' }} }},
-          axisTick: {{ show: false }},
-          axisLabel: {{
-            color: '#9aa3b2',
-            fontSize: 10,
-            formatter: (value) => formatCoreLiveTime(value)
-          }},
-          splitLine: {{ show: true, lineStyle: {{ color: 'rgba(100,130,170,0.1)' }} }}
-        }},
-        yAxis: {{
-          type: 'value',
-          scale: !integerAxis,
-          minInterval: integerAxis ? 1 : 0,
-          axisLine: {{ show: false }},
-          axisTick: {{ show: false }},
-          axisLabel: {{
-            color: '#9aa3b2',
-            fontSize: 10,
-            formatter: (value) => formatCoreLiveValue(value, integerAxis)
-          }},
-          splitLine: {{ show: true, lineStyle: {{ color: 'rgba(100,130,170,0.1)' }} }}
-        }},
-        series: [{{
-          name: label,
-          type: 'line',
-          data: seriesData,
-          showSymbol: seriesData.length <= 8,
-          symbolSize: 5,
-          smooth: false,
-          connectNulls: false,
-          lineStyle: {{ width: 2.5, color: color }},
-          itemStyle: {{ color: color }},
-          areaStyle: {{ color: color, opacity: 0.14 }},
-          emphasis: {{ focus: 'series' }}
-        }}]
-      }};
-    }}
-    function bindCoreLiveResize() {{
-      if (coreLiveResizeBound) return;
-      window.addEventListener('resize', () => {{
-        coreLiveCharts.forEach((chart) => chart.resize());
-      }});
-      coreLiveResizeBound = true;
-    }}
-    function disposeCoreLiveCharts() {{
-      coreLiveCharts.forEach((chart) => {{
-        try {{
-          chart.dispose();
-        }} catch (error) {{
-          console.error(error);
-        }}
-      }});
-      coreLiveCharts = [];
-    }}
-    function initializeCoreLiveCharts() {{
-      disposeCoreLiveCharts();
-      const chartNodes = Array.from(document.querySelectorAll('[data-core-live-chart]'));
-      if (!chartNodes.length) return;
-      const points = getCoreLiveLinesData();
-      const domain = getCoreLiveDomain(points);
-      if (!window.echarts) {{
-        chartNodes.forEach((chartNode) => renderCoreLiveEmpty(chartNode, 'chart library unavailable'));
-        return;
-      }}
-      if (!domain) {{
-        chartNodes.forEach((chartNode) => renderCoreLiveEmpty(chartNode));
-        return;
-      }}
-      chartNodes.forEach((chartNode) => {{
-        const metric = chartNode.dataset.coreMetric;
-        const label = chartNode.dataset.coreLabel || metric;
-        const color = chartNode.dataset.coreColor || '#4cc9f0';
-        const integerAxis = chartNode.dataset.coreIntegerAxis === 'true';
-        const seriesData = getCoreLiveSeries(points, metric);
-        if (!seriesData.length) {{
-          renderCoreLiveEmpty(chartNode);
-          return;
-        }}
-        chartNode.innerHTML = '';
-        const chart = window.echarts.init(chartNode, null, {{ renderer: 'canvas' }});
-        chart.setOption(buildCoreLiveChartOption({{
-          label,
-          metric,
-          color,
-          integerAxis,
-          seriesData,
-          domain
-        }}));
-        coreLiveCharts.push(chart);
-      }});
-      bindCoreLiveResize();
-    }}
+""" + render_dashboard_core_live_script() + """
     function getCollapsedSections() {{
       try {{
         return JSON.parse(localStorage.getItem(COLLAPSED_SECTIONS_STORAGE_KEY) || '[]');
@@ -517,8 +336,17 @@ def render_dashboard_scripts() -> str:
         }}
         const html = await res.text();
         const nextDocument = new DOMParser().parseFromString(html, 'text/html');
-        disposeCoreLiveCharts();
-        DASHBOARD_SECTION_SELECTORS.forEach((selector) => replaceSectionFromDocument(nextDocument, selector));
+        replaceSectionFromDocument(nextDocument, '[data-dashboard-section="status"]');
+        replaceSectionFromDocument(nextDocument, '[data-dashboard-section="toolbar"]');
+        replaceSectionFromDocument(nextDocument, '[data-dashboard-section="room-nav"]');
+        if (activeRoom === 'live') {{
+          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-risk-band');
+          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-signal-band');
+          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-decision-grid');
+          syncCoreLiveChartsFromDocument(nextDocument);
+        }} else {{
+          replaceSectionFromDocument(nextDocument, '[data-dashboard-active-room]');
+        }}
         const nextTitle = nextDocument.querySelector('title');
         if (nextTitle) document.title = nextTitle.textContent || document.title;
         // Preserve user-selected range on refresh
@@ -535,7 +363,6 @@ def render_dashboard_scripts() -> str:
         // Update button states
         document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node.dataset.accountMetric === activeMetric));
         document.querySelectorAll('[data-account-range]').forEach((node) => node.classList.toggle('active', node.dataset.accountRange === activeRange));
-        initializeCoreLiveCharts();
         bindDashboardControls();
         setRefreshIndicatorState('ok', 'Auto refresh: 5s');
       }} catch (e) {{
@@ -548,6 +375,7 @@ def render_dashboard_scripts() -> str:
     }}
     initializeAccountMetrics();
     window.addEventListener('echarts-ready', initializeCoreLiveCharts);
+    window.addEventListener('echarts-unavailable', markCoreLiveChartsUnavailable);
     initializeCoreLiveCharts();
     bindDashboardControls();
     setInterval(() => refreshDashboard(false), 5000);

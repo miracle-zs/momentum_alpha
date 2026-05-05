@@ -3199,12 +3199,11 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("CORE LIVE LINES", html)
         self.assertIn("live-core-lines-grid", html)
-        self.assertIn("https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js", html)
-        self.assertIn("initializeCoreLiveCharts", html)
-        self.assertIn("disposeCoreLiveCharts", html)
-        self.assertIn("data-core-live-chart", html)
-        core_lines_section = html.split("CORE LIVE LINES", 1)[1].split("ACTIVE SIGNAL", 1)[0]
-        self.assertNotIn("chart-svg", core_lines_section)
+        self.assertIn("syncCoreLiveChartsFromDocument", html)
+        self.assertIn("updateCoreLiveChartsFromDocument", html)
+        self.assertIn("data-core-live-summary", html)
+        self.assertIn("data-core-live-chart-state", html)
+        self.assertNotIn("replaceSectionFromDocument(nextDocument, '.live-core-lines-band')", html)
         self.assertIn("Position Count", html)
         self.assertIn("Open Risk", html)
         self.assertLess(html.index("Position Count"), html.index("Open Risk"))

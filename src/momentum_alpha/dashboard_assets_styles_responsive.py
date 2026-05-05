@@ -13,6 +13,8 @@ def _render_dashboard_responsive_styles() -> str:
       .decision-row { grid-template-columns: 1fr; }
       .bottom-row { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .live-core-lines-head { flex-direction: column; align-items: flex-start; }
+      .live-core-lines-summary { max-width: none; }
       .live-decision-grid { grid-template-columns: 1fr; }
       .system-console-grid { grid-template-columns: 1fr; }
       .review-analysis-evidence-grid { grid-template-columns: 1fr; }
@@ -50,6 +52,8 @@ def _render_dashboard_responsive_styles() -> str:
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: 1fr; }
+      .live-core-lines-head { flex-direction: column; align-items: flex-start; }
+      .live-core-lines-summary { max-width: none; }
       .live-core-lines-grid { grid-template-columns: 1fr; }
       .live-decision-grid,
       .system-console-grid { grid-template-columns: 1fr; }

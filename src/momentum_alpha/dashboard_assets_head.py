@@ -2,14 +2,36 @@ from __future__ import annotations
 
 from .dashboard_assets_styles import render_dashboard_styles
 
-ECHARTS_CDN_URL = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+ECHARTS_CDNJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.6.0/echarts.min.js"
+ECHARTS_CDNJS_INTEGRITY = "sha512-XSmbX3mhrD2ix5fXPTRQb2FwK22sRMVQTpBP2ac8hX7Dh/605hA2QDegVWiAvZPiXIxOV0CbkmUjGionDpbCmw=="
+ECHARTS_JSDELIVR_URL = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
 
 def render_dashboard_head() -> str:
     return f"""<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Momentum Alpha | 交易监控面板</title>
-  <script src="{ECHARTS_CDN_URL}" defer onload="window.dispatchEvent(new Event('echarts-ready'))"></script>
+  <script>
+    window.__loadFallbackECharts = function () {{
+      if (window.echarts) {{
+        window.dispatchEvent(new Event('echarts-ready'));
+        return;
+      }}
+      if (window.__echartsFallbackRequested) return;
+      window.__echartsFallbackRequested = true;
+      const fallback = document.createElement('script');
+      fallback.src = "{ECHARTS_JSDELIVR_URL}";
+      fallback.defer = true;
+      fallback.onload = function () {{
+        window.dispatchEvent(new Event('echarts-ready'));
+      }};
+      fallback.onerror = function () {{
+        window.dispatchEvent(new Event('echarts-unavailable'));
+      }};
+      document.head.appendChild(fallback);
+    }};
+  </script>
+  <script src="{ECHARTS_CDNJS_URL}" integrity="{ECHARTS_CDNJS_INTEGRITY}" crossorigin="anonymous" defer onload="window.dispatchEvent(new Event('echarts-ready'))" onerror="window.__loadFallbackECharts()"></script>
     <style>
     :root {{
       --bg-deep: #050507;

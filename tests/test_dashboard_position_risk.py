@@ -173,7 +173,7 @@ class DashboardPositionRiskTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(html.count("data-core-live-chart"), 4)
+        self.assertEqual(html.count("data-core-live-chart "), 4)
         self.assertIn("id='core-live-lines-json'", html)
         self.assertIn("data-core-metric='equity'", html)
         self.assertIn("data-core-metric='margin_usage_pct'", html)
@@ -236,6 +236,8 @@ class DashboardPositionRiskTests(unittest.TestCase):
         position_count_section = html.split("Position Count", 1)[1].split("Open Risk", 1)[0]
         self.assertIn("data-core-metric='position_count'", position_count_section)
         self.assertIn("data-core-integer-axis='true'", position_count_section)
+        self.assertIn("data-core-live-summary", html)
+        self.assertIn("Loading charts", html)
         self.assertNotIn("chart-svg", position_count_section)
 
     def test_build_dashboard_timeseries_payload_includes_position_risk(self) -> None:

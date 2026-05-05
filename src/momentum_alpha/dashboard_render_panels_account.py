@@ -157,6 +157,7 @@ def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
             f"<div class='live-core-chart' data-core-live-chart data-core-metric='{escape(value_key)}' "
             f"data-core-label='{escape(label)}' data-core-color='{escape(color)}' "
             f"data-core-integer-axis='{'true' if integer_axis else 'false'}' "
+            "data-core-live-chart-state='loading' aria-busy='true' "
             f"role='img' aria-label='{escape(label)} chart'>"
             "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for data</span></div>"
             "</div>"
@@ -166,7 +167,12 @@ def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
     )
     return (
         "<section class='dashboard-section live-core-lines-panel'>"
+        "<div class='live-core-lines-head'>"
+        "<div>"
         "<div class='section-header'>CORE LIVE LINES</div>"
+        "<div class='live-core-lines-summary' data-core-live-summary data-core-live-summary-state='loading'>Loading charts</div>"
+        "</div>"
+        "</div>"
         "<div class='live-core-lines-grid'>"
         f"{chart_cards}"
         "</div>"
