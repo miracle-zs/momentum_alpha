@@ -306,6 +306,7 @@ def render_dashboard_scripts() -> str:
           applyCollapsedSections();
         }};
       }});
+      bindCoreLiveRangeControls();
       applyCollapsedSections();
     }}
     function replaceSectionFromDocument(nextDocument, selector) {{

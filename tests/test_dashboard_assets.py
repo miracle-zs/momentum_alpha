@@ -19,6 +19,10 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("render_dashboard_styles", dashboard_assets.render_dashboard_head())
         self.assertIn("ACCOUNT_METRIC_STORAGE_KEY", dashboard_assets.render_dashboard_scripts())
         self.assertIn("updateCoreLiveChartsFromDocument", dashboard_assets.render_dashboard_scripts())
+        self.assertIn("bindCoreLiveRangeControls", dashboard_assets.render_dashboard_scripts())
+        self.assertIn("data-core-live-range", dashboard_assets.render_dashboard_scripts())
+        self.assertIn("searchParams.set('range', range)", dashboard_assets.render_dashboard_scripts())
+        self.assertIn("refreshDashboard(true)", dashboard_assets.render_dashboard_scripts())
 
     def test_dashboard_head_hardens_echarts_cdn_loading(self) -> None:
         from momentum_alpha import dashboard_assets

@@ -170,10 +170,20 @@ class DashboardPositionRiskTests(unittest.TestCase):
                     "position_count": 2,
                     "open_risk": 0.9,
                 },
-            ]
+            ],
+            account_range_key="1W",
         )
 
         self.assertEqual(html.count("data-core-live-chart "), 4)
+        self.assertEqual(html.count("data-core-live-range="), 6)
+        self.assertIn("data-core-live-range='1H'", html)
+        self.assertIn("data-core-live-range='1D'", html)
+        self.assertIn("data-core-live-range='1W'", html)
+        self.assertIn("data-core-live-range='1M'", html)
+        self.assertIn("data-core-live-range='1Y'", html)
+        self.assertIn("data-core-live-range='ALL'", html)
+        self.assertIn("core-live-range-chip active", html)
+        self.assertIn("aria-pressed='true'>1W</button>", html)
         self.assertIn("id='core-live-lines-json'", html)
         self.assertIn("data-core-metric='equity'", html)
         self.assertIn("data-core-metric='margin_usage_pct'", html)

@@ -256,6 +256,18 @@ def _render_dashboard_component_styles() -> str:
     .live-core-lines-summary[data-core-live-summary-state='unavailable'] {
       color: var(--danger);
     }
+    .core-live-range-controls {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 0 0 auto;
+    }
+    .core-live-range-chip {
+      min-width: 44px;
+      justify-content: center;
+    }
     .live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .live-core-line-card {
       min-height: 248px;

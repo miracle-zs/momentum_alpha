@@ -29,6 +29,43 @@ def render_dashboard_core_live_script() -> str:
       const band = getCoreLiveBandNode();
       return band ? Array.from(band.querySelectorAll('[data-core-live-chart]')) : [];
     }
+    function getCoreLiveRangeControls() {
+      const band = getCoreLiveBandNode();
+      return band ? Array.from(band.querySelectorAll('[data-core-live-range]')) : [];
+    }
+    function setCoreLiveRangeControls(range) {
+      getCoreLiveRangeControls().forEach((button) => {
+        const isActive = button.dataset.coreLiveRange === range;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+    function buildCoreLiveRangeUrl(range) {
+      const url = new URL(window.location.href);
+      const activeRoom = document.querySelector('[data-dashboard-active-room]')?.dataset.dashboardActiveRoom;
+      if (activeRoom) url.searchParams.set('room', activeRoom);
+      url.searchParams.set('range', range);
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    async function loadCoreLiveRange(range) {
+      if (!range) return;
+      localStorage.setItem(ACCOUNT_RANGE_STORAGE_KEY, range);
+      setCoreLiveRangeControls(range);
+      const nextUrl = buildCoreLiveRangeUrl(range);
+      const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextUrl !== currentUrl) {
+        window.history.pushState({}, '', nextUrl);
+      }
+      await refreshDashboard(true);
+    }
+    function bindCoreLiveRangeControls() {
+      getCoreLiveRangeControls().forEach((button) => {
+        button.onclick = async () => {
+          await loadCoreLiveRange(button.dataset.coreLiveRange);
+        };
+      });
+      setCoreLiveRangeControls(getSelectedAccountRange());
+    }
     function setCoreLiveSummary(text, state) {
       const summaryNode = getCoreLiveSummaryNode();
       if (!summaryNode) return;
@@ -289,6 +326,8 @@ def render_dashboard_core_live_script() -> str:
         summaryNode.textContent = 'Loading charts';
         summaryNode.dataset.coreLiveSummaryState = 'loading';
       }
+      const nextActiveRange = nextBand.querySelector('[data-core-live-range].active')?.dataset.coreLiveRange || getSelectedAccountRange();
+      setCoreLiveRangeControls(nextActiveRange);
       currentBand.querySelectorAll('[data-core-live-chart]').forEach((chartNode) => {
         setCoreLiveChartState(chartNode, 'loading');
       });

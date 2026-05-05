@@ -142,12 +142,23 @@ def _build_live_account_risk_panel(
         "</div>"
         "</section>"
     )
-def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
+def _build_live_core_lines_panel(core_live_points: list[dict], *, account_range_key: str = "1D") -> str:
     chart_specs = (
         ("Account Equity", "equity", "#4cc9f0", "", False),
         ("Margin Usage %", "margin_usage_pct", "#ff8c42", "", False),
         ("Position Count", "position_count", "#36d98a", "", True),
         ("Open Risk", "open_risk", "#ff5d73", "live-core-line-card--open-risk", False),
+    )
+    range_keys = ("1H", "1D", "1W", "1M", "1Y", "ALL")
+    active_range_key = str(account_range_key or "1D").upper()
+    if active_range_key not in range_keys:
+        active_range_key = "1D"
+    range_buttons = "".join(
+        (
+            f"<button type='button' class='account-chip core-live-range-chip{' active' if range_key == active_range_key else ''}' "
+            f"data-core-live-range='{range_key}' aria-pressed='{'true' if range_key == active_range_key else 'false'}'>{range_key}</button>"
+        )
+        for range_key in range_keys
     )
     data_json = json.dumps(core_live_points, ensure_ascii=False).replace("</", "<\\/")
     chart_cards = "".join(
@@ -171,6 +182,9 @@ def _build_live_core_lines_panel(core_live_points: list[dict]) -> str:
         "<div>"
         "<div class='section-header'>CORE LIVE LINES</div>"
         "<div class='live-core-lines-summary' data-core-live-summary data-core-live-summary-state='loading'>Loading charts</div>"
+        "</div>"
+        "<div class='core-live-range-controls' role='group' aria-label='CORE LIVE LINES range'>"
+        f"{range_buttons}"
         "</div>"
         "</div>"
         "<div class='live-core-lines-grid'>"

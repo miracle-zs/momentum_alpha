@@ -284,7 +284,10 @@ def render_dashboard_body(
         trader_metrics=trader_metrics,
         account_range_stats=account_range_stats,
     )
-    core_lines_html = _build_live_core_lines_panel(timeseries["core_live_timeline"])
+    core_lines_html = _build_live_core_lines_panel(
+        timeseries["core_live_timeline"],
+        account_range_key=account_range_key,
+    )
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_signal_decisions = snapshot.get("recent_signal_decisions") or []
     recent_events = snapshot.get("recent_events") or []
