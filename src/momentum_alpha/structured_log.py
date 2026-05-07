@@ -36,11 +36,22 @@ def emit_structured_log(
     **fields: object,
 ) -> None:
     line = format_structured_log(service=service, event=event, level=level, **fields)
+    emit_log_line(logger, line, level=level)
+
+
+def emit_log_line(
+    logger: Callable[[str], None] | object,
+    line: str,
+    *,
+    level: str = "INFO",
+) -> None:
     logger_method = level.lower()
-    if hasattr(logger, logger_method):
-        getattr(logger, logger_method)(line)
+    log_method = getattr(logger, logger_method, None)
+    if callable(log_method):
+        log_method(line)
         return
-    if hasattr(logger, "info"):
-        getattr(logger, "info")(line)
+    info_method = getattr(logger, "info", None)
+    if callable(info_method):
+        info_method(line)
         return
     logger(line)  # type: ignore[misc]

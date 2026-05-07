@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable
 
 from .runtime_store import insert_audit_event
+from .structured_log import emit_log_line
 
 
 def _coerce_json_value(value):
@@ -28,7 +29,7 @@ class AuditRecorder:
     runtime_db_path: Path
     source: str | None = None
     db_insert_fn: Callable = insert_audit_event
-    error_logger: Callable[[str], None] | None = None
+    error_logger: Callable[[str], None] | object | None = None
 
     def record(
         self,
@@ -51,7 +52,9 @@ class AuditRecorder:
             )
         except Exception as exc:
             if self.error_logger is not None:
-                self.error_logger(
+                emit_log_line(
+                    self.error_logger,
                     "audit-record-error "
-                    f"event_type={event_type} source={self.source} path={self.runtime_db_path} error={exc}"
+                    f"event_type={event_type} source={self.source} path={self.runtime_db_path} error={exc}",
+                    level="ERROR",
                 )

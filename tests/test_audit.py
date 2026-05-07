@@ -1,3 +1,4 @@
+import logging
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -107,3 +108,29 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0]["event_type"], "tick_result")
             self.assertTrue(any("audit-record-error" in message for message in messages))
+
+    def test_audit_recorder_accepts_standard_logger_for_write_failures(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+
+        calls = []
+
+        def failing_writer(**kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("db down")
+
+        with TemporaryDirectory() as tmpdir:
+            logger = logging.getLogger("tests.audit_recorder")
+            logger.handlers = [logging.NullHandler()]
+            logger.propagate = False
+            recorder = AuditRecorder(
+                runtime_db_path=Path(tmpdir) / "runtime.db",
+                db_insert_fn=failing_writer,
+                error_logger=logger,
+            )
+            recorder.record(
+                event_type="tick_result",
+                now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
+                payload={"symbol": "BTCUSDT"},
+            )
+
+            self.assertEqual(len(calls), 1)

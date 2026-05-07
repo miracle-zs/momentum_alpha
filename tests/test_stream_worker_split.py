@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from pathlib import Path
@@ -176,6 +177,50 @@ class StreamWorkerSplitTests(unittest.TestCase):
         )
 
         self.assertEqual(calls, [])
+
+    def test_user_stream_event_handler_accepts_standard_logger_and_updates_stop_cooldown(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        now = datetime(2026, 5, 6, 1, 3, 34, tzinfo=timezone.utc)
+        context = UserStreamWorkerContext(
+            state=StrategyState(current_day=now.date(), previous_leader_symbol=None, positions={}),
+            processed_event_ids={},
+            order_statuses={},
+        )
+        logger = logging.getLogger("tests.user_stream_handler")
+        logger.handlers = [logging.NullHandler()]
+        logger.propagate = False
+        handler = build_user_stream_event_handler(
+            logger=logger,
+            runtime_state_store=None,
+            audit_recorder=None,
+            now_provider=lambda: now,
+            context=context,
+            record_position_snapshot_fn=lambda **kwargs: None,
+            save_user_stream_strategy_state_fn=lambda **kwargs: None,
+        )
+
+        handler(
+            parse_user_stream_event(
+                {
+                    "e": "ORDER_TRADE_UPDATE",
+                    "T": int(now.timestamp() * 1000),
+                    "o": {
+                        "s": "LABUSDT",
+                        "i": 123,
+                        "t": 456,
+                        "S": "SELL",
+                        "X": "FILLED",
+                        "x": "TRADE",
+                        "ot": "STOP_MARKET",
+                    },
+                }
+            )
+        )
+
+        self.assertEqual(context.state.recent_stop_loss_exits["LABUSDT"], now)
 
     def test_user_stream_event_handler_links_trade_fill_to_poll_intent(self) -> None:
         from momentum_alpha.audit import AuditRecorder

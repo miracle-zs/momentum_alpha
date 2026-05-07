@@ -16,6 +16,7 @@ from momentum_alpha.runtime_store import (
 )
 from momentum_alpha.runtime_reads_events_orders import resolve_order_linkage
 from momentum_alpha.strategy_state_codec import StoredStrategyState
+from momentum_alpha.structured_log import emit_log_line
 from momentum_alpha.telemetry import _record_broker_orders, _record_position_snapshot
 from momentum_alpha.user_stream import (
     UserStreamEvent,
@@ -88,7 +89,7 @@ def _save_user_stream_strategy_state(
 
 def build_user_stream_event_handler(
     *,
-    logger: Callable[[str], None],
+    logger: Callable[[str], None] | object,
     runtime_state_store: RuntimeStateStore | None,
     audit_recorder: AuditRecorder | None,
     now_provider: Callable[[], datetime],
@@ -113,7 +114,7 @@ def build_user_stream_event_handler(
     ] = _prune_processed_event_ids,
 ) -> Callable[[UserStreamEvent], None]:
     def _on_event(event: UserStreamEvent) -> None:
-        logger(f"event={event.event_type} symbol={event.symbol}")
+        emit_log_line(logger, f"event={event.event_type} symbol={event.symbol}")
         timestamp = event.event_time or now_provider()
         linkage = None
         if audit_recorder is not None and audit_recorder.runtime_db_path is not None:
@@ -195,10 +196,12 @@ def build_user_stream_event_handler(
                 if on_trade_fill_persisted_fn is not None:
                     on_trade_fill_persisted_fn()
             except Exception as exc:
-                logger(
+                emit_log_line(
+                    logger,
                     "trade-fill-insert-error "
                     f"symbol={trade_fill.get('symbol')} order_id={trade_fill.get('order_id')} "
-                    f"trade_id={trade_fill.get('trade_id')} error={exc}"
+                    f"trade_id={trade_fill.get('trade_id')} error={exc}",
+                    level="ERROR",
                 )
         algo_order = extract_algo_order_event_fn(event)
         if algo_order is not None and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
@@ -219,9 +222,11 @@ def build_user_stream_event_handler(
                     payload=event.payload,
                 )
             except Exception as exc:
-                logger(
+                emit_log_line(
+                    logger,
                     "algo-order-insert-error "
-                    f"symbol={algo_order.get('symbol')} algo_id={algo_order.get('algo_id')} error={exc}"
+                    f"symbol={algo_order.get('symbol')} algo_id={algo_order.get('algo_id')} error={exc}",
+                    level="ERROR",
                 )
         account_flows = extract_account_flows_fn(event)
         if account_flows and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
@@ -239,9 +244,11 @@ def build_user_stream_event_handler(
                         payload=event.payload,
                     )
                 except Exception as exc:
-                    logger(
+                    emit_log_line(
+                        logger,
                         "account-flow-insert-error "
-                        f"reason={flow.get('reason')} asset={flow.get('asset')} error={exc}"
+                        f"reason={flow.get('reason')} asset={flow.get('asset')} error={exc}",
+                        level="ERROR",
                     )
                     if audit_recorder is not None:
                         audit_recorder.record(
