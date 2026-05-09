@@ -407,7 +407,10 @@ def _render_dashboard_component_styles() -> str:
     .account-snapshot-value { font-size: 1.18rem; font-weight: 700; }
     .account-snapshot-sub { margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }
     .execution-flow-panel { padding: 18px; margin-bottom: 20px; }
-    .execution-flow-grid { display: flex; flex-direction: column; gap: 8px; }
+    .execution-flow-grid { display: flex; flex-direction: column; gap: 12px; }
+    .execution-flow-group { display: flex; flex-direction: column; gap: 8px; }
+    .execution-flow-group + .execution-flow-group { padding-top: 10px; border-top: 1px solid rgba(184,160,120,0.12); }
+    .execution-flow-group-label { font-size: 0.62rem; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 2px; }
     .execution-flow-row {
       display: grid;
       grid-template-columns: minmax(170px, 0.9fr) minmax(0, 1.25fr) minmax(160px, 0.8fr);
@@ -419,6 +422,14 @@ def _render_dashboard_component_styles() -> str:
       background: rgba(0,0,0,0.16);
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
       transition: border-color 0.2s, background 0.2s;
+    }
+    .execution-flow-row-primary {
+      border-color: rgba(245,210,138,0.2);
+      background: linear-gradient(180deg, rgba(245,210,138,0.06), rgba(0,0,0,0.16));
+    }
+    .execution-flow-row-support {
+      border-color: rgba(184,160,120,0.1);
+      background: rgba(0,0,0,0.14);
     }
     .execution-flow-row:hover {
       border-color: rgba(245,210,138,0.18);
@@ -438,6 +449,7 @@ def _render_dashboard_component_styles() -> str:
       gap: 3px;
       min-width: 0;
     }
+    .execution-flow-row-primary .execution-flow-primary { font-size: 0.98rem; }
     .execution-flow-primary { font-size: 0.92rem; font-weight: 700; word-break: break-word; line-height: 1.25; }
     .execution-flow-secondary { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); word-break: break-word; line-height: 1.35; }
     .execution-flow-detail { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); line-height: 1.35; word-break: break-word; text-align: right; }

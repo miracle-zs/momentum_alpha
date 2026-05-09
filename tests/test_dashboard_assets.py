@@ -45,12 +45,17 @@ class DashboardAssetsTests(unittest.TestCase):
             styles,
         )
         self.assertIn(".live-decision-grid .execution-flow-panel { margin-bottom: 0; }", styles)
-        self.assertIn(".execution-flow-grid { display: flex; flex-direction: column; gap: 8px; }", styles)
+        self.assertIn(".execution-flow-grid { display: flex; flex-direction: column; gap: 12px; }", styles)
+        self.assertIn(".execution-flow-group { display: flex; flex-direction: column; gap: 8px; }", styles)
+        self.assertIn(".execution-flow-group + .execution-flow-group { padding-top: 10px; border-top: 1px solid rgba(184,160,120,0.12); }", styles)
+        self.assertIn(".execution-flow-group-label { font-size: 0.62rem; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 2px; }", styles)
         self.assertIn(
             ".execution-flow-row {",
             styles,
         )
         self.assertIn("grid-template-columns: minmax(170px, 0.9fr) minmax(0, 1.25fr) minmax(160px, 0.8fr);", styles)
+        self.assertIn(".execution-flow-row-primary {", styles)
+        self.assertIn(".execution-flow-row-support {", styles)
         self.assertIn(".execution-flow-body {", styles)
         self.assertIn(".execution-flow-detail { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); line-height: 1.35; word-break: break-word; text-align: right; }", styles)
 
