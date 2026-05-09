@@ -16,8 +16,8 @@ def _render_dashboard_responsive_styles() -> str:
       .live-core-lines-head { flex-direction: column; align-items: flex-start; }
       .live-core-lines-summary { max-width: none; }
       .core-live-range-controls { justify-content: flex-start; width: 100%; }
-      .live-decision-grid { grid-template-columns: 1fr; }
       .system-console-grid { grid-template-columns: 1fr; }
+      .execution-flow-row { grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.2fr) minmax(140px, 0.72fr); }
       .review-analysis-evidence-grid { grid-template-columns: 1fr; }
       .review-summary-ribbon { flex-direction: column; align-items: flex-start; }
       .review-summary-copy-block { flex: 0 0 auto; min-width: 0; }
@@ -29,7 +29,6 @@ def _render_dashboard_responsive_styles() -> str:
       .system-health-path { width: 100%; }
       .account-overview-grid { grid-template-columns: repeat(3, 1fr); }
       .account-snapshot-grid { grid-template-columns: repeat(2, 1fr); }
-      .execution-flow-grid { grid-template-columns: repeat(2, 1fr); }
       .daily-review-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .daily-review-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .daily-review-toolbar { flex-direction: column; align-items: stretch; }
@@ -57,8 +56,9 @@ def _render_dashboard_responsive_styles() -> str:
       .live-core-lines-summary { max-width: none; }
       .core-live-range-controls { justify-content: flex-start; width: 100%; }
       .live-core-lines-grid { grid-template-columns: 1fr; }
-      .live-decision-grid,
       .system-console-grid { grid-template-columns: 1fr; }
+      .execution-flow-row { grid-template-columns: 1fr; gap: 4px; align-items: flex-start; }
+      .execution-flow-detail { text-align: left; }
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
       .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
       .daily-review-history-grid { grid-template-columns: 1fr 1fr; }
@@ -67,7 +67,6 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-row { font-size: 0.68rem; }
       .account-overview-grid { grid-template-columns: 1fr; }
       .account-snapshot-grid { grid-template-columns: 1fr; }
-      .execution-flow-grid { grid-template-columns: 1fr; }
       .desktop-only { display: none; }
       .mobile-only { display: block; }
       .analytics-table.desktop-only { display: none; }

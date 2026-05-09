@@ -956,6 +956,10 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("HOME COMMAND", html)
         self.assertNotIn("POSITION SUMMARY", html)
         self.assertNotIn("NEXT ACTIONS", html)
+        self.assertNotIn("live-decision-side", html)
+        self.assertIn("<div class='execution-flow-row'>", html)
+        self.assertIn("<div class='execution-flow-body'>", html)
+        self.assertNotIn("execution-flow-card", html)
 
     def test_render_dashboard_html_overview_surfaces_live_position_cockpit(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3872,6 +3876,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("live-core-lines-band", html)
         self.assertIn("live-signal-band", html)
         self.assertIn("live-decision-grid", html)
+        self.assertNotIn("live-decision-side", html)
+        self.assertIn("execution-flow-row", html)
         self.assertNotIn("RISK &amp; DEPLOYMENT", html)
         self.assertNotIn("POSITION SUMMARY", html)
         self.assertNotIn("SYSTEM HEALTH", html)

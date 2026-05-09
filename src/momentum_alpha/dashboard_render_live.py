@@ -25,7 +25,7 @@ def render_dashboard_live_room(
         "<div class='section-header'>ACTIVE POSITIONS</div>"
         f"{positions_html}"
         "</section>"
-        f"<div class='live-decision-side'>{execution_flow_html}</div>"
+        f"{execution_flow_html}"
         "</div>"
         "</div>"
     )

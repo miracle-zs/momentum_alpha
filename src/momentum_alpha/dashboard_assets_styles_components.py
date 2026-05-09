@@ -303,9 +303,8 @@ def _render_dashboard_component_styles() -> str:
     .live-account-risk-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
-    .live-decision-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr); gap: 16px; align-items: start; }
-    .live-decision-main { min-width: 0; }
-    .live-decision-side { min-width: 0; }
+    .live-decision-grid { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+    .live-decision-grid .execution-flow-panel { margin-bottom: 0; }
     .live-card-shell { margin-bottom: 0; }
     .live-ops-grid { display: grid; grid-template-columns: 1fr 0.95fr; gap: 16px; align-items: start; }
     .system-analysis-shell { display: flex; flex-direction: column; gap: 16px; }
@@ -408,12 +407,40 @@ def _render_dashboard_component_styles() -> str:
     .account-snapshot-value { font-size: 1.18rem; font-weight: 700; }
     .account-snapshot-sub { margin-top: 8px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; }
     .execution-flow-panel { padding: 18px; margin-bottom: 20px; }
-    .execution-flow-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-    .execution-flow-card { background: rgba(0,0,0,0.18); border: 1px solid var(--border); border-radius: 14px; padding: 14px; min-height: 116px; }
-    .execution-flow-label { font-size: 0.68rem; color: var(--fg-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
-    .execution-flow-primary { font-size: 1rem; font-weight: 700; word-break: break-word; }
-    .execution-flow-secondary { margin-top: 8px; font-size: 0.8rem; color: var(--fg); word-break: break-word; }
-    .execution-flow-detail { margin-top: 6px; font-size: 0.74rem; color: var(--fg-muted); line-height: 1.45; word-break: break-word; }
+    .execution-flow-grid { display: flex; flex-direction: column; gap: 8px; }
+    .execution-flow-row {
+      display: grid;
+      grid-template-columns: minmax(170px, 0.9fr) minmax(0, 1.25fr) minmax(160px, 0.8fr);
+      gap: 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(0,0,0,0.16);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .execution-flow-row:hover {
+      border-color: rgba(245,210,138,0.18);
+      background: rgba(0,212,255,0.045);
+    }
+    .execution-flow-label {
+      font-size: 0.62rem;
+      color: var(--fg-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 0;
+      line-height: 1.3;
+    }
+    .execution-flow-body {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .execution-flow-primary { font-size: 0.92rem; font-weight: 700; word-break: break-word; line-height: 1.25; }
+    .execution-flow-secondary { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); word-break: break-word; line-height: 1.35; }
+    .execution-flow-detail { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); line-height: 1.35; word-break: break-word; text-align: right; }
     .system-diagnostics-panel, .system-warning-panel { margin-bottom: 20px; }
     .system-warning-list { display: flex; flex-direction: column; gap: 10px; }
     .system-warning-item { padding: 12px 14px; background: rgba(255,184,0,0.08); border: 1px solid rgba(255,184,0,0.22); border-radius: 12px; color: var(--warning); font-size: 0.78rem; line-height: 1.5; word-break: break-word; }

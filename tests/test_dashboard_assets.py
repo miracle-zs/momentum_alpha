@@ -35,6 +35,25 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js", head)
         self.assertIn("echarts-ready", head)
 
+    def test_dashboard_styles_stack_live_positions_and_render_order_flow_as_rows(self) -> None:
+        from momentum_alpha import dashboard_assets
+
+        styles = dashboard_assets.render_dashboard_styles()
+
+        self.assertIn(
+            ".live-decision-grid { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }",
+            styles,
+        )
+        self.assertIn(".live-decision-grid .execution-flow-panel { margin-bottom: 0; }", styles)
+        self.assertIn(".execution-flow-grid { display: flex; flex-direction: column; gap: 8px; }", styles)
+        self.assertIn(
+            ".execution-flow-row {",
+            styles,
+        )
+        self.assertIn("grid-template-columns: minmax(170px, 0.9fr) minmax(0, 1.25fr) minmax(160px, 0.8fr);", styles)
+        self.assertIn(".execution-flow-body {", styles)
+        self.assertIn(".execution-flow-detail { margin-top: 0; font-size: 0.72rem; color: var(--fg-muted); line-height: 1.35; word-break: break-word; text-align: right; }", styles)
+
 
 if __name__ == "__main__":
     unittest.main()
