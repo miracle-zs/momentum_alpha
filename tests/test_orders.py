@@ -1,5 +1,6 @@
 import sys
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -119,3 +120,16 @@ class BinanceOrderPayloadTests(unittest.TestCase):
 
         self.assertEqual(entry_payload["newClientOrderId"], "ma_260415120200_BTCUSDT_b00e")
         self.assertEqual(stop_payload["newClientOrderId"], "ma_260415120200_BTCUSDT_b00s")
+
+    def test_add_on_client_order_id_uses_hour_bucket(self) -> None:
+        from momentum_alpha.orders import build_client_order_id
+
+        client_order_id = build_client_order_id(
+            symbol="BTCUSDT",
+            opened_at=datetime(2026, 5, 10, 10, 17, 32, tzinfo=timezone.utc),
+            leg_type="add_on",
+            order_kind="entry",
+            sequence=0,
+        )
+
+        self.assertEqual(client_order_id, "ma_260510100000_BTCUSDT_a00e")

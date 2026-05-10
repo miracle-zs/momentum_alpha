@@ -126,3 +126,38 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(events[0]["event_type"], "signal_decision_insert_error")
         self.assertEqual(events[0]["payload"]["error"], "db down")
         self.assertTrue(any("event=signal-decision-insert-error" in message for message in messages))
+
+    def test_record_broker_orders_persists_failed_entry_attempt(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.runtime_store import fetch_recent_broker_orders
+        from momentum_alpha.telemetry import record_broker_orders
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            recorder = AuditRecorder(runtime_db_path=db_path, source="poll")
+
+            record_broker_orders(
+                audit_recorder=recorder,
+                now=datetime(2026, 5, 10, 10, 0, tzinfo=timezone.utc),
+                action_type="submit_order_failed",
+                decision_id="dec_260510100000000000",
+                responses=[
+                    {
+                        "symbol": "LAYERUSDT",
+                        "type": "MARKET",
+                        "side": "BUY",
+                        "origQty": "843.8",
+                        "status": "SUBMIT_FAILED",
+                        "clientOrderId": "ma_260510100000_LAYERUSDT_a00e",
+                        "error": "temporary tls failure",
+                    }
+                ],
+            )
+
+            rows = fetch_recent_broker_orders(path=db_path, limit=1)
+
+        self.assertEqual(rows[0]["action_type"], "submit_order_failed")
+        self.assertEqual(rows[0]["order_type"], "MARKET")
+        self.assertEqual(rows[0]["order_status"], "SUBMIT_FAILED")
+        self.assertEqual(rows[0]["quantity"], 843.8)
+        self.assertEqual(rows[0]["intent_id"], "ma_260510100000_LAYERUSDT_a00")

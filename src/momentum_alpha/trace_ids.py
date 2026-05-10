@@ -9,7 +9,10 @@ def build_decision_id(*, now: datetime) -> str:
 
 
 def build_order_intent_id(*, symbol: str, opened_at: datetime, leg_type: str, sequence: int) -> str:
-    timestamp_token = opened_at.astimezone(timezone.utc).strftime("%y%m%d%H%M%S")
+    resolved_opened_at = opened_at.astimezone(timezone.utc)
+    if leg_type == "add_on":
+        resolved_opened_at = resolved_opened_at.replace(minute=0, second=0, microsecond=0)
+    timestamp_token = resolved_opened_at.strftime("%y%m%d%H%M%S")
     symbol_token = "".join(ch for ch in symbol.upper() if ch.isalnum())[-10:] or "UNKNOWN"
     leg_token = "b" if leg_type == "base" else "a"
     return f"ma_{timestamp_token}_{symbol_token}_{leg_token}{sequence:02d}"

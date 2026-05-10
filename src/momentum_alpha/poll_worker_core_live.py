@@ -225,8 +225,10 @@ def run_once_live(
                 else:
                     print(f"stop replacement failed: {exc}")
     broker_responses: list[dict] = []
+    entry_order_failures: list[dict] = []
     if submit_orders:
         broker_responses = broker.submit_execution_plan(result.execution_plan)
+        entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
         result = replace(result, broker_responses=broker_responses)
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
@@ -267,6 +269,7 @@ def run_once_live(
                 "previous_leader_symbol": previous_leader_symbol,
                 "next_previous_leader_symbol": result.runtime_result.next_state.previous_leader_symbol,
                 "broker_response_count": len(result.broker_responses),
+                "entry_order_failure_count": len(entry_order_failures),
                 "stop_replacement_count": len(stop_replacements),
                 "stop_replacement_failure_count": len(stop_replacement_failures),
             },
@@ -399,6 +402,20 @@ def run_once_live(
                 action_type="submit_order",
                 decision_id=decision_id,
             )
+        if entry_order_failures:
+            audit_recorder.record(
+                event_type="broker_submit_failures",
+                now=now,
+                decision_id=decision_id,
+                payload={"failures": entry_order_failures, "decision_id": decision_id},
+            )
+            _record_broker_orders(
+                audit_recorder=audit_recorder,
+                now=now,
+                responses=entry_order_failures,
+                action_type="submit_order_failed",
+                decision_id=decision_id,
+            )
         if stop_replacement_responses:
             audit_recorder.record(
                 event_type="broker_replace",
@@ -434,4 +451,5 @@ def run_once_live(
         runtime_result=result.runtime_result,
         broker_responses=result.broker_responses,
         stop_replacements=stop_replacements,
+        entry_order_failures=entry_order_failures,
     )

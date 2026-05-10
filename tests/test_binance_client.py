@@ -384,6 +384,32 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIn("timestamp=1700000000000", client.requests[0].url)
         self.assertIsNone(client.requests[0].body)
 
+    def test_fetch_order_uses_orig_client_order_id(self) -> None:
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeClient(BinanceRestClient):
+            def __init__(self) -> None:
+                super().__init__(api_key="key", api_secret="secret")
+                self.requests = []
+
+            def send(self, request):
+                self.requests.append(request)
+                return {"symbol": "BTCUSDT", "clientOrderId": "ma_260510100000_BTCUSDT_a00e"}
+
+        client = FakeClient()
+        payload = client.fetch_order(
+            symbol="BTCUSDT",
+            orig_client_order_id="ma_260510100000_BTCUSDT_a00e",
+            timestamp_ms=1700000000000,
+        )
+        self.assertEqual(payload["clientOrderId"], "ma_260510100000_BTCUSDT_a00e")
+        self.assertIn("https://fapi.binance.com/fapi/v1/order?", client.requests[0].url)
+        self.assertIn("symbol=BTCUSDT", client.requests[0].url)
+        self.assertIn("origClientOrderId=ma_260510100000_BTCUSDT_a00e", client.requests[0].url)
+        self.assertIn("timestamp=1700000000000", client.requests[0].url)
+        self.assertIn("signature=", client.requests[0].url)
+        self.assertIsNone(client.requests[0].body)
+
     def test_fetch_open_algo_orders_uses_signed_endpoint(self) -> None:
         from momentum_alpha.binance_client import BinanceRestClient
 

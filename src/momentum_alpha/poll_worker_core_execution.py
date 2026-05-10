@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -15,6 +15,7 @@ class RunOnceResult:
     runtime_result: RuntimeTickResult
     broker_responses: list[dict]
     stop_replacements: list[tuple[str, Decimal]]
+    entry_order_failures: list[dict] = field(default_factory=list)
 
     @property
     def execution_plan(self):
@@ -55,8 +56,10 @@ def run_once(
         last_add_on_hour=last_add_on_hour,
     )
     broker_responses = broker.submit_execution_plan(runtime_result.execution_plan) if submit_orders else []
+    entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or []) if submit_orders else []
     return RunOnceResult(
         runtime_result=runtime_result,
         broker_responses=broker_responses,
         stop_replacements=[],
+        entry_order_failures=entry_order_failures,
     )

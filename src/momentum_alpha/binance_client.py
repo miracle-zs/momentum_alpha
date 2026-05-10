@@ -340,6 +340,27 @@ class BinanceRestClient:
         )
         return self.send(request)
 
+    def fetch_order(
+        self,
+        *,
+        symbol: str,
+        order_id: int | str | None = None,
+        orig_client_order_id: str | None = None,
+        timestamp_ms: int | None = None,
+    ) -> dict:
+        params: dict[str, str] = {"symbol": symbol}
+        if order_id is not None:
+            params["orderId"] = str(order_id)
+        if orig_client_order_id is not None:
+            params["origClientOrderId"] = orig_client_order_id
+        request = self.build_signed_request(
+            method="GET",
+            path="/fapi/v1/order",
+            params=params,
+            timestamp_ms=timestamp_ms,
+        )
+        return self.send(request)
+
     def fetch_open_algo_orders(self, *, symbol: str | None = None, timestamp_ms: int | None = None) -> list:
         params: dict[str, str] = {}
         if symbol is not None:

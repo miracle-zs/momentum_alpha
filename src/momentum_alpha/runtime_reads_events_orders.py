@@ -49,10 +49,19 @@ def resolve_order_linkage(
 
         for column_name, value in lookup_candidates:
             table_name, bare_column_name = column_name.split(".", 1)
+            if table_name == "algo_orders":
+                select_clause = """
+                SELECT decision_id, intent_id, NULL AS client_order_id, client_algo_id, NULL AS order_id, symbol, timestamp
+                FROM algo_orders
+                """
+            else:
+                select_clause = """
+                SELECT decision_id, intent_id, client_order_id, client_algo_id, order_id, symbol, timestamp
+                FROM broker_orders
+                """
             row = connection.execute(
                 f"""
-                SELECT decision_id, intent_id, client_order_id, client_algo_id, order_id, symbol, timestamp
-                FROM {table_name}
+                {select_clause}
                 WHERE {bare_column_name} = ?
                 ORDER BY timestamp DESC, id DESC
                 LIMIT 1

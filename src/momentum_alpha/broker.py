@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from time import sleep as default_sleep
+from typing import Callable
+from urllib.error import URLError
 
+from momentum_alpha.binance_client import BinanceHttpError
 from momentum_alpha.execution import ExecutionPlan
 from momentum_alpha.orders import is_strategy_client_order_id
 
@@ -17,20 +22,42 @@ def _build_replacement_stop_client_order_id(symbol: str, *, now: datetime | None
     return f"ma_{timestamp_token}_{symbol_token}_r00s"
 
 
+def _is_order_not_found_error(exc: Exception) -> bool:
+    if not isinstance(exc, BinanceHttpError):
+        return False
+    try:
+        payload = json.loads(exc.response_body or "{}")
+    except json.JSONDecodeError:
+        return False
+    return payload.get("code") == -2013
+
+
+def _is_transient_entry_error(exc: Exception) -> bool:
+    if isinstance(exc, (URLError, TimeoutError)):
+        return True
+    if isinstance(exc, BinanceHttpError):
+        return exc.status_code in {408, 500, 502, 503, 504}
+    return False
+
+
 @dataclass
 class BinanceBroker:
     client: object
+    entry_retry_delays: tuple[float, ...] = (0.2, 0.5)
+    sleep_fn: Callable[[float], None] = default_sleep
     last_stop_replacement_failures: list[dict[str, str]] = field(default_factory=list, init=False)
+    last_entry_order_failures: list[dict[str, object]] = field(default_factory=list, init=False)
 
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         submitted_entry_symbols: list[str | None] = []
+        self.last_entry_order_failures = []
         for order in plan.entry_orders:
-            try:
-                responses.append(self.client.send(self.client.new_order(**order)))
+            response = self._submit_entry_order(order)
+            if response is not None:
+                responses.append(response)
                 submitted_entry_symbols.append(order.get("symbol"))
-            except Exception as exc:
-                logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
+            else:
                 submitted_entry_symbols.append(None)
         for index, order in enumerate(plan.stop_orders):
             if index < len(submitted_entry_symbols) and submitted_entry_symbols[index] is None:
@@ -40,6 +67,58 @@ class BinanceBroker:
             except Exception as exc:
                 logger.error(f"stop order failed for {order.get('symbol')}: {exc}")
         return responses
+
+    def _submit_entry_order(self, order: dict[str, str]) -> dict | None:
+        attempts = len(self.entry_retry_delays) + 1
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return self.client.send(self.client.new_order(**order))
+            except Exception as exc:
+                last_error = exc
+                if not _is_transient_entry_error(exc):
+                    logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
+                    self.last_entry_order_failures.append(self._entry_failure_payload(order, exc, attempt + 1))
+                    return None
+                recovered = self._fetch_existing_entry_order(order)
+                if recovered is not None:
+                    recovered.setdefault("recoveredAfterSubmitError", True)
+                    return recovered
+                if attempt < len(self.entry_retry_delays):
+                    self.sleep_fn(self.entry_retry_delays[attempt])
+                    continue
+                logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
+        if last_error is not None:
+            self.last_entry_order_failures.append(self._entry_failure_payload(order, last_error, attempts))
+        return None
+
+    def _fetch_existing_entry_order(self, order: dict[str, str]) -> dict | None:
+        fetch_order = getattr(self.client, "fetch_order", None)
+        client_order_id = order.get("newClientOrderId")
+        symbol = order.get("symbol")
+        if not callable(fetch_order) or client_order_id is None or symbol is None:
+            return None
+        try:
+            return fetch_order(symbol=symbol, orig_client_order_id=client_order_id)
+        except Exception as exc:
+            if _is_order_not_found_error(exc):
+                return None
+            logger.warning(f"entry order status lookup failed for {symbol}: {exc}")
+            return None
+
+    @staticmethod
+    def _entry_failure_payload(order: dict[str, str], exc: Exception, attempts: int) -> dict[str, object]:
+        return {
+            "symbol": order.get("symbol"),
+            "side": order.get("side"),
+            "type": order.get("type"),
+            "quantity": order.get("quantity"),
+            "clientOrderId": order.get("newClientOrderId"),
+            "status": "SUBMIT_FAILED",
+            "error": str(exc),
+            "errorType": type(exc).__name__,
+            "attempts": attempts,
+        }
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
         responses: list[dict] = []

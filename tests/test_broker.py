@@ -316,3 +316,203 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.new_algo_order_calls[0]["symbol"], "ETHUSDT")
         self.assertEqual(len(responses), 2)
         self.assertEqual([item["symbol"] for item in responses], ["ETHUSDT", "ETHUSDT"])
+
+    def test_broker_recovers_entry_order_by_client_order_id_after_transient_failure(self) -> None:
+        from urllib.error import URLError
+
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.new_order_calls = []
+                self.new_algo_order_calls = []
+                self.fetch_order_calls = []
+
+            def new_order(self, **params):
+                self.new_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def fetch_order(self, **params):
+                self.fetch_order_calls.append(params)
+                return {
+                    "status": "NEW",
+                    "symbol": params["symbol"],
+                    "type": "MARKET",
+                    "clientOrderId": params["orig_client_order_id"],
+                }
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                if "/fapi/v1/order" in request.url:
+                    raise URLError("temporary tls failure")
+                return {"status": "NEW", "symbol": "BTCUSDT", "type": "STOP_MARKET"}
+
+        broker = BinanceBroker(client=FakeClient())
+        plan = ExecutionPlan(
+            entry_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "type": "MARKET",
+                    "quantity": "0.010",
+                    "newClientOrderId": "ma_260510100000_BTCUSDT_a00e",
+                }
+            ],
+            stop_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "SELL",
+                    "type": "STOP_MARKET",
+                    "quantity": "0.010",
+                    "stopPrice": "61000.0",
+                }
+            ],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+
+        self.assertEqual([response["type"] for response in responses], ["MARKET", "STOP_MARKET"])
+        self.assertEqual(broker.client.fetch_order_calls[0]["orig_client_order_id"], "ma_260510100000_BTCUSDT_a00e")
+        self.assertEqual(broker.last_entry_order_failures, [])
+        self.assertEqual(len(broker.client.new_algo_order_calls), 1)
+
+    def test_broker_retries_entry_with_same_client_order_id_when_order_was_not_created(self) -> None:
+        from urllib.error import URLError
+
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.send_calls = 0
+                self.new_order_client_ids = []
+                self.fetch_order_calls = []
+
+            def new_order(self, **params):
+                self.new_order_client_ids.append(params["newClientOrderId"])
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def fetch_order(self, **params):
+                self.fetch_order_calls.append(params)
+                raise BinanceHttpError(
+                    __import__("urllib.error").error.HTTPError(
+                        url="https://example.test/fapi/v1/order",
+                        code=400,
+                        msg="Bad Request",
+                        hdrs=None,
+                        fp=None,
+                    ),
+                    '{"code":-2013,"msg":"Order does not exist."}',
+                )
+
+            def new_algo_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                self.send_calls += 1
+                if "/fapi/v1/order" in request.url and self.send_calls == 1:
+                    raise URLError("temporary tls failure")
+                if "/fapi/v1/order" in request.url:
+                    return {"status": "NEW", "symbol": "BTCUSDT", "type": "MARKET", "clientOrderId": "ma_260510100000_BTCUSDT_a00e"}
+                return {"status": "NEW", "symbol": "BTCUSDT", "type": "STOP_MARKET"}
+
+        broker = BinanceBroker(client=FakeClient(), entry_retry_delays=(0,), sleep_fn=lambda seconds: None)
+        plan = ExecutionPlan(
+            entry_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "type": "MARKET",
+                    "quantity": "0.010",
+                    "newClientOrderId": "ma_260510100000_BTCUSDT_a00e",
+                }
+            ],
+            stop_orders=[],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+
+        self.assertEqual(responses[0]["status"], "NEW")
+        self.assertEqual(broker.client.new_order_client_ids, ["ma_260510100000_BTCUSDT_a00e", "ma_260510100000_BTCUSDT_a00e"])
+        self.assertEqual(len(broker.client.fetch_order_calls), 1)
+
+    def test_broker_exposes_failed_entry_attempts_when_retries_are_exhausted(self) -> None:
+        from urllib.error import URLError
+
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def fetch_order(self, **params):
+                raise BinanceHttpError(
+                    __import__("urllib.error").error.HTTPError(
+                        url="https://example.test/fapi/v1/order",
+                        code=400,
+                        msg="Bad Request",
+                        hdrs=None,
+                        fp=None,
+                    ),
+                    '{"code":-2013,"msg":"Order does not exist."}',
+                )
+
+            def send(self, request):
+                raise URLError("temporary tls failure")
+
+        broker = BinanceBroker(client=FakeClient(), entry_retry_delays=(0,), sleep_fn=lambda seconds: None)
+        plan = ExecutionPlan(
+            entry_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "type": "MARKET",
+                    "quantity": "0.010",
+                    "newClientOrderId": "ma_260510100000_BTCUSDT_a00e",
+                }
+            ],
+            stop_orders=[],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+
+        self.assertEqual(responses, [])
+        self.assertEqual(len(broker.last_entry_order_failures), 1)
+        failure = broker.last_entry_order_failures[0]
+        self.assertEqual(failure["status"], "SUBMIT_FAILED")
+        self.assertEqual(failure["symbol"], "BTCUSDT")
+        self.assertEqual(failure["clientOrderId"], "ma_260510100000_BTCUSDT_a00e")
+        self.assertEqual(failure["attempts"], 2)

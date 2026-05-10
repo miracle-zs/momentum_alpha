@@ -247,13 +247,14 @@ def _record_broker_orders(
         try:
             client_order_id = response.get("clientOrderId") or response.get("client_order_id")
             client_algo_id = response.get("clientAlgoId") or response.get("client_algo_id")
-            quantity = response.get("quantity")
-            price = response.get("price") or response.get("stopPrice")
+            quantity = response.get("quantity") or response.get("origQty")
+            price = response.get("price") or response.get("stopPrice") or response.get("triggerPrice")
             insert_broker_order(
                 path=audit_recorder.runtime_db_path,
                 timestamp=now,
                 source=audit_recorder.source,
                 action_type=action_type,
+                order_type=response.get("type") or response.get("orderType"),
                 symbol=response.get("symbol"),
                 order_id=str(response.get("orderId")) if response.get("orderId") is not None else None,
                 client_order_id=client_order_id,
