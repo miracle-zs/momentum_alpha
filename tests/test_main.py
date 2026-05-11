@@ -3888,9 +3888,10 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.runtime_result.next_state.positions["BTCUSDT"].stop_price, Decimal("60900"))
 
     def test_run_once_live_preserves_multi_leg_history_when_restoring_positions(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
         from momentum_alpha.models import Position, PositionLeg
-        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, fetch_recent_position_snapshots
 
         class FakeClient:
             def fetch_exchange_info(self):
@@ -3985,13 +3986,17 @@ class MainTests(unittest.TestCase):
                 submit_orders=False,
                 restore_positions=True,
                 runtime_state_store=store,
+                audit_recorder=AuditRecorder(runtime_db_path=store.path, source="poll"),
                 last_add_on_hour=1,
             )
 
             stored = store.load()
+            snapshots = fetch_recent_position_snapshots(path=store.path, limit=1)
 
         self.assertEqual(len(stored.positions["BTCUSDT"].legs), 2)
         self.assertEqual(stored.positions["BTCUSDT"].stop_price, Decimal("60900"))
+        self.assertEqual(len(snapshots[0]["payload"]["positions"]["BTCUSDT"]["legs"]), 2)
+        self.assertEqual(snapshots[0]["payload"]["positions"]["BTCUSDT"]["stop_price"], "60900")
 
     def test_run_once_live_discovers_all_usdt_perpetual_symbols_when_symbols_missing(self) -> None:
         from momentum_alpha.main import run_once_live

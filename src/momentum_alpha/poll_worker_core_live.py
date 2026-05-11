@@ -244,10 +244,12 @@ def run_once_live(
         merged_positions = dict(stored_state.positions) if stored_state is not None and stored_state.positions else {}
         for symbol, candidate_position in result.runtime_result.next_state.positions.items():
             merged_positions[symbol] = _prefer_position_history(merged_positions.get(symbol), candidate_position)
+        merged_next_state = replace(result.runtime_result.next_state, positions=merged_positions)
+        result = replace(result, runtime_result=replace(result.runtime_result, next_state=merged_next_state))
         merged_state = StoredStrategyState(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
             previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
-            positions=merged_positions,
+            positions=result.runtime_result.next_state.positions,
             recent_stop_loss_exits={
                 symbol: timestamp.isoformat()
                 for symbol, timestamp in result.runtime_result.next_state.recent_stop_loss_exits.items()
