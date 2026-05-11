@@ -82,6 +82,15 @@ def _apply_restored_stop_loss_cooldowns(
     return replace(restored_state, recent_stop_loss_exits=recent_stop_loss_exits)
 
 
+def _prefer_position_history(existing: Position | None, candidate: Position) -> Position:
+    """Keep richer leg history when restored data would collapse a position."""
+    if existing is None:
+        return candidate
+    if len(existing.legs) > len(candidate.legs):
+        return existing if existing.stop_price == candidate.stop_price else existing.with_stop_price(candidate.stop_price)
+    return candidate
+
+
 def run_once_live(
     *,
     symbols: list[str] | None,
@@ -233,7 +242,8 @@ def run_once_live(
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
         merged_positions = dict(stored_state.positions) if stored_state is not None and stored_state.positions else {}
-        merged_positions.update(result.runtime_result.next_state.positions)
+        for symbol, candidate_position in result.runtime_result.next_state.positions.items():
+            merged_positions[symbol] = _prefer_position_history(merged_positions.get(symbol), candidate_position)
         merged_state = StoredStrategyState(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
             previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,

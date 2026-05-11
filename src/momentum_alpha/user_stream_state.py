@@ -52,6 +52,13 @@ def apply_user_stream_event_to_state(
                     else existing_position.with_stop_price(stop_price)
                 )
                 continue
+            if existing_position is not None and len(existing_position.legs) > 1:
+                positions[symbol] = (
+                    existing_position
+                    if existing_position.stop_price == stop_price
+                    else existing_position.with_stop_price(stop_price)
+                )
+                continue
             leg_type = "account_update_synced" if existing_position is not None else "account_update_restored"
             positions[symbol] = Position(
                 symbol=symbol,

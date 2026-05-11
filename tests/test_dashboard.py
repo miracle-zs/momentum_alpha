@@ -2123,6 +2123,92 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(details[0]["pnl_pct"], 20.0)
         self.assertEqual(details[0]["notional_exposure"], 1200.0)
 
+    def test_build_position_details_treats_nonpositive_latest_price_as_unavailable(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BASEUSDT": {
+                        "symbol": "BASEUSDT",
+                        "side": "LONG",
+                        "total_quantity": "100",
+                        "weighted_avg_entry_price": "10",
+                        "stop_price": "9",
+                        "latest_price": "0",
+                        "legs": [],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+
+        self.assertEqual(details[0]["entry_price"], "10.00")
+        self.assertEqual(details[0]["risk"], "100.00")
+        self.assertIsNone(details[0]["latest_price"])
+        self.assertIsNone(details[0]["mtm_pnl"])
+        self.assertIsNone(details[0]["pnl_pct"])
+        self.assertIsNone(details[0]["distance_to_stop_pct"])
+        self.assertIsNone(details[0]["notional_exposure"])
+        self.assertIsNone(details[0]["r_multiple"])
+
+    def test_build_position_details_treats_nonpositive_entry_price_as_unavailable(self) -> None:
+        from momentum_alpha.dashboard import build_position_details
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BASEUSDT": {
+                        "symbol": "BASEUSDT",
+                        "side": "LONG",
+                        "total_quantity": "100",
+                        "weighted_avg_entry_price": "0",
+                        "stop_price": "9",
+                        "latest_price": "12",
+                        "legs": [],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+
+        self.assertIsNone(details[0]["entry_price"])
+        self.assertIsNone(details[0]["risk"])
+        self.assertIsNone(details[0]["risk_pct_of_equity"])
+        self.assertEqual(details[0]["latest_price"], 12.0)
+        self.assertEqual(details[0]["notional_exposure"], 1200.0)
+        self.assertEqual(details[0]["distance_to_stop_pct"], 25.0)
+        self.assertIsNone(details[0]["mtm_pnl"])
+        self.assertIsNone(details[0]["pnl_pct"])
+        self.assertIsNone(details[0]["r_multiple"])
+
+    def test_build_position_details_treats_missing_leg_breakdown_as_unknown(self) -> None:
+        from momentum_alpha.dashboard import build_position_details, render_position_cards
+
+        position_snapshot = {
+            "payload": {
+                "positions": {
+                    "BASEUSDT": {
+                        "symbol": "BASEUSDT",
+                        "side": "LONG",
+                        "total_quantity": "100",
+                        "weighted_avg_entry_price": "10",
+                        "stop_price": "9",
+                        "latest_price": "12",
+                        "legs": [],
+                    }
+                }
+            }
+        }
+
+        details = build_position_details(position_snapshot, equity_value="1000")
+        html = render_position_cards(details)
+
+        self.assertIsNone(details[0]["leg_count"])
+        self.assertIn("<span class='position-legs-summary' title='No legs'>n/a</span>", html)
+
     def test_build_position_details_computes_live_price_diagnostics(self) -> None:
         from momentum_alpha.dashboard import build_position_details
 

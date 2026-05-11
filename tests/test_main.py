@@ -3887,6 +3887,112 @@ class MainTests(unittest.TestCase):
         self.assertIn("BTCUSDT", result.runtime_result.next_state.positions)
         self.assertEqual(result.runtime_result.next_state.positions["BTCUSDT"].stop_price, Decimal("60900"))
 
+    def test_run_once_live_preserves_multi_leg_history_when_restoring_positions(self) -> None:
+        from momentum_alpha.main import run_once_live
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
+
+        class FakeClient:
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_ticker_price(self, *, symbol):
+                return {"symbol": symbol, "price": "61200"}
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "60000", "0", "0", "0"]]
+                return [[0, "0", "0", "61000", "0"]]
+
+            def fetch_position_risk(self, *, symbol=None, timestamp_ms=None):
+                return [
+                    {
+                        "symbol": "BTCUSDT",
+                        "positionAmt": "0.010",
+                        "entryPrice": "61100",
+                        "updateTime": 1700000000000,
+                    }
+                ]
+
+            def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
+                return [
+                    {
+                        "symbol": "BTCUSDT",
+                        "type": "STOP_MARKET",
+                        "stopPrice": "60900",
+                    }
+                ]
+
+        class FakeBroker:
+            def submit_execution_plan(self, plan):
+                return []
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={
+                        "BTCUSDT": Position(
+                            symbol="BTCUSDT",
+                            stop_price=Decimal("60800"),
+                            legs=(
+                                PositionLeg(
+                                    symbol="BTCUSDT",
+                                    quantity=Decimal("0.004"),
+                                    entry_price=Decimal("61050"),
+                                    stop_price=Decimal("60800"),
+                                    opened_at=datetime(2026, 4, 15, 0, 30, tzinfo=timezone.utc),
+                                    leg_type="base",
+                                ),
+                                PositionLeg(
+                                    symbol="BTCUSDT",
+                                    quantity=Decimal("0.006"),
+                                    entry_price=Decimal("61125"),
+                                    stop_price=Decimal("60800"),
+                                    opened_at=datetime(2026, 4, 15, 0, 45, tzinfo=timezone.utc),
+                                    leg_type="add_on",
+                                ),
+                            ),
+                        )
+                    },
+                    recent_stop_loss_exits={},
+                )
+            )
+
+            run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                previous_leader_symbol=None,
+                client=FakeClient(),
+                broker=FakeBroker(),
+                submit_orders=False,
+                restore_positions=True,
+                runtime_state_store=store,
+                last_add_on_hour=1,
+            )
+
+            stored = store.load()
+
+        self.assertEqual(len(stored.positions["BTCUSDT"].legs), 2)
+        self.assertEqual(stored.positions["BTCUSDT"].stop_price, Decimal("60900"))
+
     def test_run_once_live_discovers_all_usdt_perpetual_symbols_when_symbols_missing(self) -> None:
         from momentum_alpha.main import run_once_live
 
