@@ -133,6 +133,20 @@ def apply_fill(
         updated_legs = list(position.with_stop_price(stop_price).legs)
         last_leg = updated_legs[-1] if updated_legs else None
         if (
+            len(updated_legs) == 1
+            and last_leg is not None
+            and last_leg.entry_order_id is None
+            and last_leg.leg_type in {"restored", "account_update_restored", "account_update_synced"}
+            and last_leg.quantity == quantity
+        ):
+            updated_legs[0] = new_leg
+            positions[symbol] = Position(symbol=symbol, stop_price=stop_price, legs=tuple(updated_legs))
+            return replace(
+                state,
+                previous_leader_symbol=new_previous_leader_symbol if new_previous_leader_symbol is not None else state.previous_leader_symbol,
+                positions=positions,
+            )
+        if (
             last_leg is not None
             and last_leg.entry_order_id is not None
             and entry_order_id is not None
