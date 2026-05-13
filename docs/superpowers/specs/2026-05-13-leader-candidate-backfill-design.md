@@ -5,9 +5,9 @@
 
 ## Summary
 
-This design adds historical and forward-fill support for `leader_candidate_snapshots`, a runtime table that records ranked market leaders over time. The table exists to support opportunity diagnostics: when a symbol produces a large right-tail move, we need to know whether the strategy saw it, entered it, entered late, skipped it, or missed it because of data, timing, or execution constraints.
+This design adds historical and forward-fill support for `leader_candidate_snapshots`, a local analytics table that records ranked market leaders over time. The table exists to support opportunity diagnostics: when a symbol produces a large right-tail move, we need to know whether the strategy saw it, entered it, entered late, skipped it, or missed it because of data, timing, or execution constraints.
 
-The key product rule is that the diagnostic grain is an opportunity, not a trade. `leader_candidate_snapshots` is the market-fact layer that later opportunity diagnostics will join against `signal_decisions`, `broker_orders`, `trade_fills`, and `trade_round_trips`.
+The key product rule is that the diagnostic grain is an opportunity, not a trade. `leader_candidate_snapshots` is the market-fact layer that later opportunity diagnostics will join against `signal_decisions`, `broker_orders`, `trade_fills`, and `trade_round_trips` from the runtime database.
 
 ## Goals
 
@@ -16,6 +16,7 @@ The key product rule is that the diagnostic grain is an opportunity, not a trade
 - Support a full-market historical rebuild path from Binance kline data for accurate missed-opportunity analysis.
 - Keep the first version bounded by storing top N ranked candidates per timestamp, not every symbol at every timestamp.
 - Make the backfill idempotent, resumable, and safe to rerun.
+- Keep replay and kline-rebuild output outside `var/` so replacing local `var/` with a cloud server copy does not delete local analytics data.
 
 ## Non-Goals
 
@@ -26,7 +27,9 @@ The key product rule is that the diagnostic grain is an opportunity, not a trade
 
 ## Existing Context
 
-Current runtime storage already has useful but incomplete data:
+The operator workflow is to periodically replace local `var/` with the cloud server's `var/`. Therefore, `var/runtime.db` is treated as a replaceable production-state mirror, not as a durable local analytics asset.
+
+Current runtime storage already has useful but incomplete source data:
 
 - `position_snapshots` can store `payload_json.market_context.candidates`, but the current payload keeps only the top 5 candidates.
 - `signal_decisions` stores strategy behavior such as `base_entry`, `add_on`, `add_on_skipped`, `stop_update`, and `no_action`.
@@ -40,7 +43,15 @@ This is enough for a two-stage rollout:
 
 ## Data Model
 
-Add a new table to the runtime schema:
+Add the table to a separate SQLite analytics database:
+
+```text
+local_analytics/leader_candidates.db
+```
+
+`local_analytics/` should be ignored by git. This database is generated locally from `var/runtime.db` plus Binance historical klines and must survive normal `var/` replacement.
+
+Schema:
 
 ```sql
 CREATE TABLE IF NOT EXISTS leader_candidate_snapshots (
@@ -72,7 +83,7 @@ Store numeric fields as text to match the existing runtime pattern for decimal v
 
 ## Replay Existing Position Snapshots
 
-Add a backfill path that expands `position_snapshots.payload_json.market_context.candidates` into `leader_candidate_snapshots`.
+Add a backfill path that reads `position_snapshots.payload_json.market_context.candidates` from `var/runtime.db` and writes expanded rows into `local_analytics/leader_candidates.db`.
 
 Behavior:
 
@@ -98,11 +109,20 @@ Command shape:
 
 ```bash
 python3 -m momentum_alpha.main backfill-leader-candidates \
-  --runtime-db-file ./var/runtime.db \
+  --leader-candidates-db-file ./local_analytics/leader_candidates.db \
   --start-time 2026-04-01T00:00:00+00:00 \
   --end-time 2026-05-01T00:00:00+00:00 \
   --interval 5m \
   --top-n 50
+```
+
+Replay command shape:
+
+```bash
+python3 -m momentum_alpha.main backfill-leader-candidates \
+  --runtime-db-file ./var/runtime.db \
+  --leader-candidates-db-file ./local_analytics/leader_candidates.db \
+  --replay-position-snapshots
 ```
 
 Optional arguments:
@@ -110,6 +130,7 @@ Optional arguments:
 - `--symbols`: restrict backfill to an explicit symbol list.
 - `--testnet`: reuse existing environment behavior.
 - `--replay-position-snapshots`: run the local replay path instead of Binance kline fetches.
+- `--leader-candidates-db-file`: output analytics database path, defaulting to `./local_analytics/leader_candidates.db`.
 
 ### Kline Reconstruction Rules
 
@@ -155,42 +176,58 @@ Rules:
 - Continue after a symbol fetch failure, and include failures in a final audit event.
 - Keep each UTC day as the natural processing unit to limit memory and make reruns easy.
 
-## Live Poll Persistence
+## Local Refresh Workflow
 
-After the table exists, the live poll path should write fresh leader candidate rows on every audited poll tick.
+The normal local workflow is:
 
-Behavior:
+1. Replace local `var/` with the cloud server's latest `var/`.
+2. Replay any new `position_snapshots` from `var/runtime.db` into `local_analytics/leader_candidates.db`.
+3. Run kline backfill for the new time window not yet present in the local analytics database.
+4. Run opportunity diagnostics against both databases:
+   - `var/runtime.db` for strategy behavior and real trades
+   - `local_analytics/leader_candidates.db` for market leader facts
 
+This keeps local analytics durable while preserving the existing server-to-local `var/` replacement workflow.
+
+## Optional Server-Side Live Persistence
+
+Live poll persistence can be added later, but it must be optional and must not write this high-volume table into production `var/runtime.db` by default.
+
+If enabled:
+
+- Add a separate `LEADER_CANDIDATES_DB_FILE` setting.
 - Reuse the ranked `market_payloads` built during live telemetry.
-- Persist the top N candidates to `leader_candidate_snapshots`.
+- Persist the top N candidates to the configured sidecar database.
 - Default live top N should be 50, matching backfill.
 - Use `source = "poll"`.
 - Keep `position_snapshots.payload_json.market_context.candidates` unchanged for dashboard compatibility.
 
-This prevents a new data gap after historical backfill is complete. The existing dashboard payload can stay top 5 while the diagnostic table stores top 50.
+For the current local-first workflow, incremental local backfill is the primary way to keep the table current.
 
 ## Runtime Integration
 
 Add focused modules:
 
-- `runtime_writes_history_candidates.py`
+- `analytics_schema.py`
+  - bootstrap `local_analytics/leader_candidates.db`
+- `analytics_writes_candidates.py`
   - `insert_leader_candidate_snapshot()`
   - `insert_leader_candidate_snapshots_bulk()`
-- `runtime_reads_history_candidates.py`
+- `analytics_reads_candidates.py`
   - `fetch_leader_candidate_snapshots_for_window()`
   - `fetch_top_leader_candidates_for_window()`
 - `cli_backfill_candidates.py`
   - replay from existing position snapshots
   - kline-based full-market reconstruction
 - `telemetry.py`
-  - live poll persistence for top N leader candidates
-
-Expose the public functions through `runtime_store.py` compatibility exports, following the existing runtime split pattern.
+  - optional live poll persistence for top N leader candidates
 
 Add CLI support in:
 
 - `cli_parser.py`
 - `cli_commands_ops.py` or a focused backfill command module, matching existing command dispatch patterns.
+
+Do not expose the local analytics database through `runtime_store.py`; it is deliberately separate from the production runtime database.
 
 ## Testing
 
@@ -198,10 +235,11 @@ Add tests for:
 
 - schema bootstrap creates `leader_candidate_snapshots` and indexes
 - replay expands `position_snapshots` candidates with correct rank
+- replay reads from `var/runtime.db` and writes to `local_analytics/leader_candidates.db`
 - replay is idempotent on rerun
 - kline reconstruction computes daily open, latest price, daily change, previous-hour low, current-hour low, rank, and leader gap
 - overlapping kline rows replace replay rows for the same timestamp and symbol
-- live poll persistence writes top N candidates without changing the existing position snapshot payload shape
+- optional live poll persistence writes top N candidates to a configured sidecar database without changing the existing position snapshot payload shape
 - `--top-n` limits persisted rows per timestamp
 - malformed candidates or failed symbol fetches do not abort the whole run
 - CLI dispatch calls the backfill function with parsed arguments
@@ -209,13 +247,14 @@ Add tests for:
 ## Rollout
 
 1. Add schema and persistence functions.
-2. Add replay from existing `position_snapshots`.
-3. Add kline reconstruction for explicit symbols and a short time window.
-4. Add auto symbol resolution from exchange info.
-5. Add live poll writes for top 50 candidates.
-6. Run replay on the existing runtime database.
+2. Add `.gitignore` coverage for `local_analytics/`.
+3. Add replay from existing `position_snapshots`.
+4. Add kline reconstruction for explicit symbols and a short time window.
+5. Add auto symbol resolution from exchange info.
+6. Run replay from `var/runtime.db` into `local_analytics/leader_candidates.db`.
 7. Run kline backfill first with `interval=5m` and `top-n=50`.
 8. Use the resulting table to design the opportunity diagnostics table.
+9. Add optional server-side sidecar live persistence only after the local diagnostic workflow proves useful.
 
 ## Open Implementation Choice
 
