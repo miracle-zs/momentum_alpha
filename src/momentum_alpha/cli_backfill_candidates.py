@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -285,6 +286,7 @@ def backfill_leader_candidates_from_klines(
     symbols: list[str] | tuple[str, ...],
     interval: str = "5m",
     top_n: int = 50,
+    max_workers: int = 1,
     logger=print,
 ) -> int:
     if interval not in _INTERVAL_SECONDS:
@@ -294,43 +296,76 @@ def backfill_leader_candidates_from_klines(
         bootstrap_leader_candidates_db(path=leader_candidates_db_path)
         return 0
 
-    symbol_rows: list[dict] = []
     failed_symbols: list[str] = []
+    candidate_count = 0
+    inserted_total = 0
     request_start = start_time.astimezone(timezone.utc)
     request_end = end_time.astimezone(timezone.utc)
+    worker_count = max(1, int(max_workers))
     for day_start in _iter_utc_days(start_time=request_start, end_time=request_end - timedelta(microseconds=1)):
         day_end = min(day_start + timedelta(days=1), request_end)
         fetch_start = day_start - timedelta(hours=1)
-        for symbol in normalized_symbols:
-            try:
-                klines = _fetch_symbol_klines(
-                    client=client,
-                    symbol=symbol,
-                    interval=interval,
-                    start_time=fetch_start,
-                    end_time=day_end,
-                )
-            except Exception:
-                failed_symbols.append(symbol)
-                continue
-            symbol_rows.extend(
-                _rows_for_symbol_day_klines(
+        day_symbol_rows: list[dict] = []
+        if worker_count == 1 or len(normalized_symbols) == 1:
+            for symbol in normalized_symbols:
+                try:
+                    klines = _fetch_symbol_klines(
+                        client=client,
+                        symbol=symbol,
+                        interval=interval,
+                        start_time=fetch_start,
+                        end_time=day_end,
+                    )
+                except Exception:
+                    failed_symbols.append(symbol)
+                    continue
+                day_rows = _rows_for_symbol_day_klines(
                     symbol=symbol,
                     klines=klines,
                     day_start=day_start,
                     output_start=request_start,
                     output_end=request_end,
                 )
-            )
-
-    ranked_rows = _rank_candidate_rows(symbol_rows=symbol_rows, top_n=top_n)
-    inserted = insert_leader_candidate_snapshots_bulk(path=leader_candidates_db_path, rows=ranked_rows)
+                day_symbol_rows.extend(day_rows)
+        else:
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_to_symbol = {
+                    executor.submit(
+                        _fetch_symbol_klines,
+                        client=client,
+                        symbol=symbol,
+                        interval=interval,
+                        start_time=fetch_start,
+                        end_time=day_end,
+                    ): symbol
+                    for symbol in normalized_symbols
+                }
+                for future in as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    try:
+                        klines = future.result()
+                    except Exception:
+                        failed_symbols.append(symbol)
+                        continue
+                    day_rows = _rows_for_symbol_day_klines(
+                        symbol=symbol,
+                        klines=klines,
+                        day_start=day_start,
+                        output_start=request_start,
+                        output_end=request_end,
+                    )
+                    day_symbol_rows.extend(day_rows)
+        if not day_symbol_rows:
+            continue
+        candidate_count += len(day_symbol_rows)
+        ranked_rows = _rank_candidate_rows(symbol_rows=day_symbol_rows, top_n=top_n)
+        inserted_total += insert_leader_candidate_snapshots_bulk(path=leader_candidates_db_path, rows=ranked_rows)
     logger(
         "leader-candidate-kline-backfill "
         f"analytics_db={leader_candidates_db_path} symbols={len(normalized_symbols)} "
-        f"failed_symbols={len(set(failed_symbols))} candidates={len(ranked_rows)} inserted={inserted}"
+        f"failed_symbols={len(set(failed_symbols))} candidates={candidate_count} inserted={inserted_total}"
     )
-    return inserted
+    return inserted_total
 
 
 def _resolve_backfill_symbols(*, client) -> list[str]:
@@ -349,6 +384,7 @@ def backfill_leader_candidates(
     symbols: list[str] | tuple[str, ...] | None = None,
     interval: str = "5m",
     top_n: int = 50,
+    max_workers: int = 1,
     logger=print,
 ) -> int:
     if replay_position_snapshots:
@@ -372,5 +408,6 @@ def backfill_leader_candidates(
         symbols=resolved_symbols,
         interval=interval,
         top_n=top_n,
+        max_workers=max_workers,
         logger=logger,
     )

@@ -348,6 +348,55 @@ class AnalyticsCandidateTests(unittest.TestCase):
         self.assertEqual(second_snapshot[0]["leader_gap_pct"], "0.01")
         self.assertEqual(second_snapshot[0]["current_hour_low"], "198")
 
+    def test_backfill_leader_candidates_from_klines_flushes_each_day(self) -> None:
+        from momentum_alpha.cli_backfill_candidates import backfill_leader_candidates_from_klines
+        from unittest.mock import patch
+
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                self.calls.append((symbol, interval, limit, start_time_ms, end_time_ms))
+                day_start_ms = start_time_ms + 60 * 60 * 1000
+                if symbol == "AAAUSDT":
+                    return [
+                        [day_start_ms, "100", "101", "99", "100", "1"],
+                        [day_start_ms + 300000, "100", "112", "100", "111", "1"],
+                    ]
+                return [
+                    [day_start_ms, "200", "201", "198", "200", "1"],
+                    [day_start_ms + 300000, "200", "226", "199", "225", "1"],
+                ]
+
+        batches = []
+
+        def fake_insert_leader_candidate_snapshots_bulk(*, path, rows):
+            materialized_rows = list(rows)
+            batches.append([row["timestamp"] for row in materialized_rows])
+            return len(materialized_rows)
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "leader_candidates.db"
+            client = FakeClient()
+            with patch(
+                "momentum_alpha.cli_backfill_candidates.insert_leader_candidate_snapshots_bulk",
+                side_effect=fake_insert_leader_candidate_snapshots_bulk,
+            ):
+                inserted = backfill_leader_candidates_from_klines(
+                    client=client,
+                    leader_candidates_db_path=db_path,
+                    start_time=datetime(2026, 5, 1, 0, 0, tzinfo=timezone.utc),
+                    end_time=datetime(2026, 5, 3, 0, 0, tzinfo=timezone.utc),
+                    symbols=["AAAUSDT", "BBBUSDT"],
+                    interval="5m",
+                    top_n=1,
+                    logger=lambda message: None,
+                )
+
+        self.assertEqual(inserted, 4)
+        self.assertEqual(len(batches), 2)
+
     def test_backfill_leader_candidates_from_klines_continues_after_symbol_failure(self) -> None:
         from momentum_alpha.analytics_reads_candidates import fetch_leader_candidate_snapshots_for_window
         from momentum_alpha.cli_backfill_candidates import backfill_leader_candidates_from_klines

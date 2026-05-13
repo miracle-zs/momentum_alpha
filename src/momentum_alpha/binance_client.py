@@ -4,6 +4,7 @@ import hashlib
 import logging
 import hmac
 import json
+import re
 import time
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -17,6 +18,8 @@ BINANCE_FAPI_BASE_URL = "https://fapi.binance.com"
 BINANCE_TESTNET_FAPI_BASE_URL = "https://testnet.binancefuture.com"
 BINANCE_FSTREAM_WS_URL = "wss://fstream.binance.com/private/ws"
 BINANCE_TESTNET_FSTREAM_WS_URL = "wss://stream.binancefuture.com/ws"
+_RETRYABLE_HTTP_STATUS_CODES = {418, 429, 500, 502, 503, 504}
+_BAN_UNTIL_RE = re.compile(r"banned until (\d+)", re.IGNORECASE)
 
 
 def sign_query(*, secret: str, query: str) -> str:
@@ -82,6 +85,21 @@ class BinanceHttpError(HTTPError):
         if self.response_body:
             return f"HTTP Error {self.status_code}: {self.msg} request={request_label} body={self.response_body}"
         return super().__str__()
+
+
+def _retry_sleep_seconds(*, response_body: str, fallback_seconds: float) -> float:
+    match = _BAN_UNTIL_RE.search(response_body or "")
+    if match is None:
+        return fallback_seconds
+    try:
+        banned_until_ms = int(match.group(1))
+    except ValueError:
+        return fallback_seconds
+    now_ms = int(time.time() * 1000)
+    ban_sleep_seconds = (banned_until_ms - now_ms) / 1000.0
+    if ban_sleep_seconds <= 0:
+        return fallback_seconds
+    return max(fallback_seconds, ban_sleep_seconds + 1.0)
 
 
 class BinanceRestClient:
@@ -202,6 +220,29 @@ class BinanceRestClient:
                 if exc.fp is not None:
                     response_body = exc.fp.read().decode("utf-8", errors="replace")
                 elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
+                if exc.code in _RETRYABLE_HTTP_STATUS_CODES and attempt < len(self.retry_delays):
+                    sleep_seconds = self.retry_delays[attempt]
+                    if exc.code in {418, 429}:
+                        sleep_seconds = _retry_sleep_seconds(
+                            response_body=response_body,
+                            fallback_seconds=sleep_seconds,
+                        )
+                    emit_structured_log(
+                        self.logger,
+                        service="binance-client",
+                        event="request-retry",
+                        level="WARNING",
+                        method=request.method,
+                        endpoint=urlsplit(request.url).path,
+                        attempt=attempt + 1,
+                        retries=len(self.retry_delays),
+                        elapsed_ms=elapsed_ms,
+                        status_code=exc.code,
+                        response_body=response_body,
+                        sleep_seconds=sleep_seconds,
+                    )
+                    self.sleep_fn(sleep_seconds)
+                    continue
                 emit_structured_log(
                     self.logger,
                     service="binance-client",

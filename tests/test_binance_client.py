@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 from io import BytesIO
 from urllib.error import HTTPError, URLError
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,6 +141,111 @@ class BinanceClientTests(unittest.TestCase):
         self.assertEqual(payload["ok"], True)
         self.assertEqual(opener.calls, 2)
         self.assertEqual(sleeps, [0.5])
+
+    def test_send_retries_after_http_error_429(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({"ok": True}).encode("utf-8")
+
+        class FlakyOpener:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def __call__(self, request, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise HTTPError(
+                        url=request.full_url,
+                        code=429,
+                        msg="Too Many Requests",
+                        hdrs=None,
+                        fp=BytesIO(b'{"code":-1003,"msg":"Too many requests"}'),
+                    )
+                return FakeResponse()
+
+        sleeps = []
+        opener = FlakyOpener()
+        client = BinanceRestClient(
+            api_key="key",
+            api_secret="secret",
+            opener=opener,
+            retry_delays=(0.5,),
+            sleep_fn=lambda seconds: sleeps.append(seconds),
+        )
+        payload = client.send(
+            BinanceRequest(
+                method="GET",
+                url="https://fapi.binance.com/fapi/v1/time",
+                headers={"X-MBX-APIKEY": "key"},
+            )
+        )
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(opener.calls, 2)
+        self.assertEqual(sleeps, [0.5])
+
+    def test_send_waits_until_ban_lifts_for_http_error_418(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({"ok": True}).encode("utf-8")
+
+        class FlakyOpener:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def __call__(self, request, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise HTTPError(
+                        url=request.full_url,
+                        code=418,
+                        msg="I'm a teapot",
+                        hdrs=None,
+                        fp=BytesIO(
+                            b'{"code":-1003,"msg":"Way too many requests; IP(1.2.3.4) banned until 2000000. Please use the websocket for live updates to avoid bans."}'
+                        ),
+                    )
+                return FakeResponse()
+
+        sleeps = []
+        opener = FlakyOpener()
+        client = BinanceRestClient(
+            api_key="key",
+            api_secret="secret",
+            opener=opener,
+            retry_delays=(0.5,),
+            sleep_fn=lambda seconds: sleeps.append(seconds),
+        )
+        with patch("momentum_alpha.binance_client.time.time", return_value=1999.0):
+            payload = client.send(
+                BinanceRequest(
+                    method="GET",
+                    url="https://fapi.binance.com/fapi/v1/time",
+                    headers={"X-MBX-APIKEY": "key"},
+                )
+            )
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(opener.calls, 2)
+        self.assertEqual(sleeps, [2.0])
 
     def test_send_logs_request_metrics(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
