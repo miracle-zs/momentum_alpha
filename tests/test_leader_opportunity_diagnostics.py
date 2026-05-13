@@ -114,6 +114,7 @@ class LeaderOpportunityDiagnosticsTests(unittest.TestCase):
 
         self.assertEqual([row["symbol"] for row in report.rows], ["AAAUSDT", "BBBUSDT", "AAAUSDT"])
         self.assertEqual(report.rows[0]["trade_status"], "matched_closed_round_trip")
+        self.assertEqual(report.rows[0]["miss_reason"], "")
         self.assertEqual(report.rows[0]["capture_rate"], "1")
 
     def test_build_leader_opportunity_diagnostics_uses_blocked_reason_for_miss(self) -> None:

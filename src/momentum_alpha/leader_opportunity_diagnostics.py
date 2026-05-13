@@ -644,18 +644,18 @@ def _build_row_for_run(
     elif decision is not None:
         trade_status = "missed"
 
-    blocked_reason = None
-    if decision is not None:
-        blocked_reason = decision.payload.get("blocked_reason") or decision.payload.get("blockedReason")
+    blocked_reason = ""
+    if trade_status != "matched_closed_round_trip":
+        if decision is not None:
+            blocked_reason = decision.payload.get("blocked_reason") or decision.payload.get("blockedReason") or ""
+            if blocked_reason in (None, ""):
+                blocked_reason = decision.payload.get("reason") or ""
+        if blocked_reason in (None, "") and decision is not None:
+            blocked_reason = decision.decision_type or ""
+        if blocked_reason in (None, "") and trade_status == "open_at_cutoff":
+            blocked_reason = "open_at_cutoff"
         if blocked_reason in (None, ""):
-            blocked_reason = decision.payload.get("reason")
-
-    if blocked_reason in (None, "") and decision is not None:
-        blocked_reason = decision.decision_type
-    if blocked_reason in (None, "") and trade_status == "open_at_cutoff":
-        blocked_reason = "open_at_cutoff"
-    if blocked_reason in (None, ""):
-        blocked_reason = "no_matching_signal"
+            blocked_reason = "no_matching_signal"
 
     entry_delay_minutes: Decimal | None = None
     entry_price = None
@@ -718,7 +718,7 @@ def _build_row_for_run(
         "peak_return_pct": _decimal_text(peak_return_pct),
         "realized_return_pct": _decimal_text(realized_return_pct),
         "capture_rate": _decimal_text(capture_rate),
-        "miss_reason": blocked_reason,
+        "miss_reason": blocked_reason or "",
         "notes": notes,
         "entry_delay_minutes": _decimal_text(entry_delay_minutes),
     }
