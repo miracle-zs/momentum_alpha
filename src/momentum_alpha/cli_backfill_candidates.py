@@ -24,8 +24,16 @@ def _json_loads(value: str | None) -> dict:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _candidate_row_from_replay(*, timestamp: str, rank: int, candidate: dict) -> dict | None:
+def _candidate_row_from_replay(
+    *,
+    timestamp: str,
+    rank: int,
+    candidate: dict,
+    leader_symbol: str | None = None,
+) -> dict | None:
     symbol = candidate.get("symbol")
+    if symbol in (None, "") and rank == 1:
+        symbol = leader_symbol
     if symbol in (None, ""):
         return None
     return {
@@ -56,7 +64,7 @@ def replay_position_snapshot_candidates(
     try:
         rows = connection.execute(
             """
-            SELECT timestamp, payload_json
+            SELECT timestamp, leader_symbol, payload_json
             FROM position_snapshots
             WHERE json_type(payload_json, '$.market_context.candidates') IS NOT NULL
             ORDER BY timestamp ASC, id ASC
@@ -66,15 +74,22 @@ def replay_position_snapshot_candidates(
         connection.close()
 
     candidate_rows: list[dict] = []
-    for timestamp, payload_json in rows:
+    for timestamp, leader_symbol, payload_json in rows:
         payload = _json_loads(payload_json)
-        candidates = ((payload.get("market_context") or {}).get("candidates") or [])
+        market_context = payload.get("market_context") or {}
+        candidates = market_context.get("candidates") or []
         if not isinstance(candidates, list):
             continue
+        resolved_leader_symbol = leader_symbol or market_context.get("leader_symbol")
         for rank, candidate in enumerate(candidates, start=1):
             if not isinstance(candidate, dict):
                 continue
-            candidate_row = _candidate_row_from_replay(timestamp=timestamp, rank=rank, candidate=candidate)
+            candidate_row = _candidate_row_from_replay(
+                timestamp=timestamp,
+                rank=rank,
+                candidate=candidate,
+                leader_symbol=resolved_leader_symbol,
+            )
             if candidate_row is not None:
                 candidate_rows.append(candidate_row)
 

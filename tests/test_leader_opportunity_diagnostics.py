@@ -162,6 +162,85 @@ class LeaderOpportunityDiagnosticsTests(unittest.TestCase):
         self.assertEqual(report.rows[0]["trade_status"], "missed")
         self.assertEqual(report.rows[0]["miss_reason"], "invalid_stop_price")
 
+    def test_build_leader_opportunity_diagnostics_ignores_round_trip_opened_before_run_start(self) -> None:
+        from momentum_alpha.analytics_writes_candidates import insert_leader_candidate_snapshots_bulk
+        from momentum_alpha.leader_opportunity_diagnostics import build_leader_opportunity_diagnostics
+        from momentum_alpha.runtime_writes_events_decisions import insert_signal_decision
+        from momentum_alpha.runtime_writes_history_trades import insert_trade_round_trip
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            leader_candidates_db_path = Path(tmpdir) / "leader_candidates.db"
+            insert_leader_candidate_snapshots_bulk(
+                path=leader_candidates_db_path,
+                rows=[
+                    {
+                        "timestamp": _utc(2026, 5, 1, 3, 0),
+                        "source": "position-snapshot-replay",
+                        "symbol": "DDDTUSDT",
+                        "rank": 1,
+                        "daily_open_price": "100",
+                        "latest_price": "110",
+                        "daily_change_pct": "0.10",
+                        "previous_hour_low": "99",
+                        "current_hour_low": "100",
+                        "leader_gap_pct": "0.02",
+                        "payload": {"symbol": "DDDTUSDT"},
+                    },
+                    {
+                        "timestamp": _utc(2026, 5, 1, 3, 5),
+                        "source": "position-snapshot-replay",
+                        "symbol": "DDDTUSDT",
+                        "rank": 1,
+                        "daily_open_price": "100",
+                        "latest_price": "120",
+                        "daily_change_pct": "0.20",
+                        "previous_hour_low": "99",
+                        "current_hour_low": "101",
+                        "leader_gap_pct": "0.01",
+                        "payload": {"symbol": "DDDTUSDT"},
+                    },
+                ],
+            )
+            insert_signal_decision(
+                path=runtime_db_path,
+                timestamp=_utc(2026, 5, 1, 3, 2),
+                source="poll",
+                decision_id="dec-2",
+                decision_type="base_entry",
+                symbol="DDDTUSDT",
+                payload={},
+            )
+            insert_trade_round_trip(
+                path=runtime_db_path,
+                round_trip_id="rt-preexisting",
+                symbol="DDDTUSDT",
+                opened_at=_utc(2026, 5, 1, 2, 55),
+                closed_at=_utc(2026, 5, 1, 3, 7),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="0.10",
+                total_exit_quantity="0.10",
+                weighted_avg_entry_price="100",
+                weighted_avg_exit_price="120",
+                realized_pnl="20",
+                commission="1",
+                net_pnl="19",
+                exit_reason="take_profit",
+                duration_seconds=720,
+                payload={"round_trip_id": "rt-preexisting"},
+            )
+
+            report = build_leader_opportunity_diagnostics(
+                runtime_db_path=runtime_db_path,
+                leader_candidates_db_path=leader_candidates_db_path,
+                start_time=_utc(2026, 5, 1, 3, 0),
+                end_time=_utc(2026, 5, 1, 3, 10),
+            )
+
+        self.assertNotEqual(report.rows[0]["trade_status"], "matched_closed_round_trip")
+        self.assertEqual(report.rows[0]["matched_round_trip_id"], "")
+
     def test_write_opportunity_diagnostics_csv_writes_header_and_rows(self) -> None:
         from momentum_alpha.leader_opportunity_diagnostics import write_opportunity_diagnostics_csv
 

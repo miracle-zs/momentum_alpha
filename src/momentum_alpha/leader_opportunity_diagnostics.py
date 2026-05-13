@@ -553,7 +553,9 @@ def _choose_matching_trade_round_trip(
     matching = [
         trip
         for trip in trade_round_trips
-        if trip.symbol == symbol and _overlaps(left_start=trip.opened_at, left_end=trip.closed_at, right_start=run_start, right_end=run_end)
+        if trip.symbol == symbol
+        and trip.opened_at >= run_start
+        and _overlaps(left_start=trip.opened_at, left_end=trip.closed_at, right_start=run_start, right_end=run_end)
     ]
     if not matching:
         return None

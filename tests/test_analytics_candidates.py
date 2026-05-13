@@ -211,7 +211,7 @@ class AnalyticsCandidateTests(unittest.TestCase):
                 path=runtime_db_path,
                 timestamp=timestamp,
                 source="poll",
-                leader_symbol="AAAUSDT",
+                leader_symbol=None,
                 position_count=0,
                 order_status_count=0,
                 payload={
@@ -238,6 +238,55 @@ class AnalyticsCandidateTests(unittest.TestCase):
         self.assertEqual(inserted, 1)
         self.assertEqual([row["symbol"] for row in rows], ["AAAUSDT"])
         self.assertEqual(rows[0]["rank"], 2)
+
+    def test_replay_position_snapshot_candidates_uses_leader_symbol_when_candidate_symbol_missing(self) -> None:
+        from momentum_alpha.analytics_reads_candidates import fetch_leader_candidate_snapshots_for_window
+        from momentum_alpha.cli_backfill_candidates import replay_position_snapshot_candidates
+        from momentum_alpha.runtime_store import insert_position_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            analytics_db_path = Path(tmpdir) / "leader_candidates.db"
+            timestamp = datetime(2026, 5, 1, 1, 5, tzinfo=timezone.utc)
+            insert_position_snapshot(
+                path=runtime_db_path,
+                timestamp=timestamp,
+                source="poll",
+                leader_symbol="AAAUSDT",
+                position_count=0,
+                order_status_count=0,
+                payload={
+                    "market_context": {
+                        "leader_symbol": "AAAUSDT",
+                        "leader_gap_pct": "0.03",
+                        "candidates": [
+                            {
+                                "latest_price": "112",
+                                "daily_open_price": "100",
+                                "daily_change_pct": "0.12",
+                                "previous_hour_low": "105",
+                                "current_hour_low": "108",
+                                "leader_gap_pct": "0.03",
+                            }
+                        ],
+                    }
+                },
+            )
+
+            inserted = replay_position_snapshot_candidates(
+                runtime_db_path=runtime_db_path,
+                leader_candidates_db_path=analytics_db_path,
+                logger=lambda message: None,
+            )
+            rows = fetch_leader_candidate_snapshots_for_window(
+                path=analytics_db_path,
+                window_start=datetime(2026, 5, 1, 1, 0, tzinfo=timezone.utc),
+                window_end=datetime(2026, 5, 1, 1, 10, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(inserted, 1)
+        self.assertEqual([row["symbol"] for row in rows], ["AAAUSDT"])
+        self.assertEqual(rows[0]["rank"], 1)
 
     def test_backfill_leader_candidates_from_klines_ranks_top_n(self) -> None:
         from momentum_alpha.analytics_reads_candidates import fetch_leader_candidate_snapshots_for_window
