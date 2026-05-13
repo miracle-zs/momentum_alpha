@@ -10,6 +10,7 @@ from momentum_alpha.cli import (
     backfill_account_flows,
     backfill_binance_user_trades,
     cli_main,
+    diagnose_opportunities,
     load_credentials_from_env,
     load_runtime_settings_from_env,
     resolve_runtime_db_path,

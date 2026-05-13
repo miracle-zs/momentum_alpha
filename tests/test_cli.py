@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 
@@ -15,6 +16,7 @@ class CliTests(unittest.TestCase):
     def test_cli_module_exports_environment_and_entrypoint_helpers(self) -> None:
         from momentum_alpha import cli
         from momentum_alpha import cli_backfill, cli_backfill_candidates, cli_commands, cli_env, cli_parser
+        from momentum_alpha import leader_opportunity_diagnostics
 
         self.assertTrue(callable(cli.cli_main))
         self.assertTrue(callable(cli.resolve_runtime_db_path))
@@ -25,8 +27,21 @@ class CliTests(unittest.TestCase):
         self.assertTrue(callable(cli_backfill.backfill_account_flows))
         self.assertTrue(callable(cli_backfill_candidates.backfill_leader_candidates))
         self.assertTrue(callable(cli.backfill_leader_candidates))
+        self.assertTrue(callable(cli.diagnose_opportunities))
+        self.assertTrue(callable(leader_opportunity_diagnostics.diagnose_opportunities))
         self.assertTrue(callable(cli_parser.build_cli_parser))
         self.assertTrue(callable(cli_commands.run_cli_command))
+
+    def test_cli_parser_supports_diagnose_opportunities_defaults(self) -> None:
+        from momentum_alpha.cli_parser import build_cli_parser
+
+        args = build_cli_parser().parse_args(
+            ["diagnose-opportunities", "--runtime-db-file", "/tmp/runtime.db"]
+        )
+
+        self.assertEqual(args.command, "diagnose-opportunities")
+        self.assertEqual(args.output_file, "./local_analytics/opportunity_diagnostics.csv")
+        self.assertEqual(args.min_peak_change_pct, Decimal("0"))
 
 
 if __name__ == "__main__":

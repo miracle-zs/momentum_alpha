@@ -27,6 +27,7 @@ class MainTests(unittest.TestCase):
         self.assertTrue(callable(main.run_once_live))
         self.assertTrue(callable(main.run_forever))
         self.assertTrue(callable(main.run_user_stream))
+        self.assertTrue(callable(main.diagnose_opportunities))
 
     def test_build_runtime_from_snapshot_dicts(self) -> None:
         from momentum_alpha.main import build_runtime_from_snapshots
@@ -2159,6 +2160,57 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[1][1]["top_n"], 20)
         self.assertEqual(calls[1][1]["client"].__class__.__name__, "FakeClient")
         self.assertFalse(calls[1][1]["replay_position_snapshots"])
+
+    def test_cli_main_supports_diagnose_opportunities_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeReport:
+            rows = [{"run_id": "1", "symbol": "AAAUSDT"}]
+            warnings = []
+
+            def summary_lines(self) -> list[str]:
+                return ["total_leader_runs=1", "captured_runs=1"]
+
+        def fake_client_factory(*, testnet):
+            raise AssertionError("client_factory should not be used for diagnostics")
+
+        def fake_diagnose_opportunities(**kwargs):
+            calls.append(kwargs)
+            return FakeReport()
+
+        exit_code = cli_main(
+            argv=[
+                "diagnose-opportunities",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
+                "--leader-candidates-db-file",
+                "/tmp/leader_candidates.db",
+                "--output-file",
+                "/tmp/opportunity_diagnostics.csv",
+                "--start-time",
+                "2026-05-01T00:00:00+00:00",
+                "--end-time",
+                "2026-05-02T00:00:00+00:00",
+                "--symbols",
+                "AAAUSDT",
+                "BBBUSDT",
+                "--min-peak-change-pct",
+                "0.05",
+            ],
+            client_factory=fake_client_factory,
+            diagnose_opportunities_fn=fake_diagnose_opportunities,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["runtime_db_path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[0]["leader_candidates_db_path"], Path("/tmp/leader_candidates.db"))
+        self.assertEqual(calls[0]["output_file"], Path("/tmp/opportunity_diagnostics.csv"))
+        self.assertEqual(calls[0]["symbols"], ["AAAUSDT", "BBBUSDT"])
+        self.assertEqual(calls[0]["min_peak_change_pct"], Decimal("0.05"))
+        self.assertEqual(calls[0]["start_time"].isoformat(), "2026-05-01T00:00:00+00:00")
+        self.assertEqual(calls[0]["end_time"].isoformat(), "2026-05-02T00:00:00+00:00")
 
     def test_cli_main_supports_rebuild_trade_analytics_command(self) -> None:
         from momentum_alpha.main import cli_main

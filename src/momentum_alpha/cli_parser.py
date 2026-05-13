@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -76,6 +77,25 @@ def build_cli_parser() -> argparse.ArgumentParser:
     backfill_leader_candidates_parser.add_argument("--top-n", type=int, default=50)
     backfill_leader_candidates_parser.add_argument("--testnet", action="store_true")
     backfill_leader_candidates_parser.add_argument("--replay-position-snapshots", action="store_true")
+
+    diagnose_opportunities_parser = subparsers.add_parser("diagnose-opportunities")
+    diagnose_opportunities_parser.add_argument("--runtime-db-file", required=True)
+    diagnose_opportunities_parser.add_argument(
+        "--leader-candidates-db-file",
+        default="./local_analytics/leader_candidates.db",
+    )
+    diagnose_opportunities_parser.add_argument(
+        "--output-file",
+        default="./local_analytics/opportunity_diagnostics.csv",
+    )
+    diagnose_opportunities_parser.add_argument("--start-time")
+    diagnose_opportunities_parser.add_argument("--end-time")
+    diagnose_opportunities_parser.add_argument("--symbols", nargs="+")
+    diagnose_opportunities_parser.add_argument(
+        "--min-peak-change-pct",
+        type=Decimal,
+        default=Decimal("0"),
+    )
 
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)

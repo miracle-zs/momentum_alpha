@@ -22,6 +22,7 @@ def run_cli_command(
     backfill_account_flows_fn,
     backfill_binance_user_trades_fn,
     backfill_leader_candidates_fn,
+    diagnose_opportunities_fn,
     rebuild_trade_analytics_fn,
     prune_runtime_db_fn,
 ) -> int:
@@ -37,6 +38,7 @@ def run_cli_command(
         "backfill_account_flows_fn": backfill_account_flows_fn,
         "backfill_binance_user_trades_fn": backfill_binance_user_trades_fn,
         "backfill_leader_candidates_fn": backfill_leader_candidates_fn,
+        "diagnose_opportunities_fn": diagnose_opportunities_fn,
         "rebuild_trade_analytics_fn": rebuild_trade_analytics_fn,
         "prune_runtime_db_fn": prune_runtime_db_fn,
         "build_runtime_health_report_fn": build_runtime_health_report,

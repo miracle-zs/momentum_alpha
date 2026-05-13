@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from momentum_alpha.dashboard import run_dashboard_server
+from momentum_alpha.leader_opportunity_diagnostics import diagnose_opportunities
 from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analytics
 
 from .cli_backfill import backfill_account_flows
@@ -111,6 +112,31 @@ def backfill_leader_candidates_command(
     return 0
 
 
+def diagnose_opportunities_command(
+    *,
+    parser,
+    args,
+    client_factory,
+    diagnose_opportunities_fn=diagnose_opportunities,
+) -> int:
+    runtime_db_path = _require_runtime_db_path(
+        parser=parser,
+        command=args.command,
+        explicit_path=args.runtime_db_file,
+    )
+    report = diagnose_opportunities_fn(
+        runtime_db_path=runtime_db_path,
+        leader_candidates_db_path=Path(os.path.abspath(args.leader_candidates_db_file)),
+        output_file=Path(os.path.abspath(args.output_file)),
+        start_time=_parse_cli_datetime(args.start_time) if args.start_time else None,
+        end_time=_parse_cli_datetime(args.end_time) if args.end_time else None,
+        symbols=args.symbols,
+        min_peak_change_pct=args.min_peak_change_pct,
+        logger=print,
+    )
+    return 0 if report.rows else 1
+
+
 def rebuild_trade_analytics_command(
     *,
     parser,
@@ -182,6 +208,7 @@ def run_ops_commands(
     backfill_account_flows_fn=backfill_account_flows,
     backfill_binance_user_trades_fn=backfill_binance_user_trades,
     backfill_leader_candidates_fn=backfill_leader_candidates,
+    diagnose_opportunities_fn=diagnose_opportunities,
     rebuild_trade_analytics_fn=rebuild_trade_analytics,
     prune_runtime_db_fn=prune_runtime_db,
     **_unused,
@@ -207,6 +234,13 @@ def run_ops_commands(
             args=args,
             client_factory=client_factory,
             backfill_leader_candidates_fn=backfill_leader_candidates_fn,
+        )
+    if args.command == "diagnose-opportunities":
+        return diagnose_opportunities_command(
+            parser=parser,
+            args=args,
+            client_factory=client_factory,
+            diagnose_opportunities_fn=diagnose_opportunities_fn,
         )
     if args.command == "rebuild-trade-analytics":
         return rebuild_trade_analytics_command(
