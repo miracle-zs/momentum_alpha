@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
 var/
+local_analytics/
 .DS_Store
 .worktrees/

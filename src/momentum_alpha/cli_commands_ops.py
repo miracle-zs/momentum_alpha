@@ -8,6 +8,7 @@ from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analyti
 
 from .cli_backfill import backfill_account_flows
 from .cli_backfill import backfill_binance_user_trades
+from .cli_backfill_candidates import backfill_leader_candidates
 from .cli_env import (
     _build_client_from_factory,
     _parse_cli_datetime,
@@ -63,6 +64,50 @@ def backfill_binance_trades_command(
     if not args.skip_rebuild:
         rebuild_trade_analytics_fn(path=runtime_db_path)
         print("trade-analytics-rebuilt")
+    return 0
+
+
+def backfill_leader_candidates_command(
+    *,
+    parser,
+    args,
+    client_factory,
+    backfill_leader_candidates_fn=backfill_leader_candidates,
+) -> int:
+    runtime_settings = load_runtime_settings_from_env()
+    use_testnet = args.testnet or runtime_settings["use_testnet"]
+    leader_candidates_db_path = Path(os.path.abspath(args.leader_candidates_db_file))
+    if args.replay_position_snapshots:
+        runtime_db_path = _require_runtime_db_path(
+            parser=parser,
+            command=args.command,
+            explicit_path=args.runtime_db_file,
+        )
+        inserted = backfill_leader_candidates_fn(
+            runtime_db_path=runtime_db_path,
+            leader_candidates_db_path=leader_candidates_db_path,
+            replay_position_snapshots=True,
+            logger=print,
+        )
+    else:
+        client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
+        if args.start_time is None or args.end_time is None:
+            parser.error("backfill-leader-candidates requires --start-time and --end-time unless --replay-position-snapshots is set")
+        inserted = backfill_leader_candidates_fn(
+            runtime_db_path=(
+                Path(os.path.abspath(args.runtime_db_file)) if args.runtime_db_file else None
+            ),
+            leader_candidates_db_path=leader_candidates_db_path,
+            replay_position_snapshots=False,
+            client=client,
+            start_time=_parse_cli_datetime(args.start_time),
+            end_time=_parse_cli_datetime(args.end_time),
+            symbols=args.symbols,
+            interval=args.interval,
+            top_n=args.top_n,
+            logger=print,
+        )
+    print(f"backfilled_leader_candidates={inserted}")
     return 0
 
 
@@ -136,6 +181,7 @@ def run_ops_commands(
     run_dashboard_fn=run_dashboard_server,
     backfill_account_flows_fn=backfill_account_flows,
     backfill_binance_user_trades_fn=backfill_binance_user_trades,
+    backfill_leader_candidates_fn=backfill_leader_candidates,
     rebuild_trade_analytics_fn=rebuild_trade_analytics,
     prune_runtime_db_fn=prune_runtime_db,
     **_unused,
@@ -154,6 +200,13 @@ def run_ops_commands(
             client_factory=client_factory,
             backfill_binance_user_trades_fn=backfill_binance_user_trades_fn,
             rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
+        )
+    if args.command == "backfill-leader-candidates":
+        return backfill_leader_candidates_command(
+            parser=parser,
+            args=args,
+            client_factory=client_factory,
+            backfill_leader_candidates_fn=backfill_leader_candidates_fn,
         )
     if args.command == "rebuild-trade-analytics":
         return rebuild_trade_analytics_command(

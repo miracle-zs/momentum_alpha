@@ -63,6 +63,20 @@ def build_cli_parser() -> argparse.ArgumentParser:
     backfill_binance_trades_parser.add_argument("--testnet", action="store_true")
     backfill_binance_trades_parser.add_argument("--skip-rebuild", action="store_true")
 
+    backfill_leader_candidates_parser = subparsers.add_parser("backfill-leader-candidates")
+    backfill_leader_candidates_parser.add_argument("--runtime-db-file")
+    backfill_leader_candidates_parser.add_argument(
+        "--leader-candidates-db-file",
+        default="./local_analytics/leader_candidates.db",
+    )
+    backfill_leader_candidates_parser.add_argument("--start-time")
+    backfill_leader_candidates_parser.add_argument("--end-time")
+    backfill_leader_candidates_parser.add_argument("--symbols", nargs="+")
+    backfill_leader_candidates_parser.add_argument("--interval", default="5m")
+    backfill_leader_candidates_parser.add_argument("--top-n", type=int, default=50)
+    backfill_leader_candidates_parser.add_argument("--testnet", action="store_true")
+    backfill_leader_candidates_parser.add_argument("--replay-position-snapshots", action="store_true")
+
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)
 

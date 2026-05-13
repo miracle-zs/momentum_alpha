@@ -2079,6 +2079,87 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[2][0], "rebuild")
         self.assertEqual(calls[2][1]["path"], Path("/tmp/runtime.db"))
 
+    def test_cli_main_supports_backfill_leader_candidates_replay_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        def fake_client_factory(*, testnet):
+            calls.append(("client", testnet))
+            raise AssertionError("client_factory should not be used in replay mode")
+
+        def fake_backfill_leader_candidates(**kwargs):
+            calls.append(("backfill", kwargs))
+            return 9
+
+        exit_code = cli_main(
+            argv=[
+                "backfill-leader-candidates",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
+                "--replay-position-snapshots",
+            ],
+            client_factory=fake_client_factory,
+            backfill_leader_candidates_fn=fake_backfill_leader_candidates,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "backfill")
+        self.assertEqual(calls[0][1]["runtime_db_path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[0][1]["leader_candidates_db_path"], Path("local_analytics/leader_candidates.db").resolve())
+        self.assertTrue(calls[0][1]["replay_position_snapshots"])
+        self.assertNotIn("client", calls[0][1])
+
+    def test_cli_main_supports_backfill_leader_candidates_kline_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeClient:
+            pass
+
+        def fake_client_factory(*, testnet):
+            calls.append(("client", testnet))
+            return FakeClient()
+
+        def fake_backfill_leader_candidates(**kwargs):
+            calls.append(("backfill", kwargs))
+            return 11
+
+        exit_code = cli_main(
+            argv=[
+                "backfill-leader-candidates",
+                "--leader-candidates-db-file",
+                "/tmp/leader-candidates.db",
+                "--start-time",
+                "2026-04-24T00:30:00+08:00",
+                "--end-time",
+                "2026-04-25T08:30:00+08:00",
+                "--symbols",
+                "BTCUSDT",
+                "ETHUSDT",
+                "--interval",
+                "1m",
+                "--top-n",
+                "20",
+            ],
+            client_factory=fake_client_factory,
+            backfill_leader_candidates_fn=fake_backfill_leader_candidates,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0], ("client", False))
+        self.assertEqual(calls[1][0], "backfill")
+        self.assertEqual(calls[1][1]["leader_candidates_db_path"], Path("/tmp/leader-candidates.db"))
+        self.assertEqual(calls[1][1]["start_time"].isoformat(), "2026-04-24T00:30:00+08:00")
+        self.assertEqual(calls[1][1]["end_time"].isoformat(), "2026-04-25T08:30:00+08:00")
+        self.assertEqual(calls[1][1]["symbols"], ["BTCUSDT", "ETHUSDT"])
+        self.assertEqual(calls[1][1]["interval"], "1m")
+        self.assertEqual(calls[1][1]["top_n"], 20)
+        self.assertEqual(calls[1][1]["client"].__class__.__name__, "FakeClient")
+        self.assertFalse(calls[1][1]["replay_position_snapshots"])
+
     def test_cli_main_supports_rebuild_trade_analytics_command(self) -> None:
         from momentum_alpha.main import cli_main
 

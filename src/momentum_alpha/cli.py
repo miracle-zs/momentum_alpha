@@ -12,6 +12,7 @@ from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analyti
 from momentum_alpha.stream_worker import run_user_stream
 
 from .cli_backfill import _account_flow_exists, backfill_account_flows, backfill_binance_user_trades
+from .cli_backfill_candidates import backfill_leader_candidates
 from .cli_commands import run_cli_command
 from .cli_env import (
     _build_audit_recorder,
@@ -37,6 +38,7 @@ def cli_main(
     run_dashboard_fn=None,
     backfill_account_flows_fn=None,
     backfill_binance_user_trades_fn=None,
+    backfill_leader_candidates_fn=None,
     rebuild_trade_analytics_fn=None,
     prune_runtime_db_fn=None,
 ) -> int:
@@ -60,6 +62,7 @@ def cli_main(
     run_user_stream_fn = run_user_stream_fn or run_user_stream
     backfill_account_flows_fn = backfill_account_flows_fn or backfill_account_flows
     backfill_binance_user_trades_fn = backfill_binance_user_trades_fn or backfill_binance_user_trades
+    backfill_leader_candidates_fn = backfill_leader_candidates_fn or backfill_leader_candidates
     rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
     prune_runtime_db_fn = prune_runtime_db_fn or prune_runtime_db
 
@@ -76,6 +79,7 @@ def cli_main(
         run_dashboard_fn=run_dashboard_fn,
         backfill_account_flows_fn=backfill_account_flows_fn,
         backfill_binance_user_trades_fn=backfill_binance_user_trades_fn,
+        backfill_leader_candidates_fn=backfill_leader_candidates_fn,
         rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
         prune_runtime_db_fn=prune_runtime_db_fn,
     )
@@ -94,5 +98,6 @@ __all__ = [
     "_account_flow_exists",
     "backfill_account_flows",
     "backfill_binance_user_trades",
+    "backfill_leader_candidates",
     "build_cli_parser",
 ]
