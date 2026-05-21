@@ -218,12 +218,17 @@ def _build_daily_review_row(
 
     counterfactual_net_pnl = actual_net_pnl
     replayed_add_on_count = 0
+    replayed_hour_keys: set[tuple[str, datetime]] = set()
     for signal in skipped_add_on_signals:
         if str(signal.get("symbol")) != symbol:
             continue
         signal_timestamp = _parse_datetime(signal["timestamp"])
         if signal_timestamp < opened_at or signal_timestamp > closed_at:
             continue
+        replay_hour_key = (symbol, _hour_bucket(signal_timestamp))
+        if replay_hour_key in replayed_hour_keys:
+            continue
+        replayed_hour_keys.add(replay_hour_key)
         payload = signal.get("payload") or {}
         replay_inputs = _extract_replay_inputs(payload=payload, symbol=symbol, signal_timestamp=signal_timestamp)
         if replay_inputs is None:
@@ -365,6 +370,10 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _hour_bucket(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
 
 
 def _parse_decimal(value: object) -> Decimal:

@@ -99,6 +99,69 @@ class DailyReviewTests(unittest.TestCase):
         self.assertGreater(Decimal(report.counterfactual_total_pnl), Decimal(report.actual_total_pnl))
         self.assertEqual(report.replayed_add_on_count, 1)
 
+    def test_build_daily_review_report_deduplicates_repeated_skipped_add_on_signals_per_hour(self) -> None:
+        from momentum_alpha.daily_review import build_daily_review_report
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision, insert_trade_round_trip
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="BTCUSDT:1",
+                symbol="BTCUSDT",
+                opened_at=datetime(2026, 4, 20, 2, 0, tzinfo=timezone.utc),
+                closed_at=datetime(2026, 4, 20, 5, 30, tzinfo=timezone.utc),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                total_entry_quantity="1",
+                total_exit_quantity="1",
+                weighted_avg_entry_price="100",
+                weighted_avg_exit_price="120",
+                realized_pnl="20.00",
+                commission="0.00",
+                net_pnl="20.00",
+                exit_reason="take_profit",
+                duration_seconds=3 * 3600,
+                payload={"legs": [{"leg_type": "base"}]},
+            )
+            for timestamp, latest_price in (
+                (datetime(2026, 4, 20, 3, 0, tzinfo=timezone.utc), "105"),
+                (datetime(2026, 4, 20, 3, 1, tzinfo=timezone.utc), "106"),
+                (datetime(2026, 4, 20, 4, 0, tzinfo=timezone.utc), "110"),
+            ):
+                insert_signal_decision(
+                    path=db_path,
+                    timestamp=timestamp,
+                    source="poll",
+                    decision_type="add_on_skipped",
+                    symbol="BTCUSDT",
+                    previous_leader_symbol="ETHUSDT",
+                    next_leader_symbol="ETHUSDT",
+                    position_count=1,
+                    order_status_count=0,
+                    broker_response_count=0,
+                    stop_replacement_count=0,
+                    payload={
+                        "latest_price": latest_price,
+                        "stop_price": "100",
+                        "step_size": "0.001",
+                        "min_qty": "0.001",
+                        "tick_size": "0.1",
+                    },
+                )
+
+            report = build_daily_review_report(
+                path=db_path,
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                stop_budget_usdt=Decimal("10"),
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+            )
+
+        self.assertEqual(report.replayed_add_on_count, 2)
+        self.assertEqual(report.rows[0].replayed_add_on_count, 2)
+
     def test_build_daily_review_report_includes_account_reconciliation(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report
         from momentum_alpha.runtime_store import (
