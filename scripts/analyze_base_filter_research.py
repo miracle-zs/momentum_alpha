@@ -247,6 +247,7 @@ def compute_features(
     *,
     windows: tuple[int, ...] = (5, 15, 30, 60),
     day_start_minute: int | None = None,
+    signal_minute: int | None = None,
 ) -> dict[str, float | str]:
     features: dict[str, float | str] = {}
     if not candles:
@@ -436,6 +437,91 @@ def compute_features(
         ) - float(features["return_30m_pct"]) / 6
     else:
         features["return_acceleration_5_30"] = ""
+
+    def period_sum(
+        field: str,
+        start_minute: int,
+        end_minute: int,
+    ) -> float | None:
+        period = [
+            candle
+            for candle in candles
+            if start_minute <= candle["open_minute"] < end_minute
+        ]
+        if len(period) != end_minute - start_minute:
+            return None
+        return sum(float(candle[field]) for candle in period)
+
+    if len(candles) >= 180:
+        rolling = [
+            sum(float(candle[field]) for candle in candles[start:end])
+            for field in ("quote_volume", "trades")
+            for start, end in (
+                (-60, len(candles)),
+                (-120, -60),
+                (-180, -120),
+            )
+        ]
+        for field_index, prefix in ((0, "quote_volume"), (3, "trade_count")):
+            latest, previous, two_back = rolling[
+                field_index : field_index + 3
+            ]
+            previous_average = (previous + two_back) / 2
+            features[f"{prefix}_ratio_60m_prev_2h_avg"] = (
+                latest / previous_average if previous_average > 0 else ""
+            )
+            features[f"{prefix}_above_both_prev_hours"] = float(
+                latest > previous and latest > two_back
+            )
+            features[f"{prefix}_three_hour_rising"] = float(
+                latest > previous > two_back
+            )
+    else:
+        for prefix in ("quote_volume", "trade_count"):
+            features[f"{prefix}_ratio_60m_prev_2h_avg"] = ""
+            features[f"{prefix}_above_both_prev_hours"] = ""
+            features[f"{prefix}_three_hour_rising"] = ""
+
+    effective_signal_minute = (
+        signal_minute
+        if signal_minute is not None
+        else candles[-1]["open_minute"] + 1
+    )
+    current_hour_start = (effective_signal_minute // 60) * 60
+    for field, prefix in (
+        ("quote_volume", "completed_hour_volume"),
+        ("trades", "completed_hour_trade_count"),
+    ):
+        latest = period_sum(
+            field,
+            current_hour_start - 60,
+            current_hour_start,
+        )
+        previous = period_sum(
+            field,
+            current_hour_start - 120,
+            current_hour_start - 60,
+        )
+        two_back = period_sum(
+            field,
+            current_hour_start - 180,
+            current_hour_start - 120,
+        )
+        if latest is None or previous is None or two_back is None:
+            features[f"{prefix}_ratio_prev_2h_avg"] = ""
+            features[f"{prefix}_above_both_prev_hours"] = ""
+            features[f"{prefix}_three_hour_rising"] = ""
+            continue
+        previous_average = (previous + two_back) / 2
+        features[f"{prefix}_ratio_prev_2h_avg"] = (
+            latest / previous_average if previous_average > 0 else ""
+        )
+        features[f"{prefix}_above_both_prev_hours"] = float(
+            latest > previous and latest > two_back
+        )
+        features[f"{prefix}_three_hour_rising"] = float(
+            latest > previous > two_back
+        )
     return features
 
 
@@ -585,6 +671,7 @@ def build_feature_rows(
             candles,
             trade,
             day_start_minute=int(day_start.timestamp() // 60),
+            signal_minute=int(trade["signal_time"].timestamp() // 60),
         )
         base_pnl = float(trade["base_leg"]["net_pnl_contribution"])
         add_on_legs = [
@@ -645,10 +732,52 @@ def condition_grid() -> list[Condition]:
         "participation": [
             ("quote_volume_ratio_15m", "<=", (0.5, 0.75, 1.0)),
             ("quote_volume_ratio_30m", "<=", (0.5, 0.75, 1.0)),
+            ("quote_volume_ratio_60m", "<=", (0.5, 0.75, 1.0, 1.25)),
+            (
+                "quote_volume_ratio_60m_prev_2h_avg",
+                "<=",
+                (0.5, 0.75, 1.0, 1.25),
+            ),
+            ("quote_volume_above_both_prev_hours", "<=", (0.0,)),
+            ("quote_volume_three_hour_rising", "<=", (0.0,)),
+            (
+                "completed_hour_volume_ratio_prev_2h_avg",
+                "<=",
+                (0.5, 0.75, 1.0, 1.25),
+            ),
+            (
+                "completed_hour_volume_above_both_prev_hours",
+                "<=",
+                (0.0,),
+            ),
+            ("completed_hour_volume_three_hour_rising", "<=", (0.0,)),
             ("trade_count_ratio_15m", "<=", (0.5, 0.75, 1.0)),
             ("trade_count_ratio_30m", "<=", (0.5, 0.75, 1.0)),
+            ("trade_count_ratio_60m", "<=", (0.5, 0.75, 1.0, 1.25)),
+            (
+                "trade_count_ratio_60m_prev_2h_avg",
+                "<=",
+                (0.5, 0.75, 1.0, 1.25),
+            ),
+            ("trade_count_above_both_prev_hours", "<=", (0.0,)),
+            ("trade_count_three_hour_rising", "<=", (0.0,)),
+            (
+                "completed_hour_trade_count_ratio_prev_2h_avg",
+                "<=",
+                (0.5, 0.75, 1.0, 1.25),
+            ),
+            (
+                "completed_hour_trade_count_above_both_prev_hours",
+                "<=",
+                (0.0,),
+            ),
+            ("completed_hour_trade_count_three_hour_rising", "<=", (0.0,)),
             ("taker_buy_share_5m", "<=", (0.4, 0.45, 0.5)),
             ("taker_buy_share_15m", "<=", (0.4, 0.45, 0.5)),
+        ],
+        "overheat": [
+            ("return_60m_pct", ">=", (3.0, 5.0, 10.0)),
+            ("return_30m_pct", ">=", (2.0, 3.0, 5.0)),
         ],
         "volatility": [
             ("stop_distance_pct", ">=", (3.0, 4.0, 5.0, 6.0)),
@@ -887,6 +1016,44 @@ def select_recommendations(passing: list[dict]) -> tuple[dict | None, dict | Non
     return preferred, fallback
 
 
+HOURLY_FOCUS_CONDITIONS = (
+    (
+        "rolling_hour_not_above_previous_two_hour_average",
+        "quote_volume_ratio_60m_prev_2h_avg<=1",
+    ),
+    (
+        "rolling_hour_not_above_both_previous_hours",
+        "quote_volume_above_both_prev_hours<=0",
+    ),
+    (
+        "completed_hour_not_above_previous_two_hour_average",
+        "completed_hour_volume_ratio_prev_2h_avg<=1",
+    ),
+    (
+        "rolling_hour_extreme_volume_collapse",
+        "quote_volume_ratio_60m_prev_2h_avg<=0.5",
+    ),
+    (
+        "completed_hour_extreme_trade_count_collapse",
+        "completed_hour_trade_count_ratio_prev_2h_avg<=0.5",
+    ),
+    (
+        "price_up_participation_down",
+        "trade_count_ratio_30m<=0.75 AND return_60m_pct>=3",
+    ),
+)
+
+
+def focus_candidate_rows(results: list[dict]) -> list[dict]:
+    by_conditions = {row["conditions"]: row for row in results}
+    focused = []
+    for name, conditions in HOURLY_FOCUS_CONDITIONS:
+        row = by_conditions.get(conditions)
+        if row is not None:
+            focused.append({"focus_name": name, **row})
+    return focused
+
+
 def candidate_details(
     rows: list[dict],
     candidates: list[tuple[str, dict]],
@@ -933,6 +1100,7 @@ def write_report(
     passing: list[dict],
     preferred: dict | None,
     fallback: dict | None,
+    hourly_focus: list[dict],
 ) -> str:
     stable = [row for row in passing if row["stable"]]
     best_in_sample = max(
@@ -1035,6 +1203,49 @@ def write_report(
             f">=50 USDT retention falls to "
             f"{best_full_tail['relaxed_20_tail_50_retention_pct']:.2f}%. "
             "The original result depends on narrow historical boundaries.\n\n"
+        )
+
+    lines.extend(
+        [
+            "## Hourly volume and price-participation study\n\n",
+            "| interpretation | conditions | filtered | delta | tail50 | missed >=100 | recent | robust20 |\n",
+            "|---|---|---:|---:|---:|---:|---:|---|\n",
+        ]
+    )
+    for row in hourly_focus:
+        lines.append(
+            f"| {row['focus_name']} | {row['conditions']} | "
+            f"{row['filtered_count']} | {row['estimated_delta']:.2f} | "
+            f"{row['tail_50_retention_pct']:.2f}% | "
+            f"{row['tail_100_filtered_count']} | {row['recent_delta']:.2f} | "
+            f"{row['robust_full_tail_20pct']} |\n"
+        )
+    divergence = next(
+        (
+            row
+            for row in hourly_focus
+            if row["focus_name"] == "price_up_participation_down"
+        ),
+        None,
+    )
+    if divergence is not None:
+        lines.extend(
+            [
+                "\nThe strict hourly-volume requirement is rejected because "
+                "several historical long-tail trades began without hourly "
+                "volume exceeding both prior hours. The stronger alternative "
+                "is a divergence veto: filter only after price has already "
+                "risen at least 3% over 60 completed minutes while the latest "
+                "30-minute trade count is at most 75% of the preceding "
+                "30 minutes.\n\n",
+                f"This divergence veto filters {divergence['filtered_count']} "
+                f"trades ({divergence['filtered_losses']} losses and "
+                f"{divergence['filtered_winners']} winners), improves PnL by "
+                f"{divergence['estimated_delta']:.2f} USDT, retains "
+                f"{divergence['tail_50_retention_pct']:.2f}% of >=50 USDT "
+                f"PnL, and has {divergence['positive_weeks']}/"
+                f"{divergence['negative_weeks']} positive/negative weeks.\n\n",
+            ]
         )
 
     lines.extend(
@@ -1144,7 +1355,17 @@ def main() -> None:
         reverse=True,
     )
     write_csv(args.output_dir / "passing_candidates.csv", passing)
+    hourly_focus = focus_candidate_rows([*singles, *combined])
+    write_csv(args.output_dir / "hourly_volume_focus.csv", hourly_focus)
     preferred, fallback = select_recommendations(passing)
+    divergence = next(
+        (
+            row
+            for row in hourly_focus
+            if row["focus_name"] == "price_up_participation_down"
+        ),
+        None,
+    )
     details = candidate_details(
         rows,
         [
@@ -1152,6 +1373,7 @@ def main() -> None:
             for name, candidate in (
                 ("preferred", preferred),
                 ("fallback", fallback),
+                ("price_up_participation_down", divergence),
             )
             if candidate is not None
         ],
@@ -1165,6 +1387,7 @@ def main() -> None:
         passing=passing,
         preferred=preferred,
         fallback=fallback,
+        hourly_focus=hourly_focus,
     )
     print(report)
 

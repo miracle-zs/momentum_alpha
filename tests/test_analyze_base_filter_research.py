@@ -14,6 +14,7 @@ from analyze_base_filter_research import (  # noqa: E402
     compute_features,
     evaluate_condition,
     expand_veto_condition,
+    focus_candidate_rows,
     passes_tail_constraints,
     summarize_candidate,
 )
@@ -187,6 +188,77 @@ class FeatureTests(unittest.TestCase):
 
         self.assertAlmostEqual(features["distance_day_high_pct"], 1 / 105 * 100)
 
+    def test_computes_rolling_and_completed_hour_volume_structure(self) -> None:
+        candles = []
+        for index in range(240):
+            hour = index // 60
+            quote_volume = (100.0, 200.0, 300.0, 600.0)[hour]
+            candles.append(
+                {
+                    "open_minute": index,
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "quote_volume": quote_volume,
+                    "trades": int(quote_volume / 10),
+                    "taker_buy_quote": quote_volume / 2,
+                }
+            )
+
+        features = compute_features(
+            candles,
+            {"signal_price": 100, "signal_stop": 99},
+            windows=(60,),
+            signal_minute=240,
+        )
+
+        self.assertAlmostEqual(features["quote_volume_ratio_60m"], 2.0)
+        self.assertAlmostEqual(
+            features["quote_volume_ratio_60m_prev_2h_avg"],
+            2.4,
+        )
+        self.assertEqual(features["quote_volume_above_both_prev_hours"], 1.0)
+        self.assertEqual(features["quote_volume_three_hour_rising"], 1.0)
+        self.assertAlmostEqual(
+            features["completed_hour_volume_ratio_prev_2h_avg"],
+            2.4,
+        )
+        self.assertEqual(
+            features["completed_hour_volume_above_both_prev_hours"],
+            1.0,
+        )
+
+    def test_completed_hour_features_exclude_current_partial_clock_hour(self) -> None:
+        candles = []
+        for index in range(210):
+            hour = index // 60
+            quote_volume = (100.0, 200.0, 300.0, 10_000.0)[hour]
+            candles.append(
+                {
+                    "open_minute": index,
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "quote_volume": quote_volume,
+                    "trades": int(quote_volume / 10),
+                    "taker_buy_quote": quote_volume / 2,
+                }
+            )
+
+        features = compute_features(
+            candles,
+            {"signal_price": 100, "signal_stop": 99},
+            windows=(60,),
+            signal_minute=210,
+        )
+
+        self.assertAlmostEqual(
+            features["completed_hour_volume_ratio_prev_2h_avg"],
+            2.0,
+        )
+
 
 class CandidateTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -297,6 +369,26 @@ class CandidateTests(unittest.TestCase):
 
         self.assertAlmostEqual(low.threshold, 0.6)
         self.assertAlmostEqual(high.threshold, 2.4)
+
+    def test_selects_named_hourly_focus_candidates(self) -> None:
+        rows = [
+            {"conditions": "quote_volume_ratio_60m_prev_2h_avg<=1"},
+            {
+                "conditions": (
+                    "trade_count_ratio_30m<=0.75 AND return_60m_pct>=3"
+                )
+            },
+        ]
+
+        focused = focus_candidate_rows(rows)
+
+        self.assertEqual(
+            [row["focus_name"] for row in focused],
+            [
+                "rolling_hour_not_above_previous_two_hour_average",
+                "price_up_participation_down",
+            ],
+        )
 
 
 if __name__ == "__main__":
