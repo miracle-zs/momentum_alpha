@@ -149,3 +149,74 @@ class RuntimeTests(unittest.TestCase):
 
         self.assertIn("BTCUSDT", filled_state.positions)
         self.assertGreater(filled_state.positions["BTCUSDT"].total_quantity, Decimal("0"))
+
+    def test_runtime_resets_daily_base_state_on_utc_day_change(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.runtime import build_runtime, process_runtime_tick
+
+        runtime = build_runtime(
+            snapshots=[
+                {
+                    "symbol": "BTCUSDT",
+                    "daily_open_price": Decimal("60000"),
+                    "latest_price": Decimal("61200"),
+                    "previous_hour_low": Decimal("61000"),
+                    "tradable": True,
+                    "has_previous_hour_candle": True,
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "daily_open_price": Decimal("3000"),
+                    "latest_price": Decimal("3040"),
+                    "previous_hour_low": Decimal("3020"),
+                    "tradable": True,
+                    "has_previous_hour_candle": True,
+                },
+            ]
+        ).with_exchange_symbols(
+            {
+                "BTCUSDT": ExchangeSymbol(
+                    symbol="BTCUSDT",
+                    status="TRADING",
+                    filters=SymbolFilters(
+                        step_size=Decimal("0.001"),
+                        min_qty=Decimal("0.001"),
+                        tick_size=Decimal("0.10"),
+                    ),
+                    min_notional=Decimal("5"),
+                ),
+                "ETHUSDT": ExchangeSymbol(
+                    symbol="ETHUSDT",
+                    status="TRADING",
+                    filters=SymbolFilters(
+                        step_size=Decimal("0.001"),
+                        min_qty=Decimal("0.001"),
+                        tick_size=Decimal("0.01"),
+                    ),
+                    min_notional=Decimal("5"),
+                ),
+            }
+        )
+        state = StrategyState(
+            current_day=date(2026, 6, 11),
+            previous_leader_symbol="ETHUSDT",
+            daily_base_signal_times={
+                "BTCUSDT": datetime(2026, 6, 11, 4, 0, tzinfo=timezone.utc),
+            },
+            daily_base_signal_counts={"BTCUSDT": 2},
+        )
+
+        result = process_runtime_tick(
+            runtime=runtime,
+            state=state,
+            now=datetime(2026, 6, 12, 1, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result.next_state.current_day, date(2026, 6, 12))
+        self.assertEqual(
+            result.next_state.daily_base_signal_times,
+            {"BTCUSDT": datetime(2026, 6, 12, 1, 1, tzinfo=timezone.utc)},
+        )
+        self.assertEqual(result.next_state.daily_base_signal_counts, {"BTCUSDT": 1})

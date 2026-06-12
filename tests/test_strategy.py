@@ -12,6 +12,29 @@ if str(SRC) not in sys.path:
 
 
 class StrategyTests(unittest.TestCase):
+    @staticmethod
+    def _leader_change_market():
+        from momentum_alpha.models import MarketSnapshot
+
+        return {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("120"),
+                previous_hour_low=Decimal("110"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("115"),
+                previous_hour_low=Decimal("108"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
     def test_opens_base_entry_when_leader_changes_and_symbol_not_held(self) -> None:
         from momentum_alpha.models import MarketSnapshot, StrategyState
         from momentum_alpha.strategy import evaluate_minute_close
@@ -351,3 +374,86 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.base_entries[0].symbol, "SOLUSDT")
         self.assertEqual(result.add_on_entries, [])
         self.assertEqual(result.skipped_add_ons[0].symbol, "BTCUSDT")
+
+    def test_first_valid_base_signal_consumes_daily_opportunity(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="BTCUSDT",
+        )
+
+        result = evaluate_minute_close(
+            now=now,
+            state=state,
+            market=self._leader_change_market(),
+        )
+
+        self.assertEqual([item.symbol for item in result.base_entries], ["ETHUSDT"])
+        self.assertEqual(result.skipped_base_entries, [])
+        self.assertEqual(result.new_daily_base_signal_times, {"ETHUSDT": now})
+        self.assertEqual(result.new_daily_base_signal_counts, {"ETHUSDT": 1})
+
+    def test_second_valid_base_signal_is_filtered(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="BTCUSDT",
+            daily_base_signal_times={"ETHUSDT": first_at},
+            daily_base_signal_counts={"ETHUSDT": 1},
+        )
+
+        result = evaluate_minute_close(
+            now=now,
+            state=state,
+            market=self._leader_change_market(),
+        )
+
+        self.assertEqual(result.base_entries, [])
+        self.assertEqual(result.blocked_reason, "daily_repeat_base")
+        self.assertEqual(len(result.skipped_base_entries), 1)
+        skipped = result.skipped_base_entries[0]
+        self.assertEqual(skipped.symbol, "ETHUSDT")
+        self.assertEqual(skipped.base_signal_sequence, 2)
+        self.assertEqual(skipped.first_base_signal_at, first_at)
+        self.assertEqual(
+            skipped.shadow_opportunity_id,
+            "shadow_260612020500_ETHUSDT_02",
+        )
+        self.assertEqual(
+            result.new_daily_base_signal_times,
+            {"ETHUSDT": first_at},
+        )
+        self.assertEqual(result.new_daily_base_signal_counts, {"ETHUSDT": 2})
+
+    def test_invalid_base_signal_does_not_consume_daily_opportunity(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        market = self._leader_change_market()
+        market["ETHUSDT"] = MarketSnapshot(
+            symbol="ETHUSDT",
+            daily_open_price=Decimal("80"),
+            latest_price=Decimal("108"),
+            previous_hour_low=Decimal("110"),
+            current_hour_low=Decimal("109"),
+            tradable=True,
+            has_previous_hour_candle=True,
+        )
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="BTCUSDT",
+        )
+
+        result = evaluate_minute_close(now=now, state=state, market=market)
+
+        self.assertEqual(result.blocked_reason, "invalid_stop_price")
+        self.assertEqual(result.new_daily_base_signal_times, {})
+        self.assertEqual(result.new_daily_base_signal_counts, {})

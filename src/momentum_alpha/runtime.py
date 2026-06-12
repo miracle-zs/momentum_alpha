@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.config import StrategyConfig
@@ -57,7 +57,22 @@ def process_runtime_tick(
     position_side: str | None = None,
     last_add_on_hour: int | None = None,
 ) -> RuntimeTickResult:
-    decision = process_clock_tick(now=now, state=state, market=runtime.market, last_add_on_hour=last_add_on_hour)
+    utc_day = now.astimezone(timezone.utc).date()
+    normalized_state = state
+    if state.current_day != utc_day:
+        normalized_state = replace(
+            state,
+            current_day=utc_day,
+            daily_base_signal_times={},
+            daily_base_signal_counts={},
+        )
+
+    decision = process_clock_tick(
+        now=now,
+        state=normalized_state,
+        market=runtime.market,
+        last_add_on_hour=last_add_on_hour,
+    )
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,
         market=runtime.market,
@@ -66,7 +81,12 @@ def process_runtime_tick(
         now=now,
         position_side=position_side,
     )
-    next_state = replace(state, previous_leader_symbol=decision.new_previous_leader_symbol)
+    next_state = replace(
+        normalized_state,
+        previous_leader_symbol=decision.new_previous_leader_symbol,
+        daily_base_signal_times=decision.new_daily_base_signal_times,
+        daily_base_signal_counts=decision.new_daily_base_signal_counts,
+    )
     return RuntimeTickResult(
         decision=decision,
         execution_plan=execution_plan,

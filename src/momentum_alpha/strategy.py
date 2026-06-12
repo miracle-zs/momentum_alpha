@@ -9,9 +9,11 @@ from momentum_alpha.models import (
     MarketSnapshot,
     MinuteCloseDecision,
     SkippedAddOn,
+    SkippedBaseEntry,
     StrategyState,
     TickDecision,
 )
+from momentum_alpha.trace_ids import build_shadow_opportunity_id
 
 
 def _leader_symbol(market: dict[str, MarketSnapshot]) -> str | None:
@@ -38,11 +40,20 @@ def evaluate_minute_close(
     state: StrategyState,
     market: dict[str, MarketSnapshot],
 ) -> MinuteCloseDecision:
+    daily_base_signal_times = dict(state.daily_base_signal_times)
+    daily_base_signal_counts = dict(state.daily_base_signal_counts)
     leader = _leader_symbol(market)
     if leader is None:
-        return MinuteCloseDecision(base_entries=[], new_previous_leader_symbol=None, blocked_reason="no_tradable_leader")
+        return MinuteCloseDecision(
+            base_entries=[],
+            new_previous_leader_symbol=None,
+            blocked_reason="no_tradable_leader",
+            new_daily_base_signal_times=daily_base_signal_times,
+            new_daily_base_signal_counts=daily_base_signal_counts,
+        )
 
     entries: list[EntryIntent] = []
+    skipped_base_entries: list[SkippedBaseEntry] = []
     snapshot = market[leader]
     leader_changed = leader != state.previous_leader_symbol
     stop_price = _entry_stop_price(snapshot)
@@ -63,11 +74,39 @@ def evaluate_minute_close(
 
     can_enter = blocked_reason is None
     if can_enter:
-        entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
+        sequence = daily_base_signal_counts.get(leader, 0) + 1
+        daily_base_signal_counts[leader] = sequence
+        first_signal_at = daily_base_signal_times.get(leader)
+        if first_signal_at is None:
+            daily_base_signal_times[leader] = now
+            entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
+        else:
+            blocked_reason = "daily_repeat_base"
+            skipped_base_entries.append(
+                SkippedBaseEntry(
+                    symbol=leader,
+                    stop_price=stop_price,
+                    reason=blocked_reason,
+                    base_signal_sequence=sequence,
+                    first_base_signal_at=first_signal_at,
+                    shadow_opportunity_id=build_shadow_opportunity_id(
+                        symbol=leader,
+                        signal_at=now,
+                        sequence=sequence,
+                    ),
+                )
+            )
     else:
         blocked_reason = blocked_reason if leader_changed else None
 
-    return MinuteCloseDecision(base_entries=entries, new_previous_leader_symbol=leader, blocked_reason=blocked_reason)
+    return MinuteCloseDecision(
+        base_entries=entries,
+        new_previous_leader_symbol=leader,
+        blocked_reason=blocked_reason,
+        skipped_base_entries=skipped_base_entries,
+        new_daily_base_signal_times=daily_base_signal_times,
+        new_daily_base_signal_counts=daily_base_signal_counts,
+    )
 
 
 def evaluate_hour_close(
@@ -141,5 +180,8 @@ def process_clock_tick(
         new_last_add_on_hour=new_last_add_on_hour,
         blocked_reason=minute_close.blocked_reason,
         skipped_add_ons=skipped_add_ons,
+        skipped_base_entries=minute_close.skipped_base_entries,
+        new_daily_base_signal_times=minute_close.new_daily_base_signal_times,
+        new_daily_base_signal_counts=minute_close.new_daily_base_signal_counts,
     )
 STOP_LOSS_COOLDOWN = timedelta(minutes=60)
