@@ -25,6 +25,10 @@ class StrategyStateCodecTests(unittest.TestCase):
         state = StoredStrategyState(
             current_day="2026-04-15",
             previous_leader_symbol="BTCUSDT",
+            daily_base_signal_times={
+                "BTCUSDT": "2026-04-15T01:01:00+00:00",
+            },
+            daily_base_signal_counts={"BTCUSDT": 3},
             positions={
                 "ETHUSDT": Position(
                     symbol="ETHUSDT",
@@ -55,6 +59,11 @@ class StrategyStateCodecTests(unittest.TestCase):
         self.assertEqual(restored.processed_event_ids, {"evt-1": "2026-04-15T01:00:00+00:00"})
         self.assertEqual(restored.order_statuses["101"]["status"], "NEW")
         self.assertEqual(restored.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
+        self.assertEqual(
+            restored.daily_base_signal_times,
+            {"BTCUSDT": "2026-04-15T01:01:00+00:00"},
+        )
+        self.assertEqual(restored.daily_base_signal_counts, {"BTCUSDT": 3})
 
     def test_deserialize_legacy_event_id_list(self) -> None:
         from momentum_alpha.strategy_state_codec import deserialize_strategy_state
@@ -72,6 +81,8 @@ class StrategyStateCodecTests(unittest.TestCase):
 
         self.assertIn("evt-1", restored.processed_event_ids)
         self.assertIsInstance(restored.processed_event_ids["evt-1"], str)
+        self.assertEqual(restored.daily_base_signal_times, {})
+        self.assertEqual(restored.daily_base_signal_counts, {})
 
 
 if __name__ == "__main__":

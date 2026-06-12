@@ -43,6 +43,16 @@ class RuntimeStateStore:
             merged = StoredStrategyState(
                 current_day=state.current_day,
                 previous_leader_symbol=state.previous_leader_symbol,
+                daily_base_signal_times=(
+                    state.daily_base_signal_times
+                    if state.daily_base_signal_times is not None
+                    else (existing.daily_base_signal_times if existing is not None else None)
+                ),
+                daily_base_signal_counts=(
+                    state.daily_base_signal_counts
+                    if state.daily_base_signal_counts is not None
+                    else (existing.daily_base_signal_counts if existing is not None else None)
+                ),
                 positions=state.positions if state.positions is not None else (existing.positions if existing is not None else None),
                 processed_event_ids=(
                     state.processed_event_ids

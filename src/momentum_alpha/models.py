@@ -68,10 +68,23 @@ class SkippedAddOn:
 
 
 @dataclass(frozen=True)
+class SkippedBaseEntry:
+    symbol: str
+    stop_price: Decimal
+    reason: str
+    base_signal_sequence: int
+    first_base_signal_at: datetime
+    shadow_opportunity_id: str
+
+
+@dataclass(frozen=True)
 class MinuteCloseDecision:
     base_entries: list[EntryIntent]
     new_previous_leader_symbol: str | None
     blocked_reason: str | None = None
+    skipped_base_entries: list[SkippedBaseEntry] = field(default_factory=list)
+    new_daily_base_signal_times: dict[str, datetime] = field(default_factory=dict)
+    new_daily_base_signal_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -90,6 +103,9 @@ class TickDecision:
     new_last_add_on_hour: int | None = None
     blocked_reason: str | None = None
     skipped_add_ons: list[SkippedAddOn] = field(default_factory=list)
+    skipped_base_entries: list[SkippedBaseEntry] = field(default_factory=list)
+    new_daily_base_signal_times: dict[str, datetime] = field(default_factory=dict)
+    new_daily_base_signal_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,3 +114,5 @@ class StrategyState:
     previous_leader_symbol: str | None
     positions: dict[str, Position] = field(default_factory=dict)
     recent_stop_loss_exits: dict[str, datetime] = field(default_factory=dict)
+    daily_base_signal_times: dict[str, datetime] = field(default_factory=dict)
+    daily_base_signal_counts: dict[str, int] = field(default_factory=dict)

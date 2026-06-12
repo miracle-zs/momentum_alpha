@@ -11,6 +11,8 @@ from momentum_alpha.models import Position, PositionLeg
 class StoredStrategyState:
     current_day: str
     previous_leader_symbol: str | None
+    daily_base_signal_times: dict[str, str] | None = None
+    daily_base_signal_counts: dict[str, int] | None = None
     positions: dict[str, Position] | None = None
     processed_event_ids: dict[str, str] | None = None  # {event_id: iso_timestamp}
     order_statuses: dict[str, dict] | None = None
@@ -60,6 +62,8 @@ def serialize_strategy_state(state: StoredStrategyState) -> dict:
     return {
         "current_day": state.current_day,
         "previous_leader_symbol": state.previous_leader_symbol,
+        "daily_base_signal_times": dict(state.daily_base_signal_times or {}),
+        "daily_base_signal_counts": dict(state.daily_base_signal_counts or {}),
         "positions": {
             symbol: _serialize_position(position)
             for symbol, position in (state.positions or {}).items()
@@ -83,6 +87,11 @@ def deserialize_strategy_state(payload: dict) -> StoredStrategyState:
     return StoredStrategyState(
         current_day=payload["current_day"],
         previous_leader_symbol=payload.get("previous_leader_symbol"),
+        daily_base_signal_times=dict(payload.get("daily_base_signal_times", {})),
+        daily_base_signal_counts={
+            str(symbol): int(count)
+            for symbol, count in payload.get("daily_base_signal_counts", {}).items()
+        },
         positions={
             symbol: _deserialize_position(position_payload)
             for symbol, position_payload in payload.get("positions", {}).items()
