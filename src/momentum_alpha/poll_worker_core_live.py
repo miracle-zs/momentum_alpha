@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.audit import AuditRecorder
@@ -107,6 +107,17 @@ def run_once_live(
     last_add_on_hour: int | None = None,
     logger: object | None = None,
 ) -> RunOnceResult:
+    stored_state = runtime_state_store.load() if runtime_state_store is not None else None
+    current_day = now.astimezone(timezone.utc).date()
+    stored_daily_base_signal_times = {}
+    stored_daily_base_signal_counts = {}
+    if stored_state is not None and stored_state.current_day == current_day.isoformat():
+        stored_daily_base_signal_times = {
+            symbol: datetime.fromisoformat(timestamp)
+            for symbol, timestamp in (stored_state.daily_base_signal_times or {}).items()
+        }
+        stored_daily_base_signal_counts = dict(stored_state.daily_base_signal_counts or {})
+
     position_side: str | None = None
     fetch_position_mode = getattr(client, "fetch_position_mode", None)
     if callable(fetch_position_mode):
@@ -117,12 +128,15 @@ def run_once_live(
         dual_side = None if position_mode is None else position_mode.get("dualSidePosition")
         if dual_side in (True, "true", "TRUE", "True"):
             position_side = "LONG"
-    if previous_leader_symbol is None and runtime_state_store is not None:
-        stored_state = runtime_state_store.load()
-        if stored_state is not None:
-            previous_leader_symbol = stored_state.previous_leader_symbol
+    if previous_leader_symbol is None and stored_state is not None:
+        previous_leader_symbol = stored_state.previous_leader_symbol
 
-    initial_state = None
+    initial_state = StrategyState(
+        current_day=current_day,
+        previous_leader_symbol=previous_leader_symbol,
+        daily_base_signal_times=stored_daily_base_signal_times,
+        daily_base_signal_counts=stored_daily_base_signal_counts,
+    )
     if restore_positions:
         open_orders = client.fetch_open_orders()
         fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
@@ -134,28 +148,31 @@ def run_once_live(
             position_risk=client.fetch_position_risk(),
             open_orders=open_orders,
         )
-        if runtime_state_store is not None:
-            stored_state = runtime_state_store.load()
-            if stored_state is not None:
-                initial_state = replace(
-                    initial_state,
-                    recent_stop_loss_exits={
-                        symbol: datetime.fromisoformat(timestamp)
-                        for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
-                    },
-                )
-                initial_state = _apply_restored_stop_loss_cooldowns(
-                    restored_state=initial_state,
-                    stored_state=stored_state,
-                    now=now,
-                )
+        initial_state = replace(
+            initial_state,
+            daily_base_signal_times=stored_daily_base_signal_times,
+            daily_base_signal_counts=stored_daily_base_signal_counts,
+        )
+        if stored_state is not None:
+            initial_state = replace(
+                initial_state,
+                recent_stop_loss_exits={
+                    symbol: datetime.fromisoformat(timestamp)
+                    for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
+                },
+            )
+            initial_state = _apply_restored_stop_loss_cooldowns(
+                restored_state=initial_state,
+                stored_state=stored_state,
+                now=now,
+            )
 
     resolved_symbols = (
         market_data_cache.resolve_symbols(symbols=symbols, client=client)
         if market_data_cache is not None
         else _resolve_symbols(symbols=symbols, client=client)
     )
-    held_symbols = set(initial_state.positions) if initial_state is not None else set()
+    held_symbols = set(initial_state.positions)
     snapshots = _build_live_snapshots(
         symbols=resolved_symbols,
         held_symbols=held_symbols,
@@ -247,8 +264,13 @@ def run_once_live(
         merged_next_state = replace(result.runtime_result.next_state, positions=merged_positions)
         result = replace(result, runtime_result=replace(result.runtime_result, next_state=merged_next_state))
         merged_state = StoredStrategyState(
-            current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
+            current_day=result.runtime_result.next_state.current_day.isoformat(),
             previous_leader_symbol=result.runtime_result.next_state.previous_leader_symbol,
+            daily_base_signal_times={
+                symbol: timestamp.isoformat()
+                for symbol, timestamp in result.runtime_result.next_state.daily_base_signal_times.items()
+            },
+            daily_base_signal_counts=dict(result.runtime_result.next_state.daily_base_signal_counts),
             positions=result.runtime_result.next_state.positions,
             recent_stop_loss_exits={
                 symbol: timestamp.isoformat()

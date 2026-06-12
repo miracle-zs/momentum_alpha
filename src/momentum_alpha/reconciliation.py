@@ -58,6 +58,8 @@ def restore_state(
         previous_leader_symbol=previous_leader_symbol,
         positions=positions,
         recent_stop_loss_exits={},
+        daily_base_signal_times={},
+        daily_base_signal_counts={},
     )
 
 

@@ -40,6 +40,8 @@ class ReconciliationTests(unittest.TestCase):
         self.assertIn("BTCUSDT", state.positions)
         self.assertEqual(state.positions["BTCUSDT"].stop_price, Decimal("61000"))
         self.assertEqual(state.positions["BTCUSDT"].total_quantity, Decimal("0.010"))
+        self.assertEqual(state.daily_base_signal_times, {})
+        self.assertEqual(state.daily_base_signal_counts, {})
 
     def test_restore_state_ignores_flat_positions(self) -> None:
         from momentum_alpha.reconciliation import restore_state

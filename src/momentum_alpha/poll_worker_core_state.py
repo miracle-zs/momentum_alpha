@@ -52,6 +52,8 @@ def _save_strategy_state(
         return StoredStrategyState(
             current_day=state.current_day,
             previous_leader_symbol=state.previous_leader_symbol,
+            daily_base_signal_times=dict(state.daily_base_signal_times or {}),
+            daily_base_signal_counts=dict(state.daily_base_signal_counts or {}),
             positions=existing_positions,
             processed_event_ids={} if existing is None or existing.processed_event_ids is None else existing.processed_event_ids,
             order_statuses={} if existing is None or existing.order_statuses is None else existing.order_statuses,

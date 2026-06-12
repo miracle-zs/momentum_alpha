@@ -129,8 +129,13 @@ def _build_initial_user_stream_state(
     stored_state: StoredStrategyState | None,
     current_now: datetime,
 ) -> UserStreamWorkerContext:
+    current_day = current_now.astimezone(timezone.utc).date()
+    restore_daily_state = (
+        stored_state is not None
+        and stored_state.current_day == current_day.isoformat()
+    )
     state = StrategyState(
-        current_day=current_now.date(),
+        current_day=current_day,
         previous_leader_symbol=stored_state.previous_leader_symbol if stored_state is not None else None,
         positions=stored_state.positions or {} if stored_state is not None else {},
         recent_stop_loss_exits={
@@ -138,6 +143,15 @@ def _build_initial_user_stream_state(
             for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
         }
         if stored_state is not None
+        else {},
+        daily_base_signal_times={
+            symbol: datetime.fromisoformat(timestamp)
+            for symbol, timestamp in (stored_state.daily_base_signal_times or {}).items()
+        }
+        if restore_daily_state
+        else {},
+        daily_base_signal_counts=dict(stored_state.daily_base_signal_counts or {})
+        if restore_daily_state
         else {},
     )
     processed_event_ids = dict(stored_state.processed_event_ids or {}) if stored_state is not None else {}
@@ -326,6 +340,11 @@ def run_user_stream(
                 state=StoredStrategyState(
                     current_day=context.state.current_day.isoformat(),
                     previous_leader_symbol=context.state.previous_leader_symbol,
+                    daily_base_signal_times={
+                        symbol: timestamp.isoformat()
+                        for symbol, timestamp in context.state.daily_base_signal_times.items()
+                    },
+                    daily_base_signal_counts=dict(context.state.daily_base_signal_counts),
                     positions=context.state.positions,
                     processed_event_ids=context.processed_event_ids,
                     order_statuses=context.order_statuses,

@@ -78,6 +78,16 @@ def _save_user_stream_strategy_state(
         return StoredStrategyState(
             current_day=state.current_day,
             previous_leader_symbol=previous_leader_symbol,
+            daily_base_signal_times=(
+                dict(existing.daily_base_signal_times or {})
+                if existing is not None
+                else {}
+            ),
+            daily_base_signal_counts=(
+                dict(existing.daily_base_signal_counts or {})
+                if existing is not None
+                else {}
+            ),
             positions=state.positions,
             processed_event_ids=pruned_event_ids,
             order_statuses=state.order_statuses,
@@ -292,6 +302,11 @@ def build_user_stream_event_handler(
                 state=StoredStrategyState(
                     current_day=context.state.current_day.isoformat(),
                     previous_leader_symbol=context.state.previous_leader_symbol,
+                    daily_base_signal_times={
+                        symbol: timestamp.isoformat()
+                        for symbol, timestamp in context.state.daily_base_signal_times.items()
+                    },
+                    daily_base_signal_counts=dict(context.state.daily_base_signal_counts),
                     positions=context.state.positions,
                     processed_event_ids=context.processed_event_ids,
                     order_statuses=context.order_statuses,

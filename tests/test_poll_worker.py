@@ -5,11 +5,56 @@ import unittest
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class PollWorkerTests(unittest.TestCase):
+    @staticmethod
+    def _exchange_info() -> dict:
+        return {
+            "symbols": [
+                {
+                    "symbol": symbol,
+                    "contractType": "PERPETUAL",
+                    "quoteAsset": "USDT",
+                    "status": "TRADING",
+                    "filters": [
+                        {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                        {"filterType": "MARKET_LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                        {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+                        {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                    ],
+                }
+                for symbol in ("BTCUSDT", "ETHUSDT")
+            ]
+        }
+
+    @staticmethod
+    def _leader_change_snapshots() -> list[dict]:
+        return [
+            {
+                "symbol": "BTCUSDT",
+                "daily_open_price": Decimal("100"),
+                "latest_price": Decimal("115"),
+                "previous_hour_low": Decimal("108"),
+                "current_hour_low": Decimal("112"),
+                "tradable": True,
+                "has_previous_hour_candle": True,
+            },
+            {
+                "symbol": "ETHUSDT",
+                "daily_open_price": Decimal("100"),
+                "latest_price": Decimal("120"),
+                "previous_hour_low": Decimal("110"),
+                "current_hour_low": Decimal("116"),
+                "tradable": True,
+                "has_previous_hour_candle": True,
+            },
+        ]
+
     def test_poll_worker_exports_live_entrypoints(self) -> None:
         from momentum_alpha import poll_worker
 
@@ -168,3 +213,120 @@ class PollWorkerTests(unittest.TestCase):
         )
 
         self.assertEqual(calls, [1, 1])
+
+    def test_run_once_live_restores_daily_base_history_without_positions(self) -> None:
+        from momentum_alpha.poll_worker_core_live import run_once_live
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+
+        class Client:
+            def fetch_exchange_info(self):
+                return self_test._exchange_info()
+
+        class Broker:
+            pass
+
+        self_test = self
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="BTCUSDT",
+                    daily_base_signal_times={"ETHUSDT": "2026-06-12T01:05:00+00:00"},
+                    daily_base_signal_counts={"ETHUSDT": 1},
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+            with (
+                patch(
+                    "momentum_alpha.poll_worker_core_live._resolve_symbols",
+                    return_value=["BTCUSDT", "ETHUSDT"],
+                ),
+                patch(
+                    "momentum_alpha.poll_worker_core_live._build_live_snapshots",
+                    return_value=self._leader_change_snapshots(),
+                ),
+            ):
+                result = run_once_live(
+                    symbols=None,
+                    now=now,
+                    previous_leader_symbol=None,
+                    client=Client(),
+                    broker=Broker(),
+                    submit_orders=False,
+                    restore_positions=False,
+                    runtime_state_store=store,
+                )
+
+        self.assertEqual(result.runtime_result.decision.base_entries, [])
+        self.assertEqual(
+            [item.symbol for item in result.runtime_result.decision.skipped_base_entries],
+            ["ETHUSDT"],
+        )
+
+    def test_failed_first_base_submission_still_persists_consumed_opportunity(self) -> None:
+        from momentum_alpha.poll_worker_core_live import run_once_live
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+
+        class Client:
+            def fetch_exchange_info(self):
+                return self_test._exchange_info()
+
+        class Broker:
+            last_entry_order_failures = []
+
+            def submit_execution_plan(self, plan):
+                self.last_entry_order_failures = [
+                    {"symbol": "ETHUSDT", "status": "SUBMIT_FAILED"}
+                ]
+                return []
+
+        self_test = self
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+            with (
+                patch(
+                    "momentum_alpha.poll_worker_core_live._resolve_symbols",
+                    return_value=["BTCUSDT", "ETHUSDT"],
+                ),
+                patch(
+                    "momentum_alpha.poll_worker_core_live._build_live_snapshots",
+                    return_value=self._leader_change_snapshots(),
+                ),
+            ):
+                run_once_live(
+                    symbols=None,
+                    now=now,
+                    previous_leader_symbol=None,
+                    client=Client(),
+                    broker=Broker(),
+                    submit_orders=True,
+                    restore_positions=False,
+                    runtime_state_store=store,
+                )
+            loaded = store.load()
+
+        self.assertEqual(
+            loaded.daily_base_signal_times,
+            {"ETHUSDT": now.isoformat()},
+        )
+        self.assertEqual(loaded.daily_base_signal_counts, {"ETHUSDT": 1})
