@@ -6,6 +6,7 @@ from pathlib import Path
 from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.leader_opportunity_diagnostics import diagnose_opportunities
 from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analytics
+from momentum_alpha.skipped_base_replay import replay_skipped_bases
 
 from .cli_backfill import backfill_account_flows
 from .cli_backfill import backfill_binance_user_trades
@@ -149,6 +150,35 @@ def rebuild_trade_analytics_command(
     return 0
 
 
+def replay_skipped_base_command(
+    *,
+    parser,
+    args,
+    replay_skipped_bases_fn=replay_skipped_bases,
+) -> int:
+    runtime_db_path = _require_runtime_db_path(
+        parser=parser,
+        command=args.command,
+        explicit_path=args.runtime_db_file,
+    )
+    output_dir = Path(os.path.abspath(args.output_dir))
+    report = replay_skipped_bases_fn(
+        runtime_db_path=runtime_db_path,
+        output_dir=output_dir,
+        start_time=_parse_cli_datetime(args.start_time) if args.start_time else None,
+        end_time=_parse_cli_datetime(args.end_time) if args.end_time else None,
+        symbols=args.symbols,
+        proxy=args.proxy,
+        taker_fee_rate=args.taker_fee_rate,
+        refresh_klines=args.refresh_klines,
+    )
+    print(f"replay_seed_count={report.seed_count}")
+    print(f"replay_independent_count={len(report.opportunities)}")
+    print(f"replay_overlap_count={len(report.overlaps)}")
+    print(f"replay_output_dir={output_dir}")
+    return 1 if report.had_fetch_errors else 0
+
+
 def prune_runtime_db_command(
     *,
     parser,
@@ -209,6 +239,7 @@ def run_ops_commands(
     backfill_binance_user_trades_fn=backfill_binance_user_trades,
     backfill_leader_candidates_fn=backfill_leader_candidates,
     diagnose_opportunities_fn=diagnose_opportunities,
+    replay_skipped_bases_fn=replay_skipped_bases,
     rebuild_trade_analytics_fn=rebuild_trade_analytics,
     prune_runtime_db_fn=prune_runtime_db,
     **_unused,
@@ -241,6 +272,12 @@ def run_ops_commands(
             args=args,
             client_factory=client_factory,
             diagnose_opportunities_fn=diagnose_opportunities_fn,
+        )
+    if args.command == "replay-skipped-base":
+        return replay_skipped_base_command(
+            parser=parser,
+            args=args,
+            replay_skipped_bases_fn=replay_skipped_bases_fn,
         )
     if args.command == "rebuild-trade-analytics":
         return rebuild_trade_analytics_command(

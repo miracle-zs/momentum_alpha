@@ -195,6 +195,59 @@ class SkippedBaseReplayTests(unittest.TestCase):
         self.assertEqual(result.status, "unresolved")
         self.assertTrue(result.warnings)
 
+    def test_orchestrator_loads_klines_and_writes_artifacts(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_skipped_bases
+
+        signal_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        cutoff = signal_at + timedelta(minutes=1)
+        seed = self._seed(signal_at=signal_at)
+        calls = []
+
+        def fake_load_inputs(**kwargs):
+            calls.append(("load", kwargs))
+            return [seed], {}, ["input_warning"], cutoff
+
+        class FakeCache:
+            def load_range(self, **kwargs):
+                calls.append(("klines", kwargs))
+                return [self_test._candle(signal_at, low="99", close="100")]
+
+        def fake_cache_factory(**kwargs):
+            calls.append(("cache", kwargs))
+            return FakeCache()
+
+        self_test = self
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            runtime_db_path.touch()
+            output_dir = Path(tmpdir) / "out"
+            report = replay_skipped_bases(
+                runtime_db_path=runtime_db_path,
+                output_dir=output_dir,
+                start_time=signal_at,
+                end_time=cutoff,
+                symbols=["AAAUSDT"],
+                proxy="http://127.0.0.1:7897",
+                taker_fee_rate=Decimal("0.0005"),
+                refresh_klines=False,
+                load_inputs_fn=fake_load_inputs,
+                kline_cache_factory=fake_cache_factory,
+            )
+
+            self.assertTrue((output_dir / "summary.md").exists())
+
+        self.assertEqual(report.seed_count, 1)
+        self.assertFalse(report.had_fetch_errors)
+        self.assertIn("input_warning", report.warnings)
+        kline_call = next(item for item in calls if item[0] == "klines")
+        self.assertEqual(
+            kline_call[1]["start_time"],
+            datetime(2026, 6, 12, 0, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(kline_call[1]["end_time"], cutoff)
+
 
 if __name__ == "__main__":
     unittest.main()

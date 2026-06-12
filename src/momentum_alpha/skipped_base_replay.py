@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from momentum_alpha.binance_filters import SymbolFilters
 from momentum_alpha.sizing import size_from_stop_budget
-from momentum_alpha.skipped_base_replay_data import ReplayCandle, ReplaySeed
+from momentum_alpha.skipped_base_replay_data import (
+    BinanceKlineCache,
+    KlineFetchError,
+    ReplayCandle,
+    ReplaySeed,
+    load_replay_inputs,
+)
 
 
 @dataclass(frozen=True)
@@ -561,3 +568,84 @@ def replay_shadow_opportunities(
         warnings=tuple(warnings),
         had_fetch_errors=had_fetch_errors,
     )
+
+
+def replay_skipped_bases(
+    *,
+    runtime_db_path: Path,
+    output_dir: Path,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    symbols: list[str] | None = None,
+    proxy: str | None = "http://127.0.0.1:7897",
+    taker_fee_rate: Decimal = Decimal("0.0005"),
+    refresh_klines: bool = False,
+    load_inputs_fn=load_replay_inputs,
+    kline_cache_factory=BinanceKlineCache,
+    write_artifacts_fn=None,
+) -> ShadowReplayReport:
+    if write_artifacts_fn is None:
+        from momentum_alpha.skipped_base_replay_output import write_replay_artifacts
+
+        write_artifacts_fn = write_replay_artifacts
+    if not runtime_db_path.exists():
+        raise FileNotFoundError(runtime_db_path)
+
+    seeds, leaders, input_warnings, database_cutoff = load_inputs_fn(
+        runtime_db_path=runtime_db_path,
+        start_time=start_time,
+        end_time=end_time,
+        symbols=set(symbols) if symbols else None,
+    )
+    effective_cutoff = end_time or database_cutoff
+    if effective_cutoff is None:
+        report = ShadowReplayReport(
+            seed_count=0,
+            opportunities=(),
+            overlaps=(),
+            warnings=tuple(input_warnings),
+        )
+        write_artifacts_fn(report=report, output_dir=output_dir)
+        return report
+
+    cache = kline_cache_factory(
+        cache_path=output_dir / "binance_1m_cache.json",
+        proxy=proxy,
+    )
+    candles_by_symbol: dict[str, list[ReplayCandle]] = {}
+    fetch_warnings: list[str] = []
+    had_fetch_errors = False
+    for symbol in sorted({seed.symbol for seed in seeds}):
+        symbol_seeds = [seed for seed in seeds if seed.symbol == symbol]
+        first_signal_at = min(seed.signal_at for seed in symbol_seeds).astimezone(timezone.utc)
+        range_start = datetime.combine(
+            first_signal_at.date(),
+            datetime_time.min,
+            tzinfo=timezone.utc,
+        )
+        try:
+            candles_by_symbol[symbol] = cache.load_range(
+                symbol=symbol,
+                start_time=range_start,
+                end_time=effective_cutoff,
+                refresh=refresh_klines,
+            )
+        except KlineFetchError as exc:
+            had_fetch_errors = True
+            candles_by_symbol[symbol] = []
+            fetch_warnings.append(str(exc))
+
+    report = replay_shadow_opportunities(
+        seeds=seeds,
+        candles_by_symbol=candles_by_symbol,
+        leaders=leaders,
+        cutoff=effective_cutoff,
+        taker_fee_rate=taker_fee_rate,
+        had_fetch_errors=had_fetch_errors,
+    )
+    report = replace(
+        report,
+        warnings=tuple([*input_warnings, *fetch_warnings, *report.warnings]),
+    )
+    write_artifacts_fn(report=report, output_dir=output_dir)
+    return report

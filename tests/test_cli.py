@@ -43,6 +43,19 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.output_file, "./local_analytics/opportunity_diagnostics.csv")
         self.assertEqual(args.min_peak_change_pct, Decimal("0"))
 
+    def test_cli_parser_supports_skipped_base_replay_defaults(self) -> None:
+        from momentum_alpha.cli_parser import build_cli_parser
+
+        args = build_cli_parser().parse_args(
+            ["replay-skipped-base", "--runtime-db-file", "/tmp/runtime.db"]
+        )
+
+        self.assertEqual(args.command, "replay-skipped-base")
+        self.assertEqual(args.output_dir, "./local_analytics/skipped_base_replay")
+        self.assertEqual(args.proxy, "http://127.0.0.1:7897")
+        self.assertEqual(args.taker_fee_rate, Decimal("0.0005"))
+        self.assertFalse(args.refresh_klines)
+
 
 if __name__ == "__main__":
     unittest.main()

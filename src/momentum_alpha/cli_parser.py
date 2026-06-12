@@ -97,6 +97,26 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=Decimal("0"),
     )
 
+    replay_skipped_base_parser = subparsers.add_parser("replay-skipped-base")
+    replay_skipped_base_parser.add_argument("--runtime-db-file", required=True)
+    replay_skipped_base_parser.add_argument(
+        "--output-dir",
+        default="./local_analytics/skipped_base_replay",
+    )
+    replay_skipped_base_parser.add_argument("--start-time")
+    replay_skipped_base_parser.add_argument("--end-time")
+    replay_skipped_base_parser.add_argument("--symbols", nargs="+")
+    replay_skipped_base_parser.add_argument(
+        "--proxy",
+        default="http://127.0.0.1:7897",
+    )
+    replay_skipped_base_parser.add_argument(
+        "--taker-fee-rate",
+        type=Decimal,
+        default=Decimal("0.0005"),
+    )
+    replay_skipped_base_parser.add_argument("--refresh-klines", action="store_true")
+
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)
 

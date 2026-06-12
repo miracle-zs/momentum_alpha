@@ -14,6 +14,7 @@ from momentum_alpha.cli import (
     load_credentials_from_env,
     load_runtime_settings_from_env,
     resolve_runtime_db_path,
+    replay_skipped_bases,
 )
 from momentum_alpha.market_data import (
     LiveMarketDataCache,

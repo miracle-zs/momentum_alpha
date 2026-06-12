@@ -2212,6 +2212,54 @@ class MainTests(unittest.TestCase):
         self.assertEqual(calls[0]["start_time"].isoformat(), "2026-05-01T00:00:00+00:00")
         self.assertEqual(calls[0]["end_time"].isoformat(), "2026-05-02T00:00:00+00:00")
 
+    def test_cli_main_supports_skipped_base_replay_command(self) -> None:
+        from momentum_alpha.main import cli_main
+
+        calls = []
+
+        class FakeReport:
+            seed_count = 3
+            opportunities = (1, 2)
+            overlaps = (1,)
+            had_fetch_errors = False
+
+        def fake_replay_skipped_bases(**kwargs):
+            calls.append(kwargs)
+            return FakeReport()
+
+        exit_code = cli_main(
+            argv=[
+                "replay-skipped-base",
+                "--runtime-db-file",
+                "/tmp/runtime.db",
+                "--output-dir",
+                "/tmp/replay",
+                "--start-time",
+                "2026-06-01T00:00:00+00:00",
+                "--end-time",
+                "2026-06-12T00:00:00+00:00",
+                "--symbols",
+                "AAAUSDT",
+                "BBBUSDT",
+                "--proxy",
+                "http://127.0.0.1:7898",
+                "--taker-fee-rate",
+                "0.0004",
+                "--refresh-klines",
+            ],
+            replay_skipped_bases_fn=fake_replay_skipped_bases,
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(calls[0]["runtime_db_path"], Path("/tmp/runtime.db"))
+        self.assertEqual(calls[0]["output_dir"], Path("/tmp/replay"))
+        self.assertEqual(calls[0]["start_time"].isoformat(), "2026-06-01T00:00:00+00:00")
+        self.assertEqual(calls[0]["end_time"].isoformat(), "2026-06-12T00:00:00+00:00")
+        self.assertEqual(calls[0]["symbols"], ["AAAUSDT", "BBBUSDT"])
+        self.assertEqual(calls[0]["proxy"], "http://127.0.0.1:7898")
+        self.assertEqual(calls[0]["taker_fee_rate"], Decimal("0.0004"))
+        self.assertTrue(calls[0]["refresh_klines"])
+
     def test_cli_main_supports_rebuild_trade_analytics_command(self) -> None:
         from momentum_alpha.main import cli_main
 
