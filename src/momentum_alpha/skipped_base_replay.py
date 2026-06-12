@@ -1,0 +1,563 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+
+from momentum_alpha.binance_filters import SymbolFilters
+from momentum_alpha.sizing import size_from_stop_budget
+from momentum_alpha.skipped_base_replay_data import ReplayCandle, ReplaySeed
+
+
+@dataclass(frozen=True)
+class ShadowReplayEvent:
+    shadow_opportunity_id: str
+    symbol: str
+    timestamp: datetime
+    event_type: str
+    price: Decimal | None = None
+    stop_price: Decimal | None = None
+    quantity: Decimal | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ShadowLegResult:
+    shadow_opportunity_id: str
+    leg_type: str
+    sequence: int
+    opened_at: datetime
+    entry_price: Decimal
+    stop_at_entry: Decimal
+    quantity: Decimal
+    risk_budget: Decimal
+    entry_fee: Decimal
+    closed_at: datetime | None
+    exit_price: Decimal | None
+    gross_pnl: Decimal | None
+    net_contribution: Decimal | None
+
+
+@dataclass(frozen=True)
+class ShadowReplayResult:
+    shadow_opportunity_id: str
+    symbol: str
+    base_signal_at: datetime
+    base_signal_sequence: int
+    first_base_signal_at: datetime
+    status: str
+    base_entry_price: Decimal | None
+    initial_stop_price: Decimal | None
+    base_quantity: Decimal | None
+    add_on_count: int
+    skipped_add_on_count: int
+    exit_at: datetime | None
+    exit_price: Decimal | None
+    duration_minutes: Decimal | None
+    gross_pnl: Decimal | None
+    entry_fees: Decimal | None
+    exit_fees: Decimal | None
+    net_pnl: Decimal | None
+    mark_price_at_cutoff: Decimal | None
+    mark_to_market_net_pnl: Decimal | None
+    legs: tuple[ShadowLegResult, ...]
+    events: tuple[ShadowReplayEvent, ...]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ShadowOverlap:
+    shadow_opportunity_id: str
+    symbol: str
+    signal_at: datetime
+    active_shadow_opportunity_id: str
+    status: str = "overlap_existing_shadow"
+
+
+@dataclass(frozen=True)
+class ShadowReplayReport:
+    seed_count: int
+    opportunities: tuple[ShadowReplayResult, ...]
+    overlaps: tuple[ShadowOverlap, ...]
+    warnings: tuple[str, ...]
+    had_fetch_errors: bool = False
+
+
+@dataclass(frozen=True)
+class _OpenLeg:
+    leg_type: str
+    sequence: int
+    opened_at: datetime
+    entry_price: Decimal
+    stop_at_entry: Decimal
+    quantity: Decimal
+    risk_budget: Decimal
+    entry_fee: Decimal
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _unresolved_result(
+    *,
+    seed: ReplaySeed,
+    warnings: list[str],
+    events: list[ShadowReplayEvent] | None = None,
+) -> ShadowReplayResult:
+    unresolved_events = list(events or [])
+    unresolved_events.append(
+        ShadowReplayEvent(
+            shadow_opportunity_id=seed.shadow_opportunity_id,
+            symbol=seed.symbol,
+            timestamp=seed.signal_at,
+            event_type="unresolved",
+            reason=";".join(warnings),
+        )
+    )
+    return ShadowReplayResult(
+        shadow_opportunity_id=seed.shadow_opportunity_id,
+        symbol=seed.symbol,
+        base_signal_at=seed.signal_at,
+        base_signal_sequence=seed.base_signal_sequence,
+        first_base_signal_at=seed.first_base_signal_at,
+        status="unresolved",
+        base_entry_price=seed.latest_price,
+        initial_stop_price=seed.stop_price,
+        base_quantity=None,
+        add_on_count=0,
+        skipped_add_on_count=0,
+        exit_at=None,
+        exit_price=None,
+        duration_minutes=None,
+        gross_pnl=None,
+        entry_fees=None,
+        exit_fees=None,
+        net_pnl=None,
+        mark_price_at_cutoff=None,
+        mark_to_market_net_pnl=None,
+        legs=(),
+        events=tuple(unresolved_events),
+        warnings=tuple(warnings),
+    )
+
+
+def _closed_legs(
+    *,
+    shadow_opportunity_id: str,
+    legs: list[_OpenLeg],
+    exit_at: datetime,
+    exit_price: Decimal,
+    taker_fee_rate: Decimal,
+) -> tuple[ShadowLegResult, ...]:
+    return tuple(
+        ShadowLegResult(
+            shadow_opportunity_id=shadow_opportunity_id,
+            leg_type=leg.leg_type,
+            sequence=leg.sequence,
+            opened_at=leg.opened_at,
+            entry_price=leg.entry_price,
+            stop_at_entry=leg.stop_at_entry,
+            quantity=leg.quantity,
+            risk_budget=leg.risk_budget,
+            entry_fee=leg.entry_fee,
+            closed_at=exit_at,
+            exit_price=exit_price,
+            gross_pnl=leg.quantity * (exit_price - leg.entry_price),
+            net_contribution=(
+                leg.quantity * (exit_price - leg.entry_price)
+                - leg.entry_fee
+                - leg.quantity * exit_price * taker_fee_rate
+            ),
+        )
+        for leg in legs
+    )
+
+
+def _open_legs(
+    *,
+    shadow_opportunity_id: str,
+    legs: list[_OpenLeg],
+) -> tuple[ShadowLegResult, ...]:
+    return tuple(
+        ShadowLegResult(
+            shadow_opportunity_id=shadow_opportunity_id,
+            leg_type=leg.leg_type,
+            sequence=leg.sequence,
+            opened_at=leg.opened_at,
+            entry_price=leg.entry_price,
+            stop_at_entry=leg.stop_at_entry,
+            quantity=leg.quantity,
+            risk_budget=leg.risk_budget,
+            entry_fee=leg.entry_fee,
+            closed_at=None,
+            exit_price=None,
+            gross_pnl=None,
+            net_contribution=None,
+        )
+        for leg in legs
+    )
+
+
+def replay_shadow_seed(
+    *,
+    seed: ReplaySeed,
+    candles: list[ReplayCandle],
+    leaders: dict[datetime, str],
+    cutoff: datetime,
+    taker_fee_rate: Decimal,
+) -> ShadowReplayResult:
+    warnings = list(seed.warnings)
+    required = {
+        "latest_price": seed.latest_price,
+        "stop_price": seed.stop_price,
+        "stop_budget_usdt": seed.stop_budget_usdt,
+        "step_size": seed.step_size,
+        "min_qty": seed.min_qty,
+        "tick_size": seed.tick_size,
+    }
+    missing = [name for name, value in required.items() if value is None]
+    if missing:
+        warnings.append(f"missing_sizing_inputs:{','.join(missing)}")
+        return _unresolved_result(seed=seed, warnings=warnings)
+
+    assert seed.latest_price is not None
+    assert seed.stop_price is not None
+    assert seed.stop_budget_usdt is not None
+    assert seed.step_size is not None
+    assert seed.min_qty is not None
+    assert seed.tick_size is not None
+    filters = SymbolFilters(
+        step_size=seed.step_size,
+        min_qty=seed.min_qty,
+        tick_size=seed.tick_size,
+    )
+    base_quantity = size_from_stop_budget(
+        seed.latest_price,
+        seed.stop_price,
+        seed.stop_budget_usdt,
+        filters,
+    )
+    if base_quantity is None:
+        warnings.append("invalid_base_sizing")
+        return _unresolved_result(seed=seed, warnings=warnings)
+
+    signal_at = _utc(seed.signal_at)
+    cutoff_utc = _utc(cutoff)
+    signal_minute = signal_at.replace(second=0, microsecond=0)
+    ordered_candles = sorted(
+        [
+            candle
+            for candle in candles
+            if _utc(candle.close_time) <= cutoff_utc
+        ],
+        key=lambda candle: candle.open_time,
+    )
+    eligible_candles = [
+        candle
+        for candle in ordered_candles
+        if _utc(candle.open_time) >= signal_minute
+    ]
+    if not eligible_candles:
+        warnings.append("missing_post_signal_candles")
+        return _unresolved_result(seed=seed, warnings=warnings)
+
+    legs = [
+        _OpenLeg(
+            leg_type="base",
+            sequence=0,
+            opened_at=signal_at,
+            entry_price=seed.latest_price,
+            stop_at_entry=seed.stop_price,
+            quantity=base_quantity,
+            risk_budget=seed.stop_budget_usdt,
+            entry_fee=base_quantity * seed.latest_price * taker_fee_rate,
+        )
+    ]
+    events = [
+        ShadowReplayEvent(
+            shadow_opportunity_id=seed.shadow_opportunity_id,
+            symbol=seed.symbol,
+            timestamp=signal_at,
+            event_type="base_entry",
+            price=seed.latest_price,
+            stop_price=seed.stop_price,
+            quantity=base_quantity,
+        )
+    ]
+    active_stop = seed.stop_price
+    add_on_count = 0
+    skipped_add_on_count = 0
+    hour_candles: dict[datetime, list[ReplayCandle]] = {}
+
+    for candle in ordered_candles:
+        candle_open = _utc(candle.open_time)
+        hour_start = candle_open.replace(minute=0, second=0, microsecond=0)
+        hour_candles.setdefault(hour_start, []).append(candle)
+        if candle_open < signal_minute:
+            continue
+
+        if candle.low_price <= active_stop:
+            exit_at = _utc(candle.close_time)
+            exit_price = active_stop
+            closed_legs = _closed_legs(
+                shadow_opportunity_id=seed.shadow_opportunity_id,
+                legs=legs,
+                exit_at=exit_at,
+                exit_price=exit_price,
+                taker_fee_rate=taker_fee_rate,
+            )
+            gross_pnl = sum(
+                (leg.gross_pnl or Decimal("0"))
+                for leg in closed_legs
+            )
+            entry_fees = sum(leg.entry_fee for leg in closed_legs)
+            total_quantity = sum(leg.quantity for leg in closed_legs)
+            exit_fees = total_quantity * exit_price * taker_fee_rate
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=exit_at,
+                    event_type="stop_exit",
+                    price=exit_price,
+                    stop_price=active_stop,
+                    quantity=total_quantity,
+                )
+            )
+            return ShadowReplayResult(
+                shadow_opportunity_id=seed.shadow_opportunity_id,
+                symbol=seed.symbol,
+                base_signal_at=signal_at,
+                base_signal_sequence=seed.base_signal_sequence,
+                first_base_signal_at=seed.first_base_signal_at,
+                status="closed",
+                base_entry_price=seed.latest_price,
+                initial_stop_price=seed.stop_price,
+                base_quantity=base_quantity,
+                add_on_count=add_on_count,
+                skipped_add_on_count=skipped_add_on_count,
+                exit_at=exit_at,
+                exit_price=exit_price,
+                duration_minutes=Decimal(str((exit_at - signal_at).total_seconds())) / Decimal("60"),
+                gross_pnl=gross_pnl,
+                entry_fees=entry_fees,
+                exit_fees=exit_fees,
+                net_pnl=gross_pnl - entry_fees - exit_fees,
+                mark_price_at_cutoff=None,
+                mark_to_market_net_pnl=None,
+                legs=closed_legs,
+                events=tuple(events),
+                warnings=tuple(warnings),
+            )
+
+        if candle_open.minute != 59:
+            continue
+        boundary = hour_start + timedelta(hours=1)
+        if boundary <= signal_at:
+            continue
+        completed_hour = hour_candles.get(hour_start, [])
+        minute_set = {item.open_time.astimezone(timezone.utc).minute for item in completed_hour}
+        if len(completed_hour) != 60 or minute_set != set(range(60)):
+            skipped_add_on_count += 1
+            warnings.append(f"missing_previous_hour_candles:{boundary.isoformat()}")
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=boundary,
+                    event_type="add_on_skipped",
+                    reason="missing_previous_hour_candles",
+                )
+            )
+            continue
+
+        active_stop = min(item.low_price for item in completed_hour)
+        events.append(
+            ShadowReplayEvent(
+                shadow_opportunity_id=seed.shadow_opportunity_id,
+                symbol=seed.symbol,
+                timestamp=boundary,
+                event_type="stop_update",
+                stop_price=active_stop,
+            )
+        )
+        leader = leaders.get(boundary)
+        if leader is None:
+            skipped_add_on_count += 1
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=boundary,
+                    event_type="add_on_skipped",
+                    reason="missing_leader_data",
+                    stop_price=active_stop,
+                )
+            )
+            continue
+        if leader != seed.symbol:
+            skipped_add_on_count += 1
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=boundary,
+                    event_type="add_on_skipped",
+                    reason="not_current_leader",
+                    stop_price=active_stop,
+                )
+            )
+            continue
+
+        add_on_quantity = size_from_stop_budget(
+            candle.close_price,
+            active_stop,
+            seed.stop_budget_usdt,
+            filters,
+        )
+        if add_on_quantity is None:
+            skipped_add_on_count += 1
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=boundary,
+                    event_type="add_on_skipped",
+                    price=candle.close_price,
+                    stop_price=active_stop,
+                    reason="invalid_add_on_sizing",
+                )
+            )
+            continue
+
+        add_on_count += 1
+        legs.append(
+            _OpenLeg(
+                leg_type="add_on",
+                sequence=add_on_count,
+                opened_at=boundary,
+                entry_price=candle.close_price,
+                stop_at_entry=active_stop,
+                quantity=add_on_quantity,
+                risk_budget=seed.stop_budget_usdt,
+                entry_fee=add_on_quantity * candle.close_price * taker_fee_rate,
+            )
+        )
+        events.append(
+            ShadowReplayEvent(
+                shadow_opportunity_id=seed.shadow_opportunity_id,
+                symbol=seed.symbol,
+                timestamp=boundary,
+                event_type="add_on",
+                price=candle.close_price,
+                stop_price=active_stop,
+                quantity=add_on_quantity,
+            )
+        )
+
+    mark_price = eligible_candles[-1].close_price
+    total_quantity = sum(leg.quantity for leg in legs)
+    gross_mtm = sum(
+        leg.quantity * (mark_price - leg.entry_price)
+        for leg in legs
+    )
+    entry_fees = sum(leg.entry_fee for leg in legs)
+    hypothetical_exit_fees = total_quantity * mark_price * taker_fee_rate
+    events.append(
+        ShadowReplayEvent(
+            shadow_opportunity_id=seed.shadow_opportunity_id,
+            symbol=seed.symbol,
+            timestamp=cutoff_utc,
+            event_type="open_at_cutoff",
+            price=mark_price,
+            stop_price=active_stop,
+            quantity=total_quantity,
+        )
+    )
+    return ShadowReplayResult(
+        shadow_opportunity_id=seed.shadow_opportunity_id,
+        symbol=seed.symbol,
+        base_signal_at=signal_at,
+        base_signal_sequence=seed.base_signal_sequence,
+        first_base_signal_at=seed.first_base_signal_at,
+        status="open",
+        base_entry_price=seed.latest_price,
+        initial_stop_price=seed.stop_price,
+        base_quantity=base_quantity,
+        add_on_count=add_on_count,
+        skipped_add_on_count=skipped_add_on_count,
+        exit_at=None,
+        exit_price=None,
+        duration_minutes=Decimal(str((cutoff_utc - signal_at).total_seconds())) / Decimal("60"),
+        gross_pnl=None,
+        entry_fees=entry_fees,
+        exit_fees=None,
+        net_pnl=None,
+        mark_price_at_cutoff=mark_price,
+        mark_to_market_net_pnl=gross_mtm - entry_fees - hypothetical_exit_fees,
+        legs=_open_legs(
+            shadow_opportunity_id=seed.shadow_opportunity_id,
+            legs=legs,
+        ),
+        events=tuple(events),
+        warnings=tuple(warnings),
+    )
+
+
+def replay_shadow_opportunities(
+    *,
+    seeds: list[ReplaySeed],
+    candles_by_symbol: dict[str, list[ReplayCandle]],
+    leaders: dict[datetime, str],
+    cutoff: datetime,
+    taker_fee_rate: Decimal,
+    had_fetch_errors: bool = False,
+) -> ShadowReplayReport:
+    opportunities: list[ShadowReplayResult] = []
+    overlaps: list[ShadowOverlap] = []
+    warnings: list[str] = []
+    active_by_symbol: dict[str, ShadowReplayResult] = {}
+
+    for seed in sorted(
+        seeds,
+        key=lambda item: (item.symbol, item.signal_at, item.shadow_opportunity_id),
+    ):
+        active = active_by_symbol.get(seed.symbol)
+        if active is not None and (
+            active.exit_at is None
+            or active.exit_at > seed.signal_at
+        ):
+            overlaps.append(
+                ShadowOverlap(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    signal_at=seed.signal_at,
+                    active_shadow_opportunity_id=active.shadow_opportunity_id,
+                )
+            )
+            continue
+
+        result = replay_shadow_seed(
+            seed=seed,
+            candles=candles_by_symbol.get(seed.symbol, []),
+            leaders=leaders,
+            cutoff=cutoff,
+            taker_fee_rate=taker_fee_rate,
+        )
+        opportunities.append(result)
+        active_by_symbol[seed.symbol] = result
+        warnings.extend(
+            f"seed={seed.shadow_opportunity_id} {warning}"
+            for warning in result.warnings
+        )
+
+    return ShadowReplayReport(
+        seed_count=len(seeds),
+        opportunities=tuple(opportunities),
+        overlaps=tuple(overlaps),
+        warnings=tuple(warnings),
+        had_fetch_errors=had_fetch_errors,
+    )

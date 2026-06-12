@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+
+class SkippedBaseReplayTests(unittest.TestCase):
+    @staticmethod
+    def _seed(*, signal_at: datetime, shadow_id: str = "shadow-1"):
+        from momentum_alpha.skipped_base_replay_data import ReplaySeed
+
+        return ReplaySeed(
+            shadow_opportunity_id=shadow_id,
+            symbol="AAAUSDT",
+            signal_at=signal_at,
+            base_signal_sequence=2,
+            first_base_signal_at=signal_at - timedelta(hours=1),
+            latest_price=Decimal("110"),
+            stop_price=Decimal("100"),
+            stop_budget_usdt=Decimal("10"),
+            step_size=Decimal("0.1"),
+            min_qty=Decimal("0.1"),
+            tick_size=Decimal("0.1"),
+        )
+
+    @staticmethod
+    def _candle(
+        open_time: datetime,
+        *,
+        open_price: str = "110",
+        high: str = "111",
+        low: str = "109",
+        close: str = "110",
+    ):
+        from momentum_alpha.skipped_base_replay_data import ReplayCandle
+
+        return ReplayCandle(
+            open_time=open_time,
+            close_time=open_time + timedelta(minutes=1) - timedelta(milliseconds=1),
+            open_price=Decimal(open_price),
+            high_price=Decimal(high),
+            low_price=Decimal(low),
+            close_price=Decimal(close),
+        )
+
+    def test_sizes_base_and_closes_all_risk_at_stop(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_seed
+
+        signal_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        fee = Decimal("0.0005")
+        result = replay_shadow_seed(
+            seed=self._seed(signal_at=signal_at),
+            candles=[
+                self._candle(signal_at, low="99", close="100"),
+            ],
+            leaders={},
+            cutoff=signal_at + timedelta(minutes=1),
+            taker_fee_rate=fee,
+        )
+
+        self.assertEqual(result.status, "closed")
+        self.assertEqual(result.base_quantity, Decimal("1.0"))
+        self.assertEqual(result.exit_price, Decimal("100"))
+        self.assertEqual(result.add_on_count, 0)
+        self.assertEqual(
+            result.net_pnl,
+            Decimal("-10") - Decimal("110") * fee - Decimal("100") * fee,
+        )
+
+    def test_hour_boundary_updates_stop_then_adds_when_symbol_is_top1(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_seed
+
+        hour_start = datetime(2026, 6, 12, 1, 0, tzinfo=timezone.utc)
+        signal_at = hour_start + timedelta(minutes=30)
+        candles = [
+            self._candle(
+                hour_start + timedelta(minutes=minute),
+                low="95" if minute == 20 else "109",
+                close="110",
+            )
+            for minute in range(60)
+        ]
+        candles.append(
+            self._candle(
+                datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc),
+                low="94",
+                close="95",
+            )
+        )
+
+        result = replay_shadow_seed(
+            seed=self._seed(signal_at=signal_at),
+            candles=candles,
+            leaders={datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc): "AAAUSDT"},
+            cutoff=datetime(2026, 6, 12, 2, 1, tzinfo=timezone.utc),
+            taker_fee_rate=Decimal("0"),
+        )
+
+        self.assertEqual(result.status, "closed")
+        self.assertEqual(result.exit_price, Decimal("95"))
+        self.assertEqual(result.add_on_count, 1)
+        self.assertEqual(result.legs[1].entry_price, Decimal("110"))
+        self.assertEqual(result.legs[1].stop_at_entry, Decimal("95"))
+        self.assertEqual(result.legs[1].quantity, Decimal("0.6"))
+        event_types = [event.event_type for event in result.events]
+        self.assertLess(event_types.index("stop_update"), event_types.index("add_on"))
+
+    def test_missing_leader_skips_add_on_and_open_result_has_mtm(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_seed
+
+        hour_start = datetime(2026, 6, 12, 1, 0, tzinfo=timezone.utc)
+        signal_at = hour_start + timedelta(minutes=30)
+        candles = [
+            self._candle(
+                hour_start + timedelta(minutes=minute),
+                low="95" if minute == 20 else "109",
+                close="112" if minute == 59 else "110",
+            )
+            for minute in range(60)
+        ]
+
+        result = replay_shadow_seed(
+            seed=self._seed(signal_at=signal_at),
+            candles=candles,
+            leaders={},
+            cutoff=datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc),
+            taker_fee_rate=Decimal("0.0005"),
+        )
+
+        self.assertEqual(result.status, "open")
+        self.assertEqual(result.add_on_count, 0)
+        self.assertEqual(result.skipped_add_on_count, 1)
+        self.assertIsNone(result.net_pnl)
+        self.assertEqual(result.mark_price_at_cutoff, Decimal("112"))
+        self.assertIsNotNone(result.mark_to_market_net_pnl)
+        self.assertIn("missing_leader_data", [event.reason for event in result.events])
+
+    def test_replay_report_suppresses_overlapping_same_symbol_seeds(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_opportunities
+
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        second_at = first_at + timedelta(minutes=1)
+        third_at = first_at + timedelta(minutes=10)
+        seeds = [
+            self._seed(signal_at=first_at, shadow_id="shadow-1"),
+            self._seed(signal_at=second_at, shadow_id="shadow-2"),
+            self._seed(signal_at=third_at, shadow_id="shadow-3"),
+        ]
+        candles = [
+            self._candle(first_at, low="109"),
+            self._candle(first_at + timedelta(minutes=2), low="99"),
+            self._candle(third_at, low="99"),
+        ]
+
+        report = replay_shadow_opportunities(
+            seeds=seeds,
+            candles_by_symbol={"AAAUSDT": candles},
+            leaders={},
+            cutoff=third_at + timedelta(minutes=1),
+            taker_fee_rate=Decimal("0"),
+        )
+
+        self.assertEqual(
+            [item.shadow_opportunity_id for item in report.opportunities],
+            ["shadow-1", "shadow-3"],
+        )
+        self.assertEqual(len(report.overlaps), 1)
+        self.assertEqual(report.overlaps[0].shadow_opportunity_id, "shadow-2")
+        self.assertEqual(report.overlaps[0].active_shadow_opportunity_id, "shadow-1")
+
+    def test_invalid_seed_becomes_unresolved(self) -> None:
+        from dataclasses import replace
+
+        from momentum_alpha.skipped_base_replay import replay_shadow_seed
+
+        signal_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        seed = replace(self._seed(signal_at=signal_at), latest_price=None)
+        result = replay_shadow_seed(
+            seed=seed,
+            candles=[],
+            leaders={},
+            cutoff=signal_at,
+            taker_fee_rate=Decimal("0.0005"),
+        )
+
+        self.assertEqual(result.status, "unresolved")
+        self.assertTrue(result.warnings)
+
+
+if __name__ == "__main__":
+    unittest.main()
