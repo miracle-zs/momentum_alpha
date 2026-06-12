@@ -330,3 +330,101 @@ class PollWorkerTests(unittest.TestCase):
             {"ETHUSDT": now.isoformat()},
         )
         self.assertEqual(loaded.daily_base_signal_counts, {"ETHUSDT": 1})
+
+    def test_repeated_base_persists_complete_replay_telemetry(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.exchange_info import parse_exchange_info
+        from momentum_alpha.poll_worker_core_live import run_once_live
+        from momentum_alpha.runtime_store import (
+            RuntimeStateStore,
+            fetch_recent_audit_events,
+            fetch_recent_position_snapshots,
+            fetch_recent_signal_decisions,
+        )
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+
+        class Client:
+            def fetch_exchange_info(self):
+                return self_test._exchange_info()
+
+        class Broker:
+            pass
+
+        class MarketDataCache:
+            def resolve_symbols(self, *, symbols, client):
+                return ["BTCUSDT", "ETHUSDT"]
+
+            def exchange_symbol_map(self, *, client):
+                return parse_exchange_info(client.fetch_exchange_info())
+
+        self_test = self
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            store = RuntimeStateStore(path=db_path)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="BTCUSDT",
+                    daily_base_signal_times={"ETHUSDT": first_at.isoformat()},
+                    daily_base_signal_counts={"ETHUSDT": 1},
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+            with patch(
+                "momentum_alpha.poll_worker_core_live._build_live_snapshots",
+                return_value=self._leader_change_snapshots(),
+            ):
+                run_once_live(
+                    symbols=None,
+                    now=now,
+                    previous_leader_symbol=None,
+                    client=Client(),
+                    broker=Broker(),
+                    submit_orders=False,
+                    restore_positions=False,
+                    runtime_state_store=store,
+                    market_data_cache=MarketDataCache(),
+                    audit_recorder=AuditRecorder(runtime_db_path=db_path, source="poll"),
+                )
+
+            decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
+            snapshots = fetch_recent_position_snapshots(path=db_path, limit=1)
+            events = fetch_recent_audit_events(path=db_path, limit=10)
+
+        skipped = next(row for row in decisions if row["decision_type"] == "base_entry_skipped")
+        self.assertEqual(skipped["symbol"], "ETHUSDT")
+        self.assertEqual(skipped["intent_id"], "shadow_260612020500_ETHUSDT_02")
+        self.assertEqual(
+            skipped["payload"],
+            {
+                "base_signal_sequence": 2,
+                "blocked_reason": "daily_repeat_base",
+                "current_hour_low": "116",
+                "daily_change_pct": "0.2",
+                "daily_open_price": "100",
+                "first_base_signal_at": first_at.isoformat(),
+                "has_previous_hour_candle": True,
+                "latest_price": "120",
+                "leader_gap_pct": "0.05",
+                "leg_type": "base",
+                "min_notional": "5",
+                "min_qty": "0.001",
+                "previous_hour_low": "110",
+                "shadow_opportunity_id": "shadow_260612020500_ETHUSDT_02",
+                "step_size": "0.001",
+                "stop_budget_usdt": "10",
+                "stop_price": "110",
+                "symbol": "ETHUSDT",
+                "tick_size": "0.01",
+                "tradable": True,
+            },
+        )
+        self.assertEqual(snapshots[0]["payload"]["skipped_base_symbols"], ["ETHUSDT"])
+        tick_event = next(row for row in events if row["event_type"] == "tick_result")
+        self.assertEqual(tick_event["payload"]["skipped_base_symbols"], ["ETHUSDT"])

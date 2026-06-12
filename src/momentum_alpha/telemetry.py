@@ -205,6 +205,8 @@ def _build_market_context_payloads(
                 "daily_open_price": snapshot["daily_open_price"],
                 "previous_hour_low": snapshot["previous_hour_low"],
                 "current_hour_low": snapshot.get("current_hour_low", snapshot["previous_hour_low"]),
+                "tradable": snapshot.get("tradable"),
+                "has_previous_hour_candle": snapshot.get("has_previous_hour_candle"),
             }
             for snapshot in snapshots
             if snapshot.get("daily_open_price") not in (None, Decimal("0"))
@@ -225,10 +227,14 @@ def _build_market_context_payloads(
             "daily_change_pct": str(item["daily_change_pct"]),
             "previous_hour_low": str(item["previous_hour_low"]),
             "current_hour_low": str(item["current_hour_low"]),
+            "symbol": item["symbol"],
+            "tradable": item["tradable"],
+            "has_previous_hour_candle": item["has_previous_hour_candle"],
             "leader_gap_pct": str(leader_gap_pct) if item["symbol"] == ordered[0]["symbol"] and leader_gap_pct is not None else None,
             "step_size": str(symbol_filters.step_size) if symbol_filters is not None else None,
             "min_qty": str(symbol_filters.min_qty) if symbol_filters is not None else None,
             "tick_size": str(symbol_filters.tick_size) if symbol_filters is not None else None,
+            "min_notional": str(exchange_symbol.min_notional) if exchange_symbol is not None else None,
         }
     return payloads, leader_gap_pct
 

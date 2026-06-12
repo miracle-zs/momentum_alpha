@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.broker import BinanceBroker
+from momentum_alpha.config import StrategyConfig
 from momentum_alpha.market_data import LiveMarketDataCache, _build_live_snapshots, _resolve_symbols
 from momentum_alpha.models import Position, StrategyState
 from momentum_alpha.orders import is_strategy_client_order_id
@@ -281,6 +282,10 @@ def run_once_live(
         )
         _save_strategy_state(runtime_state_store=runtime_state_store, state=merged_state)
     if audit_recorder is not None:
+        skipped_base_symbols = [
+            item.symbol
+            for item in result.runtime_result.decision.skipped_base_entries
+        ]
         fetch_account_info = getattr(client, "fetch_account_info", None)
         account_info = fetch_account_info() if callable(fetch_account_info) else None
         market_payloads, leader_gap_pct = _build_market_context_payloads(
@@ -298,6 +303,7 @@ def run_once_live(
                 "decision_id": decision_id,
                 "symbol_count": len(snapshots),
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
+                "skipped_base_symbols": skipped_base_symbols,
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
                 "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
                 "previous_leader_symbol": previous_leader_symbol,
@@ -311,6 +317,7 @@ def run_once_live(
         position_count = len(result.runtime_result.next_state.positions)
         order_status_count = 0
         signal_records: list[tuple[str, str | None, str | None, dict]] = []
+        stop_budget_usdt = StrategyConfig().stop_budget_usdt
         for sequence, intent in enumerate([*result.runtime_result.decision.base_entries, *result.runtime_result.decision.add_on_entries]):
             signal_records.append(
                 (
@@ -324,6 +331,28 @@ def run_once_live(
                     },
                 )
             )
+        signal_records.extend(
+            (
+                "base_entry_skipped",
+                skipped.symbol,
+                skipped.shadow_opportunity_id,
+                {
+                    "leg_type": "base",
+                    "blocked_reason": skipped.reason,
+                    "base_signal_sequence": skipped.base_signal_sequence,
+                    "first_base_signal_at": skipped.first_base_signal_at.isoformat(),
+                    "shadow_opportunity_id": skipped.shadow_opportunity_id,
+                    "stop_price": str(skipped.stop_price),
+                    "stop_budget_usdt": str(stop_budget_usdt),
+                    **{
+                        key: value
+                        for key, value in market_payloads.get(skipped.symbol, {}).items()
+                        if value is not None
+                    },
+                },
+            )
+            for skipped in result.runtime_result.decision.skipped_base_entries
+        )
         signal_records.extend(
             (
                 "add_on_skipped",
@@ -402,6 +431,7 @@ def run_once_live(
             payload={
                 "decision_id": decision_id,
                 "base_entry_symbols": [intent.symbol for intent in result.runtime_result.decision.base_entries],
+                "skipped_base_symbols": skipped_base_symbols,
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
                 "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
             },
