@@ -1,17 +1,17 @@
-# Crypto Ultrashort Momentum Strategy Research Design
+# Crypto Short-Horizon Momentum Strategy Research Design
 
 ## 中文执行摘要
 
-本文定义三类加密永续合约超短动量策略的独立研究方案：
+本文定义三类加密永续合约分钟级短周期动量策略的独立研究方案：
 
 1. **订单流爆发动量**：识别价格冲击、主动成交失衡、成交强度扩张和
    对手方流动性消耗是否同时发生。它不是简单追涨，而是判断推动价格的
-   主动执行是否仍在持续。主要持仓周期为 20 秒到 5 分钟。
+   主动执行是否在 1 到 5 分钟窗口内持续。主要持仓周期为 3 到 15 分钟。
 2. **波动压缩突破动量**：先识别低波动、窄区间和参与度收缩，再等待
-   价格突破、主动成交和成交强度共同确认。主要持仓周期为 1 到 15 分钟，
+   价格突破、主动成交和成交强度共同确认。主要持仓周期为 10 到 60 分钟，
    延迟敏感度最低，适合作为第一套完整研究策略。
 3. **爆仓瀑布动量**：识别强平触发后的强制执行是否继续传播，而不是
-   看到一笔爆仓就直接追单。主要持仓周期为 10 秒到 3 分钟，公开爆仓流
+   看到一笔爆仓就直接追单。主要持仓周期为 2 到 10 分钟，公开爆仓流
    并不完整，而且事件期滑点最大，因此研究和实盘难度最高。
 
 三者可能描述同一段行情的不同阶段：
@@ -29,15 +29,17 @@
 订单流负责确认入场，爆仓活动负责调整置信度或执行紧迫度，并由统一风险
 管理器避免重复持仓。
 
-研究必须使用逐笔成交、买一卖一、增量深度、爆仓事件以及本地接收时间，
-采用事件驱动回放。仅用一分钟 K 线无法可靠研究秒级策略，因为它无法还原
-事件顺序、点差、滑点和可成交价格。所有结果都必须扣除手续费、点差、
-延迟、市场冲击、止损滑点和可能发生的资金费率。
+研究保留逐笔成交、买一卖一、爆仓事件以及本地接收时间，但主要特征按
+15 秒聚合，并使用 1、3、5 分钟窗口确认趋势。逐笔数据用于重新聚合和
+复盘，不代表每笔成交或每秒都要做交易。仅用一分钟 K 线仍无法可靠还原
+主动买卖方向、点差和事件先后，但第一阶段不要求完整订单簿重建。所有
+结果都必须扣除手续费、点差、延迟、市场冲击、止损滑点和可能发生的
+资金费率。
 
-建议把这项研究放到新的 `crypto-micro-momentum` 项目，而不是继续加入
-当前 `momentum_alpha`。新策略需要 100 毫秒到秒级的数据采集、本地订单簿
-重建、海量原始事件存储、延迟感知回测和不同的运行可靠性标准，与现有
-分钟/小时级轮动系统属于不同架构。
+建议把这项研究放到新的 `crypto-short-momentum` 项目，而不是继续加入
+当前 `momentum_alpha`。新策略需要逐笔原始数据留存、15 秒聚合、分钟级
+信号确认、事件复盘和独立的研究数据集。它不以 100 毫秒或 1 秒预测为
+目标，也不与高频系统竞争。
 
 推荐研究顺序是：
 
@@ -49,7 +51,7 @@
 
 ## 1. Purpose
 
-This document defines a research program for three ultrashort cryptocurrency
+This document defines a research program for three short-horizon cryptocurrency
 momentum strategies:
 
 1. Order-flow impulse momentum.
@@ -67,8 +69,8 @@ would create duplicated exposure and misleading diversification.
 
 ## 2. Core Research Position
 
-Ultrashort momentum is not simply a faster version of daily or weekly momentum.
-At horizons from seconds to several minutes:
+Short-horizon momentum is not simply a faster version of daily or weekly
+momentum. At horizons from one minute to several tens of minutes:
 
 - raw price continuation is weak and regime-dependent;
 - market microstructure noise is large relative to expected profit;
@@ -83,9 +85,33 @@ The common hypothesis behind all three strategies is:
 > execution, and when the remaining expected move materially exceeds total
 > execution cost.
 
-The initial target horizon is 30 seconds to 5 minutes. Holding periods up to 15
-minutes may be studied for compression breakouts. Sub-second market making or
-latency arbitrage is explicitly out of scope.
+The primary feature windows are 1, 3, 5, 15, and 30 minutes. The typical
+holding period is 5 to 20 minutes, with a minimum of roughly 2 to 3 minutes and
+an extension up to 60 minutes for compression breakouts. One-second direction
+prediction, sub-second market making, and latency arbitrage are explicitly out
+of scope.
+
+### 2.1 Time-Scale Separation
+
+The system must distinguish data retention, feature aggregation, signal
+confirmation, and holding period:
+
+| Layer | Initial time scale |
+| --- | --- |
+| Raw trade retention | Exchange-native events |
+| Base feature aggregation | 15 seconds |
+| Initial impulse measurement | 1 minute |
+| Momentum confirmation | 3 minutes |
+| Broader market state | 5 to 30 minutes |
+| Decision reevaluation | Every 15 seconds |
+| Typical holding period | 5 to 20 minutes |
+| Maximum holding period | 30 to 60 minutes |
+
+Reevaluating every 15 seconds does not mean trading on a 15-second return. It
+means detecting promptly when a multi-minute condition has become valid or
+invalid. Entries should normally require persistence across multiple buckets
+and agreement between the 1-minute impulse, 3-minute confirmation, and broader
+market state.
 
 ## 3. Shared Scope
 
@@ -101,12 +127,11 @@ latency arbitrage is explicitly out of scope.
 The research universe must be point-in-time correct. Delisted symbols and
 historical changes in contract availability must not be silently excluded.
 
-### 3.2 Required Raw Data
+### 3.2 Initial Raw Data
 
 - Aggregate trades, including price, quantity, event time, and maker-side flag.
 - Best bid and ask updates.
-- Incremental order-book depth updates with sequence identifiers.
-- Periodic REST depth snapshots for deterministic local-book reconstruction.
+- One-minute klines for slower market-state features.
 - Mark price and index price.
 - Liquidation-order stream.
 - Contract metadata, tick size, quantity step, minimum quantity, and minimum
@@ -121,6 +146,20 @@ Raw websocket messages must be retained before feature calculation. Derived
 features alone are insufficient because feature definitions and replay logic
 will change during research.
 
+The initial normalized research table should use 15-second buckets containing:
+
+- open, high, low, close, and return;
+- aggressive buy and sell notional;
+- trade count and total notional;
+- best bid, best ask, spread, and quoted midpoint;
+- liquidation count and reported liquidation notional;
+- data-quality and missing-event flags.
+
+Incremental depth updates and local order-book reconstruction are optional
+second-phase additions. They should be introduced only if the simpler
+trade-flow and top-of-book model shows stable predictive value and a clear
+research question requires depth information.
+
 ### 3.3 Common Cost Model
 
 Every result must be reported after:
@@ -128,7 +167,6 @@ Every result must be reported after:
 - entry and exit commissions;
 - bid-ask spread;
 - latency between signal observation and order arrival;
-- queue position for passive orders;
 - depth-based market impact for aggressive orders;
 - stop and liquidation-event slippage;
 - funding when a position crosses a funding timestamp.
@@ -153,9 +191,11 @@ buying solely because price has recently risen.
 
 ### 4.2 Preferred Horizon
 
-- Signal windows: 1, 5, 15, 30, and 60 seconds.
-- Expected holding period: 20 seconds to 5 minutes.
-- Initial implementation target: 30 seconds to 3 minutes.
+- Base aggregation: 15 seconds.
+- Signal windows: 1, 3, and 5 minutes.
+- Minimum confirmation: multiple consecutive 15-second buckets.
+- Expected holding period: 3 to 15 minutes.
+- Typical implementation target: 5 to 10 minutes.
 
 ### 4.3 Primary Features
 
@@ -198,7 +238,7 @@ arrival_intensity_h =
 Baselines should account for symbol and time-of-week effects. Rolling medians
 and robust z-scores are preferable to means when activity is heavy-tailed.
 
-#### Order-Book Pressure
+#### Optional Order-Book Pressure
 
 Candidate features include:
 
@@ -211,7 +251,8 @@ Candidate features include:
 - book slope and local liquidity gaps.
 
 Displayed depth is cancellable and may be deceptive. Book features are
-confirmations, not standalone directional truth.
+optional second-phase confirmations, not required first-version inputs or
+standalone directional truth.
 
 #### Price Acceptance
 
@@ -249,7 +290,7 @@ The primary exit should be signal invalidation:
 - price stops progressing despite continued aggression;
 - opposing liquidity replenishes and absorbs the move;
 - price retraces a defined fraction of the initial impulse;
-- a short event-time trailing stop is crossed;
+- a trailing stop evaluated on the 15-second state is crossed;
 - maximum holding time expires.
 
 A hard emergency stop remains necessary for missing data, websocket delay,
@@ -266,10 +307,10 @@ exchange disconnects, and discontinuous price moves.
 
 ### 4.7 Minimal Viable Research Version
 
-The first version should use aggregate trades, best bid/ask, and recent price
-breaks. Full order-book features should be added only after the simpler model
-has demonstrated gross predictive power and the local book can be reconstructed
-without sequence gaps.
+The first version should use aggregate trades, best bid/ask, 15-second
+aggregation, and recent 1-to-5-minute price breaks. Full order-book features
+should be added only after the simpler model has demonstrated gross predictive
+power.
 
 ## 5. Strategy B: Volatility-Compression Breakout Momentum
 
@@ -286,8 +327,8 @@ breakout with acceptance and participation.
 ### 5.2 Preferred Horizon
 
 - Compression window: 5 to 60 minutes.
-- Breakout observation: 10 seconds to 2 minutes.
-- Expected holding period: 1 to 15 minutes.
+- Breakout observation: 1 to 3 minutes.
+- Expected holding period: 10 to 60 minutes.
 
 This is the least latency-sensitive of the three strategies and is the best
 candidate for the first complete research and execution pipeline.
@@ -341,7 +382,7 @@ Possible exits include:
 - order-flow reversal;
 - failure to make progress within a short confirmation interval;
 - volatility-scaled trailing stop;
-- partial profit-taking followed by an event-time trailing exit;
+- partial profit-taking followed by a 15-second or one-minute trailing exit;
 - maximum holding time.
 
 Research should compare full exits with partial exits, but the simpler full-exit
@@ -388,10 +429,10 @@ forced execution is still propagating after the initial event.
 
 ### 6.2 Preferred Horizon
 
-- Detection horizon: 1 to 30 seconds.
-- Expected holding period: 10 seconds to 3 minutes.
-- Optional extension: up to 5 minutes when ordinary aggressive flow continues
-  after the forced-liquidation phase.
+- Liquidation aggregation: 15 to 30 seconds.
+- Continuation confirmation: 30 to 90 seconds.
+- Entry window: 30 seconds to 2 minutes after the event begins.
+- Expected holding period: 2 to 10 minutes.
 
 ### 6.3 Required Features
 
@@ -399,7 +440,7 @@ forced execution is still propagating after the initial event.
 - price displacement before and after liquidation events;
 - aggressive-trade imbalance following the event;
 - trade and notional intensity;
-- opposing-depth depletion and liquidity gaps;
+- optional opposing-depth depletion and liquidity gaps;
 - recovery speed after the first liquidation burst;
 - mark-price and last-price divergence;
 - market-wide liquidation synchronization across major contracts.
@@ -415,7 +456,8 @@ For downward continuation:
 1. A meaningful long-liquidation event or cluster occurs.
 2. Price breaks a recent low or liquidity pocket.
 3. Aggressive selling remains elevated after the reported liquidation.
-4. Bid liquidity is depleted or withdraws.
+4. Best-bid conditions remain weak; depth depletion may be used later as an
+   optional confirmation.
 5. Price fails to recover quickly.
 6. The executable downside remaining exceeds the estimated round-trip cost.
 
@@ -449,7 +491,8 @@ Its edge, if present, is short-lived and event-specific.
 First perform event studies without trading:
 
 - align liquidation events with aggregate trades and best bid/ask;
-- measure executable forward returns after 1, 5, 10, 30, 60, and 180 seconds;
+- measure executable forward returns after 30, 60, and 90 seconds and after 2,
+  5, and 10 minutes;
 - condition results on post-event aggressive-flow continuation;
 - compare continuation events with immediate-reversal events.
 
@@ -503,17 +546,17 @@ been measured.
 
 ### 8.1 Event-Driven Replay
 
-The simulator must replay recorded messages in local receive order and rebuild
-the information set available at each decision point. It must not use
-one-minute candles as the primary backtest representation.
+The simulator must replay recorded messages in local receive order, build
+15-second feature buckets, and reconstruct the information available at each
+decision point. One-minute candles may be used for slower market-state
+features, but they must not be the sole representation for order-flow,
+liquidation, spread, or executable-price analysis.
 
 The replay engine must support:
 
 - exchange and local timestamps;
 - configurable observation and order latency;
-- order-book sequence validation;
 - aggressive market orders;
-- conservative passive-fill models;
 - partial fills;
 - cancellation delay;
 - spread and depth changes between signal and fill;
@@ -526,8 +569,8 @@ horizons rather than train directly on one arbitrary profit target.
 
 Suggested horizons:
 
-- 1, 5, 10, and 30 seconds;
-- 1, 2, 3, 5, 10, and 15 minutes.
+- 30 and 60 seconds for early response diagnostics;
+- 2, 3, 5, 10, 15, 30, and 60 minutes for strategy evaluation.
 
 Both maximum favorable excursion and maximum adverse excursion must be
 recorded. Mid-price prediction, executable return, and simulated strategy PnL
@@ -581,13 +624,13 @@ existing `momentum_alpha` repository.
 The reasons are architectural rather than cosmetic:
 
 - the existing project evaluates minute and hour strategy states, while this
-  research is event-driven at 100 ms to one-second resolution;
+  research retains tick events, aggregates them into 15-second states, and
+  confirms signals across multiple minute windows;
 - raw market-data volume and retention requirements are fundamentally larger;
-- local order-book reconstruction requires sequence-aware infrastructure;
 - backtesting needs message replay and latency-aware execution simulation;
 - process reliability and performance requirements differ from the current
   leader-rotation system;
-- independent repositories prevent experimental high-frequency code from
+- independent repositories prevent experimental short-horizon code from
   increasing operational risk in an existing live system.
 
 The existing repository may retain this document as the transfer brief. The
@@ -596,12 +639,12 @@ replay engines, models, paper-trading services, and future live execution.
 
 Suggested project name:
 
-`crypto-micro-momentum`
+`crypto-short-momentum`
 
 ## 10. Suggested New Project Structure
 
 ```text
-crypto-micro-momentum/
+crypto-short-momentum/
   README.md
   pyproject.toml
   configs/
@@ -609,7 +652,7 @@ crypto-micro-momentum/
     research/
     strategy-specs/
     experiment-log/
-  src/crypto_micro_momentum/
+  src/crypto_short_momentum/
     capture/
     normalization/
     orderbook/
@@ -642,9 +685,10 @@ be versioned.
 
 ### Phase 1: Data Integrity
 
-- Capture aggregate trades, best bid/ask, depth updates, and liquidations.
+- Capture aggregate trades, best bid/ask, liquidations, one-minute klines, and
+  mark price.
 - Record exchange and local timestamps.
-- Reconstruct and continuously validate local books.
+- Produce and validate deterministic 15-second aggregates.
 - Produce gap, lag, reconnect, and message-rate reports.
 
 No strategy conclusion is valid before this phase is reliable.
@@ -734,6 +778,8 @@ will have the highest eventual return.
 - No assumption that any of the three strategies is profitable before testing.
 - No production trading code in the existing `momentum_alpha` project.
 - No sub-second latency competition.
+- No one-second directional strategy in the initial research.
+- No full order-book reconstruction requirement in the initial research.
 - No candle-only backtest presented as microstructure evidence.
 - No parameter selection on the final test period.
 - No use of displayed order-book volume as guaranteed executable liquidity.
