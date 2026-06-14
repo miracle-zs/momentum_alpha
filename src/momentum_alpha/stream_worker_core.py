@@ -76,7 +76,7 @@ def _save_user_stream_strategy_state(
         )
         pruned_event_ids = prune_processed_event_ids_fn(state.processed_event_ids, now)
         return StoredStrategyState(
-            current_day=state.current_day,
+            current_day=existing.current_day if existing is not None else state.current_day,
             previous_leader_symbol=previous_leader_symbol,
             daily_base_signal_times=(
                 dict(existing.daily_base_signal_times or {})

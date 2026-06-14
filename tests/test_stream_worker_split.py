@@ -130,6 +130,51 @@ class StreamWorkerSplitTests(unittest.TestCase):
         )
         self.assertEqual(loaded.daily_base_signal_counts, {"ETHUSDT": 2})
 
+    def test_save_user_stream_strategy_state_preserves_newer_poll_day(self) -> None:
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.stream_worker_core import _save_user_stream_strategy_state
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-06-13",
+                    previous_leader_symbol="JCTUSDT",
+                    daily_base_signal_times={
+                        "JCTUSDT": "2026-06-13T03:58:00+00:00",
+                    },
+                    daily_base_signal_counts={"JCTUSDT": 1},
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="JCTUSDT",
+                    positions={},
+                    processed_event_ids={
+                        "evt-1": "2026-06-13T04:00:00+00:00",
+                    },
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                ),
+                now=datetime(2026, 6, 13, 4, 0, tzinfo=timezone.utc),
+            )
+            loaded = store.load()
+
+        self.assertEqual(loaded.current_day, "2026-06-13")
+        self.assertEqual(
+            loaded.daily_base_signal_times,
+            {"JCTUSDT": "2026-06-13T03:58:00+00:00"},
+        )
+        self.assertEqual(loaded.daily_base_signal_counts, {"JCTUSDT": 1})
+
     def test_trade_fill_success_triggers_rebuild_hook_once(self) -> None:
         from momentum_alpha.models import StrategyState
         from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
