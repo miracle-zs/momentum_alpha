@@ -2341,6 +2341,7 @@ class MainTests(unittest.TestCase):
                             "T": 1776215100000,
                             "o": {
                                 "s": "ETHUSDT",
+                                "c": "ma_260415011000_ETHUSDT_b00e",
                                 "S": "BUY",
                                 "X": "FILLED",
                                 "x": "TRADE",
@@ -2974,6 +2975,7 @@ class MainTests(unittest.TestCase):
             "T": 1776215100000,
             "o": {
                 "s": "ETHUSDT",
+                "c": "ma_260415011000_ETHUSDT_b00e",
                 "S": "BUY",
                 "X": "FILLED",
                 "x": "TRADE",
@@ -3286,6 +3288,7 @@ class MainTests(unittest.TestCase):
                             "symbol": "ETHUSDT",
                             "status": "NEW",
                             "side": "SELL",
+                            "client_order_id": "ma_260415011000_ETHUSDT_b00s",
                             "original_order_type": "STOP_MARKET",
                             "stop_price": "106",
                         }
@@ -3346,6 +3349,7 @@ class MainTests(unittest.TestCase):
                             "symbol": "ETHUSDT",
                             "status": "CANCELED",
                             "side": "SELL",
+                            "client_order_id": "ma_260415011000_ETHUSDT_b00s",
                             "original_order_type": "STOP_MARKET",
                             "stop_price": "106",
                         },
@@ -3353,6 +3357,7 @@ class MainTests(unittest.TestCase):
                             "symbol": "ETHUSDT",
                             "status": "NEW",
                             "side": "SELL",
+                            "client_order_id": "ma_260415011000_ETHUSDT_b00s",
                             "original_order_type": "STOP_MARKET",
                             "stop_price": "107",
                         },

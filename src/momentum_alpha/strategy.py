@@ -24,8 +24,10 @@ def _leader_symbol(market: dict[str, MarketSnapshot]) -> str | None:
     return ordered[0].symbol
 
 
-def _in_entry_window(now: datetime) -> bool:
-    return now.hour >= 1
+def _in_entry_window(now: datetime, *, start_hour_utc: int = 1, end_hour_utc: int = 23) -> bool:
+    if start_hour_utc <= end_hour_utc:
+        return start_hour_utc <= now.hour <= end_hour_utc
+    return now.hour >= start_hour_utc or now.hour <= end_hour_utc
 
 
 def _entry_stop_price(snapshot: MarketSnapshot) -> Decimal:
@@ -39,6 +41,8 @@ def evaluate_minute_close(
     now: datetime,
     state: StrategyState,
     market: dict[str, MarketSnapshot],
+    entry_start_hour_utc: int = 1,
+    entry_end_hour_utc: int = 23,
 ) -> MinuteCloseDecision:
     daily_base_signal_times = dict(state.daily_base_signal_times)
     daily_base_signal_counts = dict(state.daily_base_signal_counts)
@@ -59,7 +63,7 @@ def evaluate_minute_close(
     stop_price = _entry_stop_price(snapshot)
     cooldown_expires_at = state.recent_stop_loss_exits.get(leader)
     blocked_reason: str | None = None
-    if not _in_entry_window(now):
+    if not _in_entry_window(now, start_hour_utc=entry_start_hour_utc, end_hour_utc=entry_end_hour_utc):
         blocked_reason = "outside_entry_window"
     elif not leader_changed:
         blocked_reason = "leader_unchanged"
@@ -114,6 +118,7 @@ def evaluate_hour_close(
     now: datetime,
     state: StrategyState,
     latest_hour_lows: dict[str, Decimal],
+    latest_prices: dict[str, Decimal] | None = None,
     current_leader_symbol: str | None,
 ) -> HourCloseDecision:
     _ = now
@@ -123,8 +128,16 @@ def evaluate_hour_close(
     for symbol in sorted(state.positions):
         if symbol not in latest_hour_lows:
             continue
-        stop_price = latest_hour_lows[symbol]
-        updated_stop_prices[symbol] = stop_price
+        position = state.positions[symbol]
+        stop_price = max(latest_hour_lows[symbol], position.stop_price)
+        latest_price = None if latest_prices is None else latest_prices.get(symbol)
+        if latest_price is not None and stop_price >= latest_price:
+            skipped_add_ons.append(
+                SkippedAddOn(symbol=symbol, stop_price=stop_price, reason="invalid_stop_price")
+            )
+            continue
+        if stop_price > position.stop_price:
+            updated_stop_prices[symbol] = stop_price
         if symbol == current_leader_symbol:
             add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
         else:
@@ -144,8 +157,16 @@ def process_clock_tick(
     state: StrategyState,
     market: dict[str, MarketSnapshot],
     last_add_on_hour: int | None = None,
+    entry_start_hour_utc: int = 1,
+    entry_end_hour_utc: int = 23,
 ) -> TickDecision:
-    minute_close = evaluate_minute_close(now=now, state=state, market=market)
+    minute_close = evaluate_minute_close(
+        now=now,
+        state=state,
+        market=market,
+        entry_start_hour_utc=entry_start_hour_utc,
+        entry_end_hour_utc=entry_end_hour_utc,
+    )
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []
     updated_stop_prices: dict[str, Decimal] = {}
@@ -153,7 +174,7 @@ def process_clock_tick(
     current_hour = now.hour
     should_execute_add_on = (
         last_add_on_hour is not None
-        and (current_hour > last_add_on_hour or (current_hour == 0 and last_add_on_hour == 23))
+        and current_hour != last_add_on_hour
     )
     if should_execute_add_on:
         latest_hour_lows = {
@@ -161,10 +182,16 @@ def process_clock_tick(
             for symbol, snapshot in market.items()
             if symbol in state.positions
         }
+        latest_prices = {
+            symbol: snapshot.latest_price
+            for symbol, snapshot in market.items()
+            if symbol in state.positions
+        }
         hour_close = evaluate_hour_close(
             now=now,
             state=state,
             latest_hour_lows=latest_hour_lows,
+            latest_prices=latest_prices,
             current_leader_symbol=minute_close.new_previous_leader_symbol,
         )
         add_on_entries = hour_close.add_on_entries

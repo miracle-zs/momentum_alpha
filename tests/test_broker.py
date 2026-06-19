@@ -263,6 +263,92 @@ class BrokerTests(unittest.TestCase):
             ],
         )
 
+    def test_broker_normalizes_replacement_stop_quantity_and_price_when_filters_are_available(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.new_algo_order_calls = []
+
+            def fetch_exchange_info(self):
+                return {
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "status": "TRADING",
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "filters": [
+                                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        }
+                    ]
+                }
+
+            def fetch_open_algo_orders(self, **params):
+                return []
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                return {"status": "NEW", "symbol": "BTCUSDT"}
+
+        broker = BinanceBroker(client=FakeClient())
+
+        broker.replace_stop_orders(replacements=[("BTCUSDT", "0.0109", "61000.19")])
+
+        self.assertEqual(broker.client.new_algo_order_calls[0]["quantity"], "0.010")
+        self.assertEqual(broker.client.new_algo_order_calls[0]["stopPrice"], "61000.10")
+
+    def test_broker_exposes_stop_order_failures_after_entry_succeeds(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                if "/fapi/v1/algoOrder" in request.url:
+                    raise RuntimeError("Order would immediately trigger")
+                return {"status": "NEW", "symbol": "BTCUSDT", "type": "MARKET"}
+
+        broker = BinanceBroker(client=FakeClient())
+        plan = ExecutionPlan(
+            entry_orders=[{"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": "0.010"}],
+            stop_orders=[{"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "quantity": "0.010", "stopPrice": "61000.0"}],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+
+        self.assertEqual(responses, [{"status": "NEW", "symbol": "BTCUSDT", "type": "MARKET"}])
+        self.assertEqual(len(broker.last_stop_order_failures), 1)
+        self.assertEqual(broker.last_stop_order_failures[0]["status"], "STOP_SUBMIT_FAILED")
+
     def test_broker_skips_stop_order_when_entry_order_fails(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker

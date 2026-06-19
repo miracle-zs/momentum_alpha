@@ -49,7 +49,6 @@ def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[
         return None
     # Active statuses include both regular order statuses and algo order statuses
     active_statuses = {"NEW", "PARTIALLY_FILLED", "PENDING"}
-    fallback_stop_price: Decimal | None = None
     for order_snapshot in order_statuses.values():
         if order_snapshot.get("symbol") != symbol:
             continue
@@ -66,8 +65,7 @@ def resolve_stop_price_from_order_statuses(*, symbol: str, order_statuses: dict[
             parsed = Decimal(str(stop_price))
         except (InvalidOperation, TypeError):
             continue
-        if is_strategy_client_order_id(order_snapshot.get("client_order_id")):
+        client_order_id = order_snapshot.get("client_order_id")
+        if is_strategy_client_order_id(client_order_id) and str(client_order_id).endswith("s"):
             return parsed
-        if fallback_stop_price is None:
-            fallback_stop_price = parsed
-    return fallback_stop_price
+    return None

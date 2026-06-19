@@ -296,6 +296,7 @@ class StreamWorkerSplitTests(unittest.TestCase):
                         "s": "LABUSDT",
                         "i": 123,
                         "t": 456,
+                        "c": "ma_260506010334_LABUSDT_b00s",
                         "S": "SELL",
                         "X": "FILLED",
                         "x": "TRADE",

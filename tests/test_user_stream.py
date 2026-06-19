@@ -391,6 +391,7 @@ class UserStreamTests(unittest.TestCase):
                 "T": 1776215100000,
                 "o": {
                     "s": "ETHUSDT",
+                    "c": "ma_260415010000_ETHUSDT_b00e",
                     "S": "BUY",
                     "X": "FILLED",
                     "x": "TRADE",
@@ -405,6 +406,33 @@ class UserStreamTests(unittest.TestCase):
         self.assertIn("ETHUSDT", updated.positions)
         self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
+
+    def test_apply_manual_buy_fill_does_not_create_strategy_position(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        state = StrategyState(current_day=date(2026, 4, 15), previous_leader_symbol="BTCUSDT", positions={})
+        event = parse_user_stream_event(
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1776215100000,
+                "o": {
+                    "s": "ETHUSDT",
+                    "c": "manual_buy",
+                    "S": "BUY",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ot": "MARKET",
+                    "ap": "108",
+                    "z": "2",
+                    "sp": "106",
+                },
+            }
+        )
+
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+
+        self.assertEqual(updated.positions, {})
 
     def test_apply_order_trade_update_partial_fills_for_same_order_merge_into_one_leg(self) -> None:
         from momentum_alpha.models import StrategyState
@@ -533,6 +561,7 @@ class UserStreamTests(unittest.TestCase):
                 "T": 1776215160000,
                 "o": {
                     "s": "ETHUSDT",
+                    "c": "ma_260415010000_ETHUSDT_b00s",
                     "S": "SELL",
                     "X": "FILLED",
                     "x": "TRADE",
@@ -803,6 +832,7 @@ class UserStreamTests(unittest.TestCase):
                     "symbol": "ETHUSDT",
                     "status": "NEW",
                     "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
                     "original_order_type": "STOP_MARKET",
                     "stop_price": "106",
                 }
@@ -840,6 +870,7 @@ class UserStreamTests(unittest.TestCase):
                     "symbol": "ETHUSDT",
                     "status": "CANCELED",
                     "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
                     "original_order_type": "STOP_MARKET",
                     "stop_price": "106",
                 }
@@ -876,6 +907,7 @@ class UserStreamTests(unittest.TestCase):
                     "symbol": "ETHUSDT",
                     "status": "CANCELED",
                     "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
                     "original_order_type": "STOP_MARKET",
                     "stop_price": "106",
                 },
@@ -883,6 +915,7 @@ class UserStreamTests(unittest.TestCase):
                     "symbol": "ETHUSDT",
                     "status": "NEW",
                     "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
                     "original_order_type": "STOP_MARKET",
                     "stop_price": "107",
                 },
@@ -1097,7 +1130,7 @@ class UserStreamTests(unittest.TestCase):
         }
         eth_stop = resolve_stop_price_from_order_statuses(symbol="ETHUSDT", order_statuses=order_statuses)
         btc_stop = resolve_stop_price_from_order_statuses(symbol="BTCUSDT", order_statuses=order_statuses)
-        self.assertEqual(eth_stop, Decimal("106"))
+        self.assertIsNone(eth_stop)
         self.assertEqual(btc_stop, Decimal("61000"))
 
     def test_apply_account_update_restores_stop_price_from_algo_order(self) -> None:
@@ -1129,6 +1162,7 @@ class UserStreamTests(unittest.TestCase):
                     "symbol": "BTCUSDT",
                     "status": "NEW",
                     "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
                     "original_order_type": "STOP_MARKET",
                     "stop_price": "61000",
                     "client_order_id": "ma_260415221700_BTCUSDT_b00s",

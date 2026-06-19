@@ -81,7 +81,12 @@ def apply_user_stream_event_to_state(
     if event.event_type != "ORDER_TRADE_UPDATE" or event.order_status != "FILLED" or event.symbol is None:
         return state
 
-    if event.side == "BUY" and event.average_price is not None and event.filled_quantity is not None:
+    if (
+        event.side == "BUY"
+        and is_strategy_client_order_id(event.client_order_id)
+        and event.average_price is not None
+        and event.filled_quantity is not None
+    ):
         stop_price = event.stop_price if event.stop_price is not None else Decimal("0")
         filled_at = event.event_time or datetime.now(timezone.utc)
         return apply_fill(

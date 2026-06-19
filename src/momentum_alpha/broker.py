@@ -4,13 +4,15 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from time import sleep as default_sleep
 from typing import Callable
 from urllib.error import URLError
 
 from momentum_alpha.binance_client import BinanceHttpError
 from momentum_alpha.execution import ExecutionPlan
-from momentum_alpha.orders import is_strategy_client_order_id
+from momentum_alpha.exchange_info import ExchangeSymbol, parse_exchange_info
+from momentum_alpha.orders import build_stop_market_order, is_strategy_client_order_id
 from momentum_alpha.trace_ids import build_symbol_token
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,10 @@ def _is_transient_entry_error(exc: Exception) -> bool:
     return False
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    return isinstance(exc, BinanceHttpError) and exc.status_code in {418, 429}
+
+
 @dataclass
 class BinanceBroker:
     client: object
@@ -48,11 +54,14 @@ class BinanceBroker:
     sleep_fn: Callable[[float], None] = default_sleep
     last_stop_replacement_failures: list[dict[str, str]] = field(default_factory=list, init=False)
     last_entry_order_failures: list[dict[str, object]] = field(default_factory=list, init=False)
+    last_stop_order_failures: list[dict[str, object]] = field(default_factory=list, init=False)
+    _exchange_symbols: dict[str, ExchangeSymbol] | None = field(default=None, init=False, repr=False)
 
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         submitted_entry_symbols: list[str | None] = []
         self.last_entry_order_failures = []
+        self.last_stop_order_failures = []
         for order in plan.entry_orders:
             response = self._submit_entry_order(order)
             if response is not None:
@@ -66,7 +75,10 @@ class BinanceBroker:
             try:
                 responses.append(self.client.send(self.client.new_algo_order(**order)))
             except Exception as exc:
+                if _is_rate_limit_error(exc):
+                    raise
                 logger.error(f"stop order failed for {order.get('symbol')}: {exc}")
+                self.last_stop_order_failures.append(self._order_failure_payload(order, exc, "STOP_SUBMIT_FAILED"))
         return responses
 
     def _submit_entry_order(self, order: dict[str, str]) -> dict | None:
@@ -77,9 +89,11 @@ class BinanceBroker:
                 return self.client.send(self.client.new_order(**order))
             except Exception as exc:
                 last_error = exc
+                if _is_rate_limit_error(exc):
+                    raise
                 if not _is_transient_entry_error(exc):
                     logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
-                    self.last_entry_order_failures.append(self._entry_failure_payload(order, exc, attempt + 1))
+                    self.last_entry_order_failures.append(self._order_failure_payload(order, exc, "SUBMIT_FAILED", attempt + 1))
                     return None
                 recovered = self._fetch_existing_entry_order(order)
                 if recovered is not None:
@@ -90,7 +104,7 @@ class BinanceBroker:
                     continue
                 logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
         if last_error is not None:
-            self.last_entry_order_failures.append(self._entry_failure_payload(order, last_error, attempts))
+            self.last_entry_order_failures.append(self._order_failure_payload(order, last_error, "SUBMIT_FAILED", attempts))
         return None
 
     def _fetch_existing_entry_order(self, order: dict[str, str]) -> dict | None:
@@ -108,18 +122,31 @@ class BinanceBroker:
             return None
 
     @staticmethod
-    def _entry_failure_payload(order: dict[str, str], exc: Exception, attempts: int) -> dict[str, object]:
+    def _order_failure_payload(
+        order: dict[str, str],
+        exc: Exception,
+        status: str,
+        attempts: int | None = None,
+    ) -> dict[str, object]:
         return {
             "symbol": order.get("symbol"),
             "side": order.get("side"),
             "type": order.get("type"),
             "quantity": order.get("quantity"),
             "clientOrderId": order.get("newClientOrderId"),
-            "status": "SUBMIT_FAILED",
+            "status": status,
             "error": str(exc),
             "errorType": type(exc).__name__,
             "attempts": attempts,
         }
+
+    def _exchange_symbol_for_replacement(self, symbol: str) -> ExchangeSymbol | None:
+        if self._exchange_symbols is None:
+            fetch_exchange_info = getattr(self.client, "fetch_exchange_info", None)
+            if not callable(fetch_exchange_info):
+                return None
+            self._exchange_symbols = parse_exchange_info(fetch_exchange_info())
+        return self._exchange_symbols.get(symbol)
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
         responses: list[dict] = []
@@ -137,24 +164,49 @@ class BinanceBroker:
                 client_algo_id = order.get("clientAlgoId")
                 if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_algo_id):
                     strategy_stop_orders.append(order)
-            order_params = {
-                "symbol": symbol,
-                "side": "SELL",
-                "type": "STOP_MARKET",
-                "quantity": quantity,
-                "stopPrice": stop_price,
-                "workingType": "CONTRACT_PRICE",
-                "newClientOrderId": _build_replacement_stop_client_order_id(symbol),
-            }
-            if position_side is not None:
-                order_params["positionSide"] = position_side
+            client_order_id = _build_replacement_stop_client_order_id(symbol)
+            exchange_symbol = self._exchange_symbol_for_replacement(symbol)
+            if exchange_symbol is None:
+                order_params = {
+                    "symbol": symbol,
+                    "side": "SELL",
+                    "type": "STOP_MARKET",
+                    "quantity": quantity,
+                    "stopPrice": stop_price,
+                    "workingType": "CONTRACT_PRICE",
+                    "newClientOrderId": client_order_id,
+                }
+                if position_side is not None:
+                    order_params["positionSide"] = position_side
+                else:
+                    order_params["reduceOnly"] = "true"
             else:
-                order_params["reduceOnly"] = "true"
+                try:
+                    order_params = build_stop_market_order(
+                        symbol=exchange_symbol,
+                        quantity=Decimal(str(quantity)),
+                        stop_price=Decimal(str(stop_price)),
+                        client_order_id=client_order_id,
+                        position_side=position_side,
+                    )
+                except Exception as exc:
+                    logger.error(f"replacement stop order build failed for {symbol}: {exc}")
+                    self.last_stop_replacement_failures.append(
+                        {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "stop_price": stop_price,
+                            "message": str(exc),
+                        }
+                    )
+                    continue
             try:
                 responses.append(
                     self.client.send(self.client.new_algo_order(**order_params))
                 )
             except Exception as exc:
+                if _is_rate_limit_error(exc):
+                    raise
                 logger.error(f"replacement stop order failed for {symbol}: {exc}")
                 self.last_stop_replacement_failures.append(
                     {

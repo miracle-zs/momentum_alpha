@@ -4,6 +4,8 @@ from momentum_alpha.orders import is_strategy_client_order_id
 
 from .user_stream_event_model import UserStreamEvent
 
+_ACTIVE_STOP_ORDER_STATUSES = {"NEW", "PARTIALLY_FILLED", "PENDING"}
+
 
 def user_stream_event_id(event: UserStreamEvent) -> str | None:
     if event.event_type != "ORDER_TRADE_UPDATE":
@@ -21,11 +23,10 @@ def user_stream_event_id(event: UserStreamEvent) -> str | None:
 def _is_strategy_stop_fill(event: UserStreamEvent) -> bool:
     if event.side != "SELL":
         return False
-    if event.original_order_type == "STOP_MARKET":
-        return True
-    if not is_strategy_client_order_id(event.client_order_id):
+    client_order_id = event.client_order_id or event.client_algo_id
+    if not is_strategy_client_order_id(client_order_id):
         return False
-    return bool(event.client_order_id and event.client_order_id.endswith("s"))
+    return bool(client_order_id and client_order_id.endswith("s"))
 
 
 def _is_strategy_stop_order_for_symbol(symbol: str, order_statuses: dict[str, dict] | None) -> bool:
@@ -40,11 +41,11 @@ def _is_strategy_stop_order_for_symbol(symbol: str, order_statuses: dict[str, di
             continue
         if snapshot.get("symbol") != symbol:
             continue
-        # Check if it's a stop-loss order
+        status = snapshot.get("status")
+        if status not in _ACTIVE_STOP_ORDER_STATUSES:
+            continue
         order_type = snapshot.get("original_order_type")
         client_order_id = snapshot.get("client_order_id", "")
-        if order_type == "STOP_MARKET":
-            return True
-        if is_strategy_client_order_id(client_order_id) and client_order_id.endswith("s"):
+        if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_order_id) and client_order_id.endswith("s"):
             return True
     return False

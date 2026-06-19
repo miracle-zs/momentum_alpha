@@ -39,6 +39,8 @@ def _build_orders_for_intent(
     )
     if quantity is None:
         return None
+    if exchange_symbol.min_notional > 0 and quantity * snapshot.latest_price < exchange_symbol.min_notional:
+        return None
 
     opened_at = now.astimezone(timezone.utc)
     entry_order = build_market_entry_order(

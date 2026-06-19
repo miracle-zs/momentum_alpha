@@ -41,8 +41,11 @@ def _has_strategy_stop_evidence(
 ) -> bool:
     if position.stop_price > Decimal("0"):
         return True
+    active_statuses = {"NEW", "PARTIALLY_FILLED", "PENDING"}
     for snapshot in (order_statuses or {}).values():
         if snapshot is None or snapshot.get("symbol") != symbol:
+            continue
+        if snapshot.get("status") not in active_statuses:
             continue
         order_type = snapshot.get("original_order_type") or snapshot.get("type") or snapshot.get("orderType")
         client_order_id = (
@@ -50,9 +53,7 @@ def _has_strategy_stop_evidence(
             or snapshot.get("clientOrderId")
             or snapshot.get("clientAlgoId")
         )
-        if order_type == "STOP_MARKET":
-            return True
-        if is_strategy_client_order_id(client_order_id) and str(client_order_id).endswith("s"):
+        if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_order_id) and str(client_order_id).endswith("s"):
             return True
     return False
 
@@ -87,7 +88,7 @@ def _prefer_position_history(existing: Position | None, candidate: Position) -> 
     """Keep richer leg history when restored data would collapse a position."""
     if existing is None:
         return candidate
-    if len(existing.legs) > len(candidate.legs):
+    if len(existing.legs) > len(candidate.legs) and existing.total_quantity == candidate.total_quantity:
         return existing if existing.stop_price == candidate.stop_price else existing.with_stop_price(candidate.stop_price)
     return candidate
 
@@ -253,9 +254,11 @@ def run_once_live(
                     print(f"stop replacement failed: {exc}")
     broker_responses: list[dict] = []
     entry_order_failures: list[dict] = []
+    stop_order_failures: list[dict] = []
     if submit_orders:
         broker_responses = broker.submit_execution_plan(result.execution_plan)
         entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
+        stop_order_failures = list(getattr(broker, "last_stop_order_failures", []) or [])
         result = replace(result, broker_responses=broker_responses)
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
@@ -310,6 +313,7 @@ def run_once_live(
                 "next_previous_leader_symbol": result.runtime_result.next_state.previous_leader_symbol,
                 "broker_response_count": len(result.broker_responses),
                 "entry_order_failure_count": len(entry_order_failures),
+                "stop_order_failure_count": len(stop_order_failures),
                 "stop_replacement_count": len(stop_replacements),
                 "stop_replacement_failure_count": len(stop_replacement_failures),
             },
@@ -466,17 +470,18 @@ def run_once_live(
                 action_type="submit_order",
                 decision_id=decision_id,
             )
-        if entry_order_failures:
+        order_submit_failures = [*entry_order_failures, *stop_order_failures]
+        if order_submit_failures:
             audit_recorder.record(
                 event_type="broker_submit_failures",
                 now=now,
                 decision_id=decision_id,
-                payload={"failures": entry_order_failures, "decision_id": decision_id},
+                payload={"failures": order_submit_failures, "decision_id": decision_id},
             )
             _record_broker_orders(
                 audit_recorder=audit_recorder,
                 now=now,
-                responses=entry_order_failures,
+                responses=order_submit_failures,
                 action_type="submit_order_failed",
                 decision_id=decision_id,
             )
@@ -516,4 +521,5 @@ def run_once_live(
         broker_responses=result.broker_responses,
         stop_replacements=stop_replacements,
         entry_order_failures=entry_order_failures,
+        stop_order_failures=stop_order_failures,
     )

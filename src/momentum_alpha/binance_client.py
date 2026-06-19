@@ -7,6 +7,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from typing import Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -57,6 +58,7 @@ class BinanceRequest:
     url: str
     headers: dict[str, str]
     body: str | None = None
+    refresh: Callable[[], "BinanceRequest"] | None = None
 
 
 class BinanceHttpError(HTTPError):
@@ -159,18 +161,25 @@ class BinanceRestClient:
         signature = sign_query(secret=self.api_secret, query=query)
         signed_query = f"{query}&signature={signature}"
         upper_method = method.upper()
+        refresh = (
+            None
+            if timestamp_ms is not None
+            else lambda: self.build_signed_request(method=method, path=path, params=params)
+        )
         if upper_method in {"GET", "DELETE"}:
             return BinanceRequest(
                 method=upper_method,
                 url=f"{self.base_url}{path}?{signed_query}",
                 headers=self._headers(),
                 body=None,
+                refresh=refresh,
             )
         return BinanceRequest(
             method=upper_method,
             url=f"{self.base_url}{path}",
             headers=self._headers(),
             body=signed_query,
+            refresh=refresh,
         )
 
     def new_order(self, **params: str) -> BinanceRequest:
@@ -186,14 +195,15 @@ class BinanceRestClient:
         return self.build_signed_request(method="POST", path="/fapi/v1/algoOrder", params=algo_params)
 
     def send(self, request: BinanceRequest) -> dict:
-        raw_request = Request(
-            url=request.url,
-            headers=request.headers,
-            data=request.body.encode("utf-8") if request.body is not None else None,
-            method=request.method,
-        )
         attempts = len(self.retry_delays) + 1
         for attempt in range(attempts):
+            attempt_request = request if attempt == 0 or request.refresh is None else request.refresh()
+            raw_request = Request(
+                url=attempt_request.url,
+                headers=attempt_request.headers,
+                data=attempt_request.body.encode("utf-8") if attempt_request.body is not None else None,
+                method=attempt_request.method,
+            )
             attempt_started_at = time.perf_counter()
             try:
                 try:
@@ -207,8 +217,8 @@ class BinanceRestClient:
                         self.logger,
                         service="binance-client",
                         event="request",
-                        method=request.method,
-                        endpoint=urlsplit(request.url).path,
+                        method=attempt_request.method,
+                        endpoint=urlsplit(attempt_request.url).path,
                         attempt=attempt + 1,
                         retries=attempt,
                         elapsed_ms=elapsed_ms,
@@ -232,8 +242,8 @@ class BinanceRestClient:
                         service="binance-client",
                         event="request-retry",
                         level="WARNING",
-                        method=request.method,
-                        endpoint=urlsplit(request.url).path,
+                        method=attempt_request.method,
+                        endpoint=urlsplit(attempt_request.url).path,
                         attempt=attempt + 1,
                         retries=len(self.retry_delays),
                         elapsed_ms=elapsed_ms,
@@ -248,8 +258,8 @@ class BinanceRestClient:
                     service="binance-client",
                     event="request-failed",
                     level="ERROR",
-                    method=request.method,
-                    endpoint=urlsplit(request.url).path,
+                    method=attempt_request.method,
+                    endpoint=urlsplit(attempt_request.url).path,
                     attempt=attempt + 1,
                     retries=len(self.retry_delays),
                     elapsed_ms=elapsed_ms,
@@ -259,8 +269,8 @@ class BinanceRestClient:
                 raise BinanceHttpError(
                     exc,
                     response_body,
-                    request_method=request.method,
-                    request_url=request.url,
+                    request_method=attempt_request.method,
+                    request_url=attempt_request.url,
                 ) from exc
             except URLError as exc:
                 elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
@@ -270,8 +280,8 @@ class BinanceRestClient:
                         service="binance-client",
                         event="request-failed",
                         level="ERROR",
-                        method=request.method,
-                        endpoint=urlsplit(request.url).path,
+                        method=attempt_request.method,
+                        endpoint=urlsplit(attempt_request.url).path,
                         attempt=attempt + 1,
                         retries=len(self.retry_delays),
                         elapsed_ms=elapsed_ms,
@@ -283,8 +293,8 @@ class BinanceRestClient:
                     service="binance-client",
                     event="request-retry",
                     level="WARNING",
-                    method=request.method,
-                    endpoint=urlsplit(request.url).path,
+                    method=attempt_request.method,
+                    endpoint=urlsplit(attempt_request.url).path,
                     attempt=attempt + 1,
                     retries=len(self.retry_delays),
                     elapsed_ms=elapsed_ms,

@@ -17,6 +17,8 @@ class MarketSnapshot:
 
     @property
     def daily_change_pct(self) -> Decimal:
+        if self.daily_open_price <= 0:
+            return Decimal("0")
         return (self.latest_price - self.daily_open_price) / self.daily_open_price
 
 

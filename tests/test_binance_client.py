@@ -193,6 +193,56 @@ class BinanceClientTests(unittest.TestCase):
         self.assertEqual(opener.calls, 2)
         self.assertEqual(sleeps, [0.5])
 
+    def test_signed_request_refreshes_timestamp_between_retries(self) -> None:
+        from urllib.parse import parse_qs
+
+        from momentum_alpha.binance_client import BinanceRestClient
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return json.dumps({"ok": True}).encode("utf-8")
+
+        class FlakyOpener:
+            def __init__(self) -> None:
+                self.bodies = []
+
+            def __call__(self, request, timeout=None):
+                self.bodies.append(request.data.decode("utf-8"))
+                if len(self.bodies) == 1:
+                    raise HTTPError(
+                        url=request.full_url,
+                        code=429,
+                        msg="Too Many Requests",
+                        hdrs=None,
+                        fp=BytesIO(b'{"code":-1003,"msg":"Too many requests"}'),
+                    )
+                return FakeResponse()
+
+        opener = FlakyOpener()
+        client = BinanceRestClient(
+            api_key="key",
+            api_secret="secret",
+            opener=opener,
+            retry_delays=(0,),
+            sleep_fn=lambda seconds: None,
+        )
+        with patch("momentum_alpha.binance_client.time.time", side_effect=[1700000000.0, 1700000001.0]):
+            payload = client.send(client.new_order(symbol="BTCUSDT", side="BUY"))
+
+        first_timestamp = parse_qs(opener.bodies[0])["timestamp"][0]
+        second_timestamp = parse_qs(opener.bodies[1])["timestamp"][0]
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(first_timestamp, "1700000000000")
+        self.assertEqual(second_timestamp, "1700000001000")
+
     def test_send_waits_until_ban_lifts_for_http_error_418(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
 

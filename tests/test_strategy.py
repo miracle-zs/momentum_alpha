@@ -375,6 +375,73 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.add_on_entries, [])
         self.assertEqual(result.skipped_add_ons[0].symbol, "BTCUSDT")
 
+    def test_add_on_runs_after_missed_midnight_hour(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import process_clock_tick
+
+        now = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        leg_time = datetime(2026, 4, 14, 23, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("100"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("1"), Decimal("110"), Decimal("100"), leg_time, "base"),),
+                )
+            },
+        )
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("125"),
+                previous_hour_low=Decimal("115"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = process_clock_tick(now=now, state=state, market=market, last_add_on_hour=23)
+
+        self.assertEqual([intent.symbol for intent in result.add_on_entries], ["ETHUSDT"])
+        self.assertEqual(result.updated_stop_prices["ETHUSDT"], Decimal("115"))
+
+    def test_add_on_skips_when_stop_price_would_immediately_trigger(self) -> None:
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import process_clock_tick
+
+        now = datetime(2026, 4, 14, 2, 0, tzinfo=timezone.utc)
+        leg_time = datetime(2026, 4, 14, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("100"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("1"), Decimal("110"), Decimal("100"), leg_time, "base"),),
+                )
+            },
+        )
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("105"),
+                previous_hour_low=Decimal("106"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = process_clock_tick(now=now, state=state, market=market, last_add_on_hour=1)
+
+        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual(result.updated_stop_prices, {})
+        self.assertEqual(result.skipped_add_ons[0].reason, "invalid_stop_price")
+
     def test_first_valid_base_signal_consumes_daily_opportunity(self) -> None:
         from momentum_alpha.models import StrategyState
         from momentum_alpha.strategy import evaluate_minute_close

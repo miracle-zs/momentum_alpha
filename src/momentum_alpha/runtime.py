@@ -72,6 +72,8 @@ def process_runtime_tick(
         state=normalized_state,
         market=runtime.market,
         last_add_on_hour=last_add_on_hour,
+        entry_start_hour_utc=runtime.config.entry_start_hour_utc,
+        entry_end_hour_utc=runtime.config.entry_end_hour_utc,
     )
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,
