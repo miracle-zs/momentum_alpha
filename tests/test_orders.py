@@ -133,3 +133,17 @@ class BinanceOrderPayloadTests(unittest.TestCase):
         )
 
         self.assertEqual(client_order_id, "ma_260510100000_BTCUSDT_a00e")
+
+    def test_client_order_id_for_non_ascii_symbol_is_binance_safe(self) -> None:
+        from momentum_alpha.orders import build_client_order_id
+
+        client_order_id = build_client_order_id(
+            symbol="龙虾USDT",
+            opened_at=datetime(2026, 6, 16, 4, 17, tzinfo=timezone.utc),
+            leg_type="base",
+            order_kind="entry",
+            sequence=0,
+        )
+
+        self.assertRegex(client_order_id, r"^[.A-Z:/a-z0-9_-]{1,36}$")
+        self.assertNotIn("龙虾", client_order_id)

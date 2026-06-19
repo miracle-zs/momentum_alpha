@@ -11,6 +11,7 @@ from urllib.error import URLError
 from momentum_alpha.binance_client import BinanceHttpError
 from momentum_alpha.execution import ExecutionPlan
 from momentum_alpha.orders import is_strategy_client_order_id
+from momentum_alpha.trace_ids import build_symbol_token
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 def _build_replacement_stop_client_order_id(symbol: str, *, now: datetime | None = None) -> str:
     resolved_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     timestamp_token = resolved_now.strftime("%y%m%d%H%M%S") + f"{resolved_now.microsecond // 1000:03d}"
-    symbol_token = "".join(ch for ch in symbol.upper() if ch.isalnum())[-10:] or "UNKNOWN"
+    symbol_token = build_symbol_token(symbol, max_length=10)
     return f"ma_{timestamp_token}_{symbol_token}_r00s"
 
 

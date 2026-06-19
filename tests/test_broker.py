@@ -11,6 +11,19 @@ if str(SRC) not in sys.path:
 
 
 class BrokerTests(unittest.TestCase):
+    def test_replacement_stop_client_order_id_for_non_ascii_symbol_is_binance_safe(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.broker import _build_replacement_stop_client_order_id
+
+        client_order_id = _build_replacement_stop_client_order_id(
+            "龙虾USDT",
+            now=datetime(2026, 6, 16, 4, 17, 0, 123000, tzinfo=timezone.utc),
+        )
+
+        self.assertRegex(client_order_id, r"^[.A-Z:/a-z0-9_-]{1,36}$")
+        self.assertNotIn("龙虾", client_order_id)
+
     def test_broker_submits_entry_and_stop_orders(self) -> None:
         from momentum_alpha.binance_filters import SymbolFilters
         from momentum_alpha.binance_client import BinanceRequest
