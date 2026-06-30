@@ -28,6 +28,10 @@ class LiveMarketDataCache:
     def exchange_symbol_map(self, *, client) -> dict[str, object]:
         return self._exchange_symbols(client=client)
 
+    def refresh_exchange_symbols(self, *, client) -> dict[str, object]:
+        self.exchange_symbols = parse_exchange_info(client.fetch_exchange_info())
+        return self.exchange_symbols
+
     def _exchange_symbols(self, *, client) -> dict[str, object]:
         if self.exchange_symbols is None:
             self.exchange_symbols = parse_exchange_info(client.fetch_exchange_info())

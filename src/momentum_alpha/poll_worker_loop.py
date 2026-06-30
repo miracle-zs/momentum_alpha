@@ -88,11 +88,14 @@ def run_forever(
 
     def _run_once(now):
         nonlocal rate_limited_until, last_add_on_hour
+        nonlocal resolved_symbols
         if rate_limited_until is not None and now < rate_limited_until:
             _log("rate-limit-backoff", level="WARN", until=rate_limited_until)
             return
         if last_add_on_hour is None:
             last_add_on_hour = now.hour
+        if symbols is None:
+            resolved_symbols = list(market_data_cache.refresh_exchange_symbols(client=client).keys())
         _log("tick", now=now, last_add_on_hour=last_add_on_hour)
         try:
             try:

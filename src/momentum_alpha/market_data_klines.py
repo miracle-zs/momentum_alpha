@@ -20,7 +20,7 @@ def _fetch_daily_open_klines(*, client, symbol: str, now: datetime):
         symbol=symbol,
         interval="1m",
         limit=1,
-        start_time_ms=day_open_start_ms,
+        start_time_ms=0,
         end_time_ms=int(now.astimezone(timezone.utc).timestamp() * 1000),
     )
 

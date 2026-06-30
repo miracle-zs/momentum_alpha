@@ -214,6 +214,84 @@ class PollWorkerTests(unittest.TestCase):
 
         self.assertEqual(calls, [1, 1])
 
+    def test_run_forever_refreshes_auto_symbols_during_long_running_poll(self) -> None:
+        from momentum_alpha.execution import ExecutionPlan
+        from momentum_alpha.models import StrategyState, TickDecision
+        from momentum_alpha.poll_worker import RunOnceResult, run_forever
+        from momentum_alpha.runtime import RuntimeTickResult
+
+        symbol_batches = []
+
+        class Client:
+            def __init__(self) -> None:
+                self.exchange_info_calls = 0
+
+            def fetch_exchange_info(self):
+                self.exchange_info_calls += 1
+                symbols = ["BTCUSDT"] if self.exchange_info_calls == 1 else ["BTCUSDT", "NEWUSDT"]
+                return {
+                    "symbols": [
+                        {
+                            "symbol": symbol,
+                            "contractType": "PERPETUAL",
+                            "quoteAsset": "USDT",
+                            "status": "TRADING",
+                            "filters": [
+                                {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                                {"filterType": "MARKET_LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+                                {"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+                            ],
+                        }
+                        for symbol in symbols
+                    ]
+                }
+
+        class Broker:
+            pass
+
+        def live_runner(**kwargs):
+            symbol_batches.append(kwargs["symbols"])
+            decision = TickDecision(
+                base_entries=[],
+                add_on_entries=[],
+                updated_stop_prices={},
+                new_previous_leader_symbol=None,
+                new_last_add_on_hour=kwargs["last_add_on_hour"],
+            )
+            state = StrategyState(
+                current_day=datetime(2026, 4, 21, tzinfo=timezone.utc).date(),
+                previous_leader_symbol=None,
+            )
+            return RunOnceResult(
+                runtime_result=RuntimeTickResult(
+                    decision=decision,
+                    execution_plan=ExecutionPlan(entry_orders=[], stop_orders=[]),
+                    next_state=state,
+                ),
+                broker_responses=[],
+                stop_replacements=[],
+            )
+
+        times = [
+            datetime(2026, 4, 21, 1, 0, tzinfo=timezone.utc),
+            datetime(2026, 4, 21, 1, 1, tzinfo=timezone.utc),
+        ]
+
+        run_forever(
+            symbols=None,
+            previous_leader_symbol=None,
+            submit_orders=False,
+            runtime_state_store=None,
+            client_factory=lambda: Client(),
+            broker_factory=lambda client: Broker(),
+            now_provider=lambda: times.pop(0),
+            sleep_fn=lambda seconds: None,
+            max_ticks=2,
+            run_once_live_fn=live_runner,
+        )
+
+        self.assertEqual(symbol_batches[-1], ["BTCUSDT", "NEWUSDT"])
+
     def test_run_once_live_restores_daily_base_history_without_positions(self) -> None:
         from momentum_alpha.poll_worker_core_live import run_once_live
         from momentum_alpha.runtime_store import RuntimeStateStore
