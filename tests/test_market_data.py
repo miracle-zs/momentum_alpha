@@ -82,7 +82,7 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(snapshots[0]["latest_price"], Decimal("105"))
         self.assertEqual(snapshots[0]["previous_hour_low"], Decimal("95"))
 
-    def test_build_live_snapshots_uses_first_available_minute_for_new_listing_open(self) -> None:
+    def test_build_live_snapshots_uses_first_available_daily_minute_for_new_listing_open(self) -> None:
         from momentum_alpha.market_data import build_live_snapshots
 
         class Client:
@@ -104,7 +104,7 @@ class MarketDataTests(unittest.TestCase):
                 )
                 if interval == "1m" and start_time_ms == 1776211200000 and end_time_ms == 1776211259999:
                     return []
-                if interval == "1m" and start_time_ms == 0:
+                if interval == "1m" and start_time_ms == 1776211200000:
                     return [[1776258000000, "100", "136", "99", "135", "1", 0, "1", 1, "1", "1", "0"]]
                 if interval == "1h":
                     return [[1776254400000, "105", "136", "104", "135", "1", 0, "1", 1, "1", "1", "0"]]
@@ -122,4 +122,47 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual([item["symbol"] for item in snapshots], ["NEWUSDT"])
         self.assertEqual(snapshots[0]["daily_open_price"], Decimal("100"))
         self.assertEqual(client.kline_calls[1]["limit"], 1)
-        self.assertEqual(client.kline_calls[1]["start_time_ms"], 0)
+        self.assertEqual(client.kline_calls[1]["start_time_ms"], 1776211200000)
+
+    def test_build_live_snapshots_does_not_use_listing_open_as_daily_open_for_existing_symbol(self) -> None:
+        from momentum_alpha.market_data import build_live_snapshots
+
+        class Client:
+            def __init__(self) -> None:
+                self.kline_calls = []
+
+            def fetch_ticker_prices(self):
+                return [{"symbol": "SOLUSDT", "price": "75"}]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                self.kline_calls.append(
+                    {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "limit": limit,
+                        "start_time_ms": start_time_ms,
+                        "end_time_ms": end_time_ms,
+                    }
+                )
+                if interval == "1m" and start_time_ms == 1776211200000 and end_time_ms == 1776211259999:
+                    return []
+                if interval == "1m" and start_time_ms == 0:
+                    return [[0, "3.2002", "4", "3", "3.5", "1", 0, "1", 1, "1", "1", "0"]]
+                if interval == "1m" and start_time_ms == 1776211200000:
+                    return [[1776213000000, "74.50", "75.20", "74.10", "75", "1", 0, "1", 1, "1", "1", "0"]]
+                if interval == "1h":
+                    return [[1776254400000, "74.8", "75.2", "74.0", "75", "1", 0, "1", 1, "1", "1", "0"]]
+                return []
+
+        client = Client()
+
+        snapshots = build_live_snapshots(
+            symbols=["SOLUSDT"],
+            held_symbols=set(),
+            client=client,
+            now=datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([item["symbol"] for item in snapshots], ["SOLUSDT"])
+        self.assertEqual(snapshots[0]["daily_open_price"], Decimal("74.50"))
+        self.assertNotIn(0, [call["start_time_ms"] for call in client.kline_calls if call["interval"] == "1m"])

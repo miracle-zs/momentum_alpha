@@ -126,6 +126,28 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
         self.assertEqual(result.blocked_reason, "outside_entry_window")
 
+    def test_entry_window_open_does_not_replay_leader_seen_during_blocked_window(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        blocked_time = datetime(2026, 4, 14, 0, 59, tzinfo=timezone.utc)
+        entry_time = datetime(2026, 4, 14, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(current_day=blocked_time.date(), previous_leader_symbol="BTCUSDT", positions={})
+        market = self._leader_change_market()
+
+        blocked = evaluate_minute_close(now=blocked_time, state=state, market=market)
+        state_after_blocked_window = StrategyState(
+            current_day=entry_time.date(),
+            previous_leader_symbol=blocked.new_previous_leader_symbol,
+            positions={},
+        )
+        opened = evaluate_minute_close(now=entry_time, state=state_after_blocked_window, market=market)
+
+        self.assertEqual(blocked.blocked_reason, "outside_entry_window")
+        self.assertEqual(blocked.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(opened.base_entries, [])
+        self.assertEqual(opened.new_previous_leader_symbol, "ETHUSDT")
+
     def test_reports_blocked_reason_when_leader_already_held(self) -> None:
         from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
         from momentum_alpha.strategy import evaluate_minute_close

@@ -1124,7 +1124,7 @@ class MainTests(unittest.TestCase):
         fallback_call = client.kline_calls[1]
         self.assertEqual(first_minute_call["start_time_ms"], 1776211200000)
         self.assertEqual(first_minute_call["end_time_ms"], 1776211259999)
-        self.assertEqual(fallback_call["start_time_ms"], 0)
+        self.assertEqual(fallback_call["start_time_ms"], 1776211200000)
         self.assertEqual(fallback_call["end_time_ms"], 1776216600000)
 
     def test_run_once_live_skips_symbol_when_daily_open_candle_is_unavailable(self) -> None:
