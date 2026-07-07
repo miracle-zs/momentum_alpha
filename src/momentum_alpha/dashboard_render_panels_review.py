@@ -203,12 +203,13 @@ def render_daily_review_panel(report: dict | None) -> str:
         )
         for label, value in kpi_items
     )
+    empty_rows_html = '<div class="trade-history-empty">No trade rows</div>'
     rows_html = (
         "<div class='analytics-table daily-review-table'>"
         "<div class='analytics-row analytics-row-header daily-review-row-header daily-review-grid'>"
         "<span>CLOSED AT</span><span class='analytics-main'>SYMBOL</span><span>OPENED AT</span><span>ACTUAL</span><span>REPLAY</span><span>FILTER IMPACT</span><span>ADD-ONS</span><span>STATUS</span>"
         "</div>"
-        f"{''.join(rows) if rows else '<div class=\"trade-history-empty\">No trade rows</div>'}"
+        f"{''.join(rows) if rows else empty_rows_html}"
         "</div>"
     )
     return (

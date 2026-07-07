@@ -234,7 +234,7 @@ class BinanceClientTests(unittest.TestCase):
             retry_delays=(0,),
             sleep_fn=lambda seconds: None,
         )
-        with patch("momentum_alpha.binance_client.time.time", side_effect=[1700000000.0, 1700000001.0]):
+        with patch("momentum_alpha.binance_client.time.time", side_effect=[1700000000.0, 1700000001.0, 1700000001.0]):
             payload = client.send(client.new_order(symbol="BTCUSDT", side="BUY"))
 
         first_timestamp = parse_qs(opener.bodies[0])["timestamp"][0]

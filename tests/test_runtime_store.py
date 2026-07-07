@@ -618,6 +618,56 @@ class RuntimeStoreTests(unittest.TestCase):
                 "2026-04-15T08:02:00+00:00",
             ])
 
+    def test_leader_history_ignores_user_stream_position_snapshot_leaders(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_leader_history,
+            insert_position_snapshot,
+            insert_signal_decision,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+
+            insert_signal_decision(
+                path=db_path,
+                timestamp=datetime(2026, 7, 2, 3, 0, tzinfo=timezone.utc),
+                source="poll",
+                decision_type="no_action",
+                symbol="LOBSTERUSDT",
+                previous_leader_symbol="LOBSTERUSDT",
+                next_leader_symbol="LOBSTERUSDT",
+                position_count=3,
+                order_status_count=20,
+                payload={},
+            )
+            insert_position_snapshot(
+                path=db_path,
+                timestamp=datetime(2026, 7, 2, 3, 0, 8, tzinfo=timezone.utc),
+                source="user-stream",
+                leader_symbol="SOLUSDT",
+                position_count=3,
+                order_status_count=20,
+                payload={"event_type": "ALGO_UPDATE", "symbol": "AERGOUSDT"},
+            )
+            insert_signal_decision(
+                path=db_path,
+                timestamp=datetime(2026, 7, 2, 3, 1, tzinfo=timezone.utc),
+                source="poll",
+                decision_type="no_action",
+                symbol="AERGOUSDT",
+                previous_leader_symbol="LOBSTERUSDT",
+                next_leader_symbol="AERGOUSDT",
+                position_count=3,
+                order_status_count=20,
+                payload={"blocked_reason": "already_holding"},
+            )
+
+            leader_history = fetch_leader_history(path=db_path, limit=10)
+
+        self.assertEqual([row["symbol"] for row in leader_history], ["AERGOUSDT", "LOBSTERUSDT"])
+
     def test_rebuild_trade_analytics_marks_algo_triggered_market_sell_as_stop_loss(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

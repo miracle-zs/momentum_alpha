@@ -390,6 +390,11 @@ def render_dashboard_body(
         if len(recent_leader_sequence) >= 2
         else "insufficient history"
     )
+    blocked_reason_summary_html = (
+        f'<div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>'
+        if blocked_reason_counts
+        else ""
+    )
     execution_summary_html = (
         "<div class='decision-grid'>"
         f"<div class='decision-item'><div class='decision-label'>Avg Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('avg_slippage_pct')))}</div></div>"
@@ -446,7 +451,7 @@ def render_dashboard_body(
         "</div>"
         "<div class='decision-item'>"
         "<div class='decision-label'>Blocked Reasons</div>"
-        f"{f'<div class=\"decision-value\" style=\"margin-bottom:8px;\">{escape(blocked_reason_summary)}</div>' if blocked_reason_counts else ''}"
+        f"{blocked_reason_summary_html}"
         f"{blocked_reason_breakdown_html}"
         "</div>"
         "</div>"

@@ -21,7 +21,7 @@ def fetch_leader_history(*, path: Path, limit: int = 10) -> list[dict]:
             UNION ALL
             SELECT timestamp, leader_symbol AS symbol, 0 AS priority
             FROM position_snapshots
-            WHERE leader_symbol IS NOT NULL
+            WHERE leader_symbol IS NOT NULL AND source = 'poll'
             ORDER BY timestamp DESC, priority DESC
             LIMIT ?
             """,

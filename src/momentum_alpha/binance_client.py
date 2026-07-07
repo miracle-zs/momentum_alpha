@@ -70,8 +70,9 @@ class BinanceHttpError(HTTPError):
         request_method: str = "UNKNOWN",
         request_url: str = "",
     ) -> None:
+        url = request_url or http_error.__dict__.get("url") or http_error.__dict__.get("filename") or ""
         super().__init__(
-            url=http_error.url,
+            url=url,
             code=http_error.code,
             msg=http_error.msg,
             hdrs=http_error.hdrs,

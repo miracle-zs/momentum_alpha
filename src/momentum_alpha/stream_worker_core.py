@@ -321,7 +321,7 @@ def build_user_stream_event_handler(
         record_position_snapshot_fn(
             audit_recorder=audit_recorder,
             now=timestamp,
-            leader_symbol=context.state.previous_leader_symbol,
+            leader_symbol=None,
             decision_id=decision_id,
             intent_id=intent_id,
             position_count=len(context.state.positions),

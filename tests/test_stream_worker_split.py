@@ -403,6 +403,58 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(captured["position_snapshot"]["decision_id"], decision_id)
         self.assertEqual(captured["position_snapshot"]["intent_id"], intent_id)
 
+    def test_user_stream_position_snapshot_does_not_publish_stale_leader(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.user_stream import parse_user_stream_event
+
+        captured: dict[str, dict] = {}
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            now = datetime(2026, 7, 2, 3, 0, tzinfo=timezone.utc)
+            context = UserStreamWorkerContext(
+                state=StrategyState(
+                    current_day=now.date(),
+                    previous_leader_symbol="SOLUSDT",
+                    positions={},
+                ),
+                processed_event_ids={},
+                order_statuses={},
+            )
+            audit_recorder = AuditRecorder(runtime_db_path=db_path, source="user-stream")
+
+            handler = build_user_stream_event_handler(
+                logger=lambda msg: None,
+                runtime_state_store=None,
+                audit_recorder=audit_recorder,
+                now_provider=lambda: now,
+                context=context,
+                record_broker_orders_fn=lambda **kwargs: None,
+                record_position_snapshot_fn=lambda **kwargs: captured.__setitem__("position_snapshot", kwargs),
+                save_user_stream_strategy_state_fn=lambda **kwargs: None,
+            )
+
+            handler(
+                parse_user_stream_event(
+                    {
+                        "e": "ORDER_TRADE_UPDATE",
+                        "T": 1782961200000,
+                        "o": {
+                            "s": "AERGOUSDT",
+                            "i": 101,
+                            "t": 202,
+                            "c": "manual",
+                            "X": "NEW",
+                            "x": "NEW",
+                        },
+                    }
+                )
+            )
+
+        self.assertIsNone(captured["position_snapshot"]["leader_symbol"])
+
     def test_run_user_stream_wires_scheduler_into_event_handler(self) -> None:
         from momentum_alpha import stream_worker_loop
 
