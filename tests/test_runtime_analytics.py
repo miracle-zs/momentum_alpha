@@ -105,6 +105,35 @@ class RuntimeAnalyticsTests(unittest.TestCase):
             self.assertEqual(rounds[0]["symbol"], "BTCUSDT")
             self.assertEqual(rounds[0]["exit_reason"], "sell")
 
+    def test_stop_trigger_lookup_ignores_triggered_orders_before_round_trip_open(self) -> None:
+        from decimal import Decimal
+
+        from momentum_alpha.runtime_analytics_stops import _resolve_stop_trigger_price_for_exit
+
+        opened_at = datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc)
+        trigger_price = _resolve_stop_trigger_price_for_exit(
+            exit_fills=[
+                {
+                    "client_order_id": "manual-exit",
+                    "time": datetime(2026, 4, 15, 8, 5, tzinfo=timezone.utc),
+                }
+            ],
+            symbol="BTCUSDT",
+            opened_at=opened_at,
+            stop_trigger_by_client_order_id={},
+            algo_by_symbol={
+                "BTCUSDT": [
+                    {
+                        "timestamp": "2026-04-15T07:55:00+00:00",
+                        "order_type": "STOP_MARKET",
+                        "trigger_price": Decimal("99"),
+                    }
+                ]
+            },
+        )
+
+        self.assertIsNone(trigger_price)
+
 
 if __name__ == "__main__":
     unittest.main()

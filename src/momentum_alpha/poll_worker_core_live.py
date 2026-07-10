@@ -11,6 +11,7 @@ from momentum_alpha.market_data import LiveMarketDataCache, _build_live_snapshot
 from momentum_alpha.models import Position, StrategyState
 from momentum_alpha.orders import is_strategy_client_order_id
 from momentum_alpha.reconciliation import (
+    build_stop_coverage_reconciliation_plan,
     build_missing_stop_reconciliation_plan,
     build_stale_stop_reconciliation_plan,
     build_stop_reconciliation_plan,
@@ -27,7 +28,7 @@ from momentum_alpha.telemetry import (
     _record_position_snapshot,
     _record_signal_decision,
 )
-from momentum_alpha.trace_ids import build_decision_id, build_order_intent_id
+from momentum_alpha.trace_ids import build_decision_id, build_intent_id_from_client_order_id, build_order_intent_id
 
 from .poll_worker_core_execution import RunOnceResult, build_runtime_from_snapshots, run_once
 from .poll_worker_core_state import _save_strategy_state
@@ -93,6 +94,107 @@ def _prefer_position_history(existing: Position | None, candidate: Position) -> 
     return candidate
 
 
+def _is_add_on_client_order_id(client_order_id: str | None) -> bool:
+    intent_id = build_intent_id_from_client_order_id(client_order_id)
+    return bool(intent_id and intent_id.rsplit("_", 1)[-1].startswith("a"))
+
+
+def _release_rejected_base_entries(*, result: RunOnceResult, submit_orders: bool) -> RunOnceResult:
+    """Allow a later leader rotation after a locally skipped or rejected base order."""
+
+    if not submit_orders:
+        return result
+    base_symbols = {intent.symbol for intent in result.runtime_result.decision.base_entries}
+    if not base_symbols:
+        return result
+
+    planned_base_symbols = {
+        order.get("symbol")
+        for order in result.execution_plan.entry_orders
+        if not _is_add_on_client_order_id(order.get("newClientOrderId"))
+    }
+    released_symbols = base_symbols - planned_base_symbols
+    for failure in result.entry_order_failures:
+        client_order_id = failure.get("clientOrderId") or failure.get("client_order_id")
+        symbol = failure.get("symbol")
+        if (
+            symbol in base_symbols
+            and not _is_add_on_client_order_id(client_order_id)
+            and failure.get("retryable") is False
+        ):
+            released_symbols.add(symbol)
+    if not released_symbols:
+        return result
+
+    next_state = result.runtime_result.next_state
+    daily_signal_times = dict(next_state.daily_base_signal_times)
+    daily_signal_counts = dict(next_state.daily_base_signal_counts)
+    for symbol in released_symbols:
+        daily_signal_times.pop(symbol, None)
+        daily_signal_counts.pop(symbol, None)
+    return replace(
+        result,
+        runtime_result=replace(
+            result.runtime_result,
+            next_state=replace(
+                next_state,
+                daily_base_signal_times=daily_signal_times,
+                daily_base_signal_counts=daily_signal_counts,
+            ),
+        ),
+    )
+
+
+def _repair_failed_stop_coverage(
+    *,
+    client,
+    broker: BinanceBroker,
+    failed_stop_orders: list[dict],
+    runtime_market: dict,
+    current_day: datetime,
+    previous_leader_symbol: str | None,
+    position_side: str | None,
+) -> tuple[list[tuple[str, Decimal]], list[dict], list[dict]]:
+    failed_symbols = {failure.get("symbol") for failure in failed_stop_orders if failure.get("symbol")}
+    if not failed_symbols:
+        return [], [], []
+    fetch_position_risk = getattr(client, "fetch_position_risk", None)
+    fetch_open_orders = getattr(client, "fetch_open_orders", None)
+    if not callable(fetch_position_risk) or not callable(fetch_open_orders):
+        return [], [], []
+
+    open_orders = list(fetch_open_orders())
+    fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
+    if callable(fetch_open_algo_orders):
+        open_orders.extend(fetch_open_algo_orders())
+    recovered_state = restore_state(
+        current_day=current_day.date().isoformat(),
+        previous_leader_symbol=previous_leader_symbol,
+        position_risk=fetch_position_risk(),
+        open_orders=open_orders,
+    )
+    replacements = [
+        replacement
+        for replacement in build_stop_coverage_reconciliation_plan(
+            state=recovered_state,
+            market=runtime_market,
+            open_orders=open_orders,
+        )
+        if replacement[0] in failed_symbols
+    ]
+    if not replacements:
+        return [], [], []
+    responses = broker.replace_stop_orders(
+        replacements=[
+            (symbol, str(recovered_state.positions[symbol].total_quantity), str(stop_price))
+            if position_side is None
+            else (symbol, str(recovered_state.positions[symbol].total_quantity), str(stop_price), position_side)
+            for symbol, stop_price in replacements
+        ]
+    )
+    return replacements, responses, list(getattr(broker, "last_stop_replacement_failures", []) or [])
+
+
 def run_once_live(
     *,
     symbols: list[str] | None,
@@ -139,11 +241,13 @@ def run_once_live(
         daily_base_signal_times=stored_daily_base_signal_times,
         daily_base_signal_counts=stored_daily_base_signal_counts,
     )
+    restored_open_orders: list[dict] = []
     if restore_positions:
         open_orders = client.fetch_open_orders()
         fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
         if callable(fetch_open_algo_orders):
             open_orders = [*open_orders, *fetch_open_algo_orders()]
+        restored_open_orders = open_orders
         initial_state = restore_state(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
             previous_leader_symbol=previous_leader_symbol,
@@ -200,12 +304,12 @@ def run_once_live(
     stop_replacements: list[tuple[str, Decimal]] = []
     stop_replacement_responses: list[dict] = []
     stop_replacement_failures: list[dict] = []
+    runtime_market = build_runtime_from_snapshots(snapshots=snapshots).market
     if restore_positions and initial_state is not None:
         stop_replacements = build_stop_reconciliation_plan(
             state=initial_state,
             decision=result.runtime_result.decision,
         )
-        runtime_market = build_runtime_from_snapshots(snapshots=snapshots).market
         missing_stop_replacements = build_missing_stop_reconciliation_plan(
             state=initial_state,
             market=runtime_market,
@@ -214,11 +318,18 @@ def run_once_live(
             state=initial_state,
             market=runtime_market,
         )
+        uncovered_stop_replacements = build_stop_coverage_reconciliation_plan(
+            state=initial_state,
+            market=runtime_market,
+            open_orders=restored_open_orders,
+        )
         merged_replacements = {symbol: stop_price for symbol, stop_price in stop_replacements}
         for symbol, stop_price in stale_stop_replacements:
             merged_replacements.setdefault(symbol, stop_price)
         for symbol, stop_price in missing_stop_replacements:
             merged_replacements.setdefault(symbol, stop_price)
+        for symbol, stop_price in uncovered_stop_replacements:
+            merged_replacements[symbol] = stop_price
         stop_replacements = sorted(merged_replacements.items())
         if execute_stop_replacements and stop_replacements:
             try:
@@ -259,7 +370,36 @@ def run_once_live(
         broker_responses = broker.submit_execution_plan(result.execution_plan)
         entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
         stop_order_failures = list(getattr(broker, "last_stop_order_failures", []) or [])
-        result = replace(result, broker_responses=broker_responses)
+        result = replace(
+            result,
+            broker_responses=broker_responses,
+            entry_order_failures=entry_order_failures,
+            stop_order_failures=stop_order_failures,
+        )
+        result = _release_rejected_base_entries(result=result, submit_orders=submit_orders)
+        if stop_order_failures:
+            try:
+                repaired_replacements, repaired_responses, repaired_failures = _repair_failed_stop_coverage(
+                    client=client,
+                    broker=broker,
+                    failed_stop_orders=stop_order_failures,
+                    runtime_market=runtime_market,
+                    current_day=now,
+                    previous_leader_symbol=previous_leader_symbol,
+                    position_side=position_side,
+                )
+                stop_replacements = sorted({*stop_replacements, *repaired_replacements})
+                stop_replacement_responses.extend(repaired_responses)
+                stop_replacement_failures.extend(repaired_failures)
+            except Exception as exc:
+                if logger is not None:
+                    emit_structured_log(
+                        logger,
+                        service="poll",
+                        event="failed-stop-coverage-repair-failed",
+                        level="ERROR",
+                        error=str(exc),
+                    )
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
         merged_positions = dict(stored_state.positions) if stored_state is not None and stored_state.positions else {}

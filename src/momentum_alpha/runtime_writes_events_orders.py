@@ -102,7 +102,7 @@ def insert_trade_fill(
     with _connect(path) as connection:
         connection.execute(
             """
-            INSERT INTO trade_fills(
+            INSERT OR IGNORE INTO trade_fills(
                 timestamp,
                 source,
                 symbol,

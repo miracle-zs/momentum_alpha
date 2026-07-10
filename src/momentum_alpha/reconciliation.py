@@ -8,6 +8,30 @@ from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, Strateg
 from momentum_alpha.orders import is_strategy_client_order_id
 
 
+_INACTIVE_STOP_STATUSES = {"CANCELED", "EXPIRED", "FINISHED", "REJECTED", "TRIGGERED"}
+
+
+def _strategy_stop_quantity(order: dict) -> Decimal | None:
+    order_type = order.get("type") or order.get("orderType")
+    client_order_id = order.get("clientOrderId") or order.get("clientAlgoId")
+    status = str(order.get("status") or order.get("algoStatus") or "").upper()
+    if (
+        order_type != "STOP_MARKET"
+        or order.get("side") != "SELL"
+        or not is_strategy_client_order_id(client_order_id)
+        or status in _INACTIVE_STOP_STATUSES
+    ):
+        return None
+    raw_quantity = order.get("quantity") or order.get("origQty") or order.get("algoQty")
+    if raw_quantity in (None, ""):
+        return None
+    try:
+        quantity = Decimal(str(raw_quantity))
+    except (ArithmeticError, ValueError):
+        return None
+    return quantity if quantity > Decimal("0") else None
+
+
 def _parse_day(current_day: str):
     return datetime.strptime(current_day, "%Y-%m-%d").date()
 
@@ -95,6 +119,38 @@ def build_missing_stop_reconciliation_plan(
             if snapshot.latest_price < snapshot.previous_hour_low
             else snapshot.previous_hour_low
         )
+        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
+            continue
+        replacements.append((symbol, target_stop_price))
+    return replacements
+
+
+def build_stop_coverage_reconciliation_plan(
+    *,
+    state: StrategyState,
+    market: dict[str, MarketSnapshot],
+    open_orders: list[dict],
+) -> list[tuple[str, Decimal]]:
+    """Replace stops when active strategy-stop quantity does not cover the position."""
+
+    covered_quantity: dict[str, Decimal] = {}
+    for order in open_orders:
+        quantity = _strategy_stop_quantity(order)
+        symbol = order.get("symbol")
+        if quantity is None or not symbol:
+            continue
+        covered_quantity[symbol] = covered_quantity.get(symbol, Decimal("0")) + quantity
+
+    replacements: list[tuple[str, Decimal]] = []
+    for symbol, position in sorted(state.positions.items()):
+        if covered_quantity.get(symbol, Decimal("0")) >= position.total_quantity:
+            continue
+        snapshot = market.get(symbol)
+        if snapshot is None or not snapshot.has_previous_hour_candle:
+            continue
+        target_stop_price = max(position.stop_price, snapshot.previous_hour_low)
+        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
+            target_stop_price = snapshot.current_hour_low
         if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
             continue
         replacements.append((symbol, target_stop_price))

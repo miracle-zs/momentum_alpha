@@ -61,6 +61,7 @@ def _save_user_stream_strategy_state(
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
     now: datetime,
+    trade_fill: dict[str, Any] | None = None,
     prune_processed_event_ids_fn: Callable[
         [dict[str, str] | None, datetime],
         dict[str, str],
@@ -94,7 +95,10 @@ def _save_user_stream_strategy_state(
             recent_stop_loss_exits=state.recent_stop_loss_exits,
         )
 
-    runtime_state_store.atomic_update(_updater)
+    if trade_fill is None:
+        runtime_state_store.atomic_update(_updater)
+    else:
+        runtime_state_store.atomic_update_with_trade_fill(_updater, trade_fill=trade_fill)
 
 
 def build_user_stream_event_handler(
@@ -178,7 +182,13 @@ def build_user_stream_event_handler(
         if event_id is not None and event_id in context.processed_event_ids:
             return
         trade_fill = extract_trade_fill_fn(event)
-        if trade_fill is not None and audit_recorder is not None and audit_recorder.runtime_db_path is not None:
+        use_atomic_trade_fill = trade_fill is not None and runtime_state_store is not None
+        if (
+            trade_fill is not None
+            and audit_recorder is not None
+            and audit_recorder.runtime_db_path is not None
+            and not use_atomic_trade_fill
+        ):
             try:
                 insert_trade_fill_fn(
                     path=audit_recorder.runtime_db_path,
@@ -316,8 +326,36 @@ def build_user_stream_event_handler(
                     },
                 ),
                 now=timestamp,
+                trade_fill=(
+                    None
+                    if not use_atomic_trade_fill
+                    else {
+                        "timestamp": timestamp,
+                        "source": None if audit_recorder is None else audit_recorder.source,
+                        "symbol": trade_fill.get("symbol"),
+                        "order_id": trade_fill.get("order_id"),
+                        "trade_id": trade_fill.get("trade_id"),
+                        "client_order_id": trade_fill.get("client_order_id"),
+                        "decision_id": decision_id,
+                        "intent_id": intent_id,
+                        "order_status": trade_fill.get("order_status"),
+                        "execution_type": trade_fill.get("execution_type"),
+                        "side": trade_fill.get("side"),
+                        "order_type": trade_fill.get("order_type"),
+                        "quantity": trade_fill.get("quantity"),
+                        "cumulative_quantity": trade_fill.get("cumulative_quantity"),
+                        "average_price": trade_fill.get("average_price"),
+                        "last_price": trade_fill.get("last_price"),
+                        "realized_pnl": trade_fill.get("realized_pnl"),
+                        "commission": trade_fill.get("commission"),
+                        "commission_asset": trade_fill.get("commission_asset"),
+                        "payload": event.payload,
+                    }
+                ),
                 prune_processed_event_ids_fn=prune_processed_event_ids_fn,
             )
+            if use_atomic_trade_fill and on_trade_fill_persisted_fn is not None:
+                on_trade_fill_persisted_fn()
         record_position_snapshot_fn(
             audit_recorder=audit_recorder,
             now=timestamp,

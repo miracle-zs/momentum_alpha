@@ -24,12 +24,12 @@ def _is_add_on_client_order_id(client_order_id: str | None) -> bool:
     return leg_token.startswith("a")
 
 
-def _has_failed_add_on_entry(result) -> bool:
+def _has_retryable_add_on_entry_failure(result) -> bool:
     if not result.runtime_result.decision.add_on_entries:
         return False
     for failure in getattr(result, "entry_order_failures", []) or []:
         client_order_id = failure.get("clientOrderId") or failure.get("client_order_id")
-        if _is_add_on_client_order_id(client_order_id):
+        if _is_add_on_client_order_id(client_order_id) and failure.get("retryable", True):
             return True
     return False
 
@@ -128,7 +128,7 @@ def run_forever(
                     last_add_on_hour=last_add_on_hour,
                 )
             new_hour = result.runtime_result.decision.new_last_add_on_hour
-            if new_hour is not None and new_hour != last_add_on_hour and not _has_failed_add_on_entry(result):
+            if new_hour is not None and new_hour != last_add_on_hour and not _has_retryable_add_on_entry_failure(result):
                 last_add_on_hour = new_hour
         except HTTPError as exc:
             if exc.code == 429:

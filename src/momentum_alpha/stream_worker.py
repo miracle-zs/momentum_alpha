@@ -36,12 +36,14 @@ def _save_user_stream_strategy_state(
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
     now,
+    trade_fill=None,
     prune_processed_event_ids_fn=None,
 ) -> None:
     _core_save_user_stream_strategy_state(
         runtime_state_store=runtime_state_store,
         state=state,
         now=now,
+        trade_fill=trade_fill,
         prune_processed_event_ids_fn=(
             _prune_processed_event_ids if prune_processed_event_ids_fn is None else prune_processed_event_ids_fn
         ),

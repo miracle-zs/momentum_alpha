@@ -81,6 +81,52 @@ class RuntimeStoreTests(unittest.TestCase):
             bootstrap_runtime_db(path=db_path)
             self.assertTrue(db_path.exists())
 
+    def test_atomic_trade_fill_persistence_is_idempotent_with_strategy_state(self) -> None:
+        from momentum_alpha.runtime_store import RuntimeStateStore, fetch_recent_trade_fills
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 4, 15, 8, 0, tzinfo=timezone.utc)
+        state = StoredStrategyState(
+            current_day="2026-04-15",
+            previous_leader_symbol="BTCUSDT",
+            positions={},
+            processed_event_ids={"ORDER_TRADE_UPDATE:1:trade:2": now.isoformat()},
+            order_statuses={},
+            recent_stop_loss_exits={},
+        )
+        trade_fill = {
+            "timestamp": now,
+            "source": "user-stream",
+            "symbol": "BTCUSDT",
+            "order_id": "1",
+            "trade_id": "2",
+            "client_order_id": "ma_260415080000_BTCUSDT_b00e",
+            "order_status": "FILLED",
+            "execution_type": "TRADE",
+            "side": "BUY",
+            "order_type": "MARKET",
+            "quantity": "1",
+            "cumulative_quantity": "1",
+            "average_price": "100",
+            "last_price": "100",
+            "realized_pnl": "0",
+            "commission": "0.05",
+            "commission_asset": "USDT",
+            "payload": {},
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.atomic_update_with_trade_fill(lambda _existing: state, trade_fill=trade_fill)
+            store.atomic_update_with_trade_fill(lambda _existing: state, trade_fill=trade_fill)
+
+            fills = fetch_recent_trade_fills(path=store.path, limit=10)
+            loaded = store.load()
+
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["trade_id"], "2")
+        self.assertIn("ORDER_TRADE_UPDATE:1:trade:2", loaded.processed_event_ids)
+
     def test_bootstrap_creates_structured_tables(self) -> None:
         from momentum_alpha.runtime_store import bootstrap_runtime_db
 

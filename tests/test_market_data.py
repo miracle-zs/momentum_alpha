@@ -53,6 +53,27 @@ class MarketDataTests(unittest.TestCase):
             ["BTCUSDT", "ETHUSDT"],
         )
 
+    def test_previous_hour_empty_response_is_retried_within_the_same_hour(self) -> None:
+        from momentum_alpha.market_data import LiveMarketDataCache
+
+        class Client:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def fetch_klines(self, **_kwargs):
+                self.calls += 1
+                return [] if self.calls == 1 else [[0, "100", "110", "95", "105"]]
+
+        now = datetime(2026, 4, 21, 2, 5, tzinfo=timezone.utc)
+        cache = LiveMarketDataCache()
+        client = Client()
+
+        cache.ensure_previous_hour_lows(symbols={"BTCUSDT"}, client=client, now=now)
+        cache.ensure_previous_hour_lows(symbols={"BTCUSDT"}, client=client, now=now)
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(cache.previous_hour_lows["BTCUSDT"], (True, Decimal("95")))
+
     def test_build_live_snapshots_skips_unusable_prices(self) -> None:
         from momentum_alpha.market_data import build_live_snapshots
 

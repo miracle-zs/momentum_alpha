@@ -2607,8 +2607,9 @@ class MainTests(unittest.TestCase):
         self.assertTrue(any("account-flow-insert-error" in message for message in messages))
         self.assertTrue(any(event["event_type"] == "account_flow_insert_error" for event in events))
 
-    def test_run_user_stream_logs_trade_fill_insert_failures(self) -> None:
+    def test_run_user_stream_persists_trade_fill_through_atomic_state_transaction(self) -> None:
         from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import fetch_recent_trade_fills
         from momentum_alpha.user_stream import parse_user_stream_event
 
         class FakeClient:
@@ -2644,18 +2645,20 @@ class MainTests(unittest.TestCase):
         messages = []
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
-            with patch("momentum_alpha.stream_worker.insert_trade_fill", side_effect=RuntimeError("db write failed")):
-                exit_code = run_user_stream(
-                    client=FakeClient(),
-                    testnet=False,
-                    logger=lambda message: messages.append(message),
-                    now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
-                    stream_client_factory=lambda **kwargs: FakeStreamClient(),
-                    runtime_db_path=runtime_db_path,
-                )
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=False,
+                logger=lambda message: messages.append(message),
+                now_provider=lambda: datetime(2026, 4, 16, 15, 45, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+                runtime_db_path=runtime_db_path,
+            )
+            fills = fetch_recent_trade_fills(path=runtime_db_path, limit=10)
 
         self.assertEqual(exit_code, 0)
-        self.assertTrue(any("trade-fill-insert-error" in message for message in messages))
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["trade_id"], "456")
+        self.assertFalse(any("trade-fill-insert-error" in message for message in messages))
 
     def test_run_user_stream_logs_algo_order_insert_failures(self) -> None:
         from momentum_alpha.main import run_user_stream

@@ -320,7 +320,6 @@ def _migrate_runtime_db(connection: sqlite3.Connection) -> None:
             ON trade_fills(intent_id);
         CREATE INDEX IF NOT EXISTS idx_trade_fills_client_order_id
             ON trade_fills(client_order_id);
-
         CREATE INDEX IF NOT EXISTS idx_algo_orders_decision_id
             ON algo_orders(decision_id);
         CREATE INDEX IF NOT EXISTS idx_algo_orders_intent_id
@@ -339,6 +338,29 @@ def _migrate_runtime_db(connection: sqlite3.Connection) -> None:
             ON account_snapshots(intent_id);
         """
     )
+    has_trade_fill_dedup_index = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_trade_fills_symbol_trade_id'"
+    ).fetchone()
+    if has_trade_fill_dedup_index is None:
+        connection.execute(
+            """
+            DELETE FROM trade_fills
+            WHERE trade_id IS NOT NULL
+              AND id NOT IN (
+                  SELECT MIN(id)
+                  FROM trade_fills
+                  WHERE trade_id IS NOT NULL
+                  GROUP BY symbol, trade_id
+              )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_trade_fills_symbol_trade_id
+                ON trade_fills(symbol, trade_id)
+                WHERE trade_id IS NOT NULL
+            """
+        )
 
 
 def bootstrap_runtime_db(*, path: Path) -> None:

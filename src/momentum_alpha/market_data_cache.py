@@ -84,8 +84,6 @@ class LiveMarketDataCache:
             hour_klines = _fetch_previous_hour_klines(client=client, symbol=symbol, now=now)
             if hour_klines:
                 self.previous_hour_lows[symbol] = (True, Decimal(hour_klines[0][3]))
-            else:
-                self.previous_hour_lows[symbol] = (False, Decimal("0"))
 
     def ensure_current_hour_lows(self, *, symbols: set[str], client, now: datetime) -> None:
         window = _current_hour_window_ms(now=now)

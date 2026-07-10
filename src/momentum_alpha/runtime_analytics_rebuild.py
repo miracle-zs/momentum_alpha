@@ -413,7 +413,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 for item in exit_fills
             )
             has_triggered_stop_algo = any(
-                algo_row["timestamp"] <= exit_fills[-1]["timestamp"]
+                round_trip["opened_at"] <= datetime.fromisoformat(algo_row["timestamp"]) <= exit_fills[-1]["time"]
                 and algo_row["order_type"] == "STOP_MARKET"
                 and algo_row["algo_status"] == "TRIGGERED"
                 and is_strategy_client_order_id(algo_row["client_algo_id"])
@@ -518,6 +518,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                 trigger_price = _resolve_stop_trigger_price_for_exit(
                     exit_fills=exit_fills,
                     symbol=symbol,
+                    opened_at=round_trip["opened_at"],
                     stop_trigger_by_client_order_id=stop_trigger_by_client_order_id,
                     algo_by_symbol=algo_by_symbol,
                 )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from datetime import datetime
 
 from .runtime_analytics_common import _text_to_optional_decimal
 from .runtime_analytics_legs import _strategy_stop_client_order_id
@@ -10,6 +11,7 @@ def _resolve_stop_trigger_price_for_exit(
     *,
     exit_fills: list[dict],
     symbol: str,
+    opened_at: object | None = None,
     stop_trigger_by_client_order_id: dict[str, Decimal],
     algo_by_symbol: dict[str, list[dict]],
 ) -> Decimal | None:
@@ -21,7 +23,12 @@ def _resolve_stop_trigger_price_for_exit(
         if trigger_price is not None:
             return trigger_price
     for algo_row in reversed(algo_by_symbol.get(symbol, [])):
-        if algo_row["timestamp"] <= exit_fills[-1]["timestamp"] and algo_row["order_type"] == "STOP_MARKET":
+        algo_time = datetime.fromisoformat(algo_row["timestamp"])
+        if (
+            (opened_at is None or algo_time >= opened_at)
+            and algo_time <= exit_fills[-1]["time"]
+            and algo_row["order_type"] == "STOP_MARKET"
+        ):
             trigger_price = algo_row["trigger_price"]
             if trigger_price is not None:
                 return trigger_price

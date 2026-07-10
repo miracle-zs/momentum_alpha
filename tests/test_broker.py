@@ -615,3 +615,31 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(failure["symbol"], "BTCUSDT")
         self.assertEqual(failure["clientOrderId"], "ma_260510100000_BTCUSDT_a00e")
         self.assertEqual(failure["attempts"], 2)
+        self.assertTrue(failure["retryable"])
+
+    def test_broker_marks_deterministic_entry_rejection_as_not_retryable(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, _request):
+                raise RuntimeError("Margin is insufficient")
+
+        broker = BinanceBroker(client=FakeClient())
+        broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[{"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": "1"}],
+                stop_orders=[],
+            )
+        )
+
+        self.assertFalse(broker.last_entry_order_failures[0]["retryable"])

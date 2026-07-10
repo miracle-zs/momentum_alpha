@@ -93,7 +93,15 @@ class BinanceBroker:
                     raise
                 if not _is_transient_entry_error(exc):
                     logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
-                    self.last_entry_order_failures.append(self._order_failure_payload(order, exc, "SUBMIT_FAILED", attempt + 1))
+                    self.last_entry_order_failures.append(
+                        self._order_failure_payload(
+                            order,
+                            exc,
+                            "SUBMIT_FAILED",
+                            attempt + 1,
+                            retryable=False,
+                        )
+                    )
                     return None
                 recovered = self._fetch_existing_entry_order(order)
                 if recovered is not None:
@@ -104,7 +112,15 @@ class BinanceBroker:
                     continue
                 logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
         if last_error is not None:
-            self.last_entry_order_failures.append(self._order_failure_payload(order, last_error, "SUBMIT_FAILED", attempts))
+            self.last_entry_order_failures.append(
+                self._order_failure_payload(
+                    order,
+                    last_error,
+                    "SUBMIT_FAILED",
+                    attempts,
+                    retryable=True,
+                )
+            )
         return None
 
     def _fetch_existing_entry_order(self, order: dict[str, str]) -> dict | None:
@@ -127,6 +143,7 @@ class BinanceBroker:
         exc: Exception,
         status: str,
         attempts: int | None = None,
+        retryable: bool | None = None,
     ) -> dict[str, object]:
         return {
             "symbol": order.get("symbol"),
@@ -138,6 +155,7 @@ class BinanceBroker:
             "error": str(exc),
             "errorType": type(exc).__name__,
             "attempts": attempts,
+            "retryable": retryable,
         }
 
     def _exchange_symbol_for_replacement(self, symbol: str) -> ExchangeSymbol | None:

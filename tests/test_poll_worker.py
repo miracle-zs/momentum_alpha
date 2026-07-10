@@ -135,7 +135,7 @@ class PollWorkerTests(unittest.TestCase):
 
         self.assertEqual(calls, [1, 2])
 
-    def test_run_forever_keeps_add_on_hour_when_add_on_entry_submission_failed(self) -> None:
+    def test_run_forever_keeps_add_on_hour_when_add_on_entry_submission_is_retryable(self) -> None:
         from momentum_alpha.execution import ExecutionPlan
         from momentum_alpha.models import EntryIntent, StrategyState, TickDecision
         from momentum_alpha.poll_worker import RunOnceResult, run_forever
@@ -190,6 +190,7 @@ class PollWorkerTests(unittest.TestCase):
                         "symbol": "BTCUSDT",
                         "clientOrderId": "ma_260421020000_BTCUSDT_a00e",
                         "status": "SUBMIT_FAILED",
+                        "retryable": True,
                     }
                 ],
             )
@@ -213,6 +214,69 @@ class PollWorkerTests(unittest.TestCase):
         )
 
         self.assertEqual(calls, [1, 1])
+
+    def test_run_forever_advances_add_on_hour_after_deterministic_rejection(self) -> None:
+        from types import SimpleNamespace
+
+        from momentum_alpha.execution import ExecutionPlan
+        from momentum_alpha.models import EntryIntent, StrategyState, TickDecision
+        from momentum_alpha.poll_worker import RunOnceResult, run_forever
+        from momentum_alpha.runtime import RuntimeTickResult
+
+        calls = []
+
+        class Client:
+            def fetch_exchange_info(self):
+                return {"symbols": []}
+
+        def live_runner(**kwargs):
+            calls.append(kwargs["last_add_on_hour"])
+            decision = TickDecision(
+                base_entries=[],
+                add_on_entries=[EntryIntent(symbol="BTCUSDT", stop_price=Decimal("61000"), leg_type="add_on")],
+                updated_stop_prices={},
+                new_previous_leader_symbol="BTCUSDT",
+                new_last_add_on_hour=2,
+            )
+            return RunOnceResult(
+                runtime_result=RuntimeTickResult(
+                    decision=decision,
+                    execution_plan=ExecutionPlan(entry_orders=[], stop_orders=[]),
+                    next_state=StrategyState(
+                        current_day=datetime(2026, 4, 21, tzinfo=timezone.utc).date(),
+                        previous_leader_symbol="BTCUSDT",
+                    ),
+                ),
+                broker_responses=[],
+                stop_replacements=[],
+                entry_order_failures=[
+                    {
+                        "symbol": "BTCUSDT",
+                        "clientOrderId": "ma_260421020000_BTCUSDT_a00e",
+                        "status": "SUBMIT_FAILED",
+                        "retryable": False,
+                    }
+                ],
+            )
+
+        times = [
+            datetime(2026, 4, 21, 1, 59, tzinfo=timezone.utc),
+            datetime(2026, 4, 21, 2, 0, tzinfo=timezone.utc),
+        ]
+        run_forever(
+            symbols=["BTCUSDT"],
+            previous_leader_symbol=None,
+            submit_orders=True,
+            runtime_state_store=None,
+            client_factory=lambda: Client(),
+            broker_factory=lambda client: SimpleNamespace(),
+            now_provider=lambda: times.pop(0),
+            sleep_fn=lambda seconds: None,
+            max_ticks=2,
+            run_once_live_fn=live_runner,
+        )
+
+        self.assertEqual(calls, [1, 2])
 
     def test_run_forever_refreshes_auto_symbols_during_long_running_poll(self) -> None:
         from momentum_alpha.execution import ExecutionPlan
@@ -348,7 +412,7 @@ class PollWorkerTests(unittest.TestCase):
             ["ETHUSDT"],
         )
 
-    def test_failed_first_base_submission_still_persists_consumed_opportunity(self) -> None:
+    def test_rejected_first_base_submission_releases_daily_opportunity(self) -> None:
         from momentum_alpha.poll_worker_core_live import run_once_live
         from momentum_alpha.runtime_store import RuntimeStateStore
         from momentum_alpha.strategy_state_codec import StoredStrategyState
@@ -364,7 +428,7 @@ class PollWorkerTests(unittest.TestCase):
 
             def submit_execution_plan(self, plan):
                 self.last_entry_order_failures = [
-                    {"symbol": "ETHUSDT", "status": "SUBMIT_FAILED"}
+                    {"symbol": "ETHUSDT", "status": "SUBMIT_FAILED", "retryable": False}
                 ]
                 return []
 
@@ -403,11 +467,75 @@ class PollWorkerTests(unittest.TestCase):
                 )
             loaded = store.load()
 
-        self.assertEqual(
-            loaded.daily_base_signal_times,
-            {"ETHUSDT": now.isoformat()},
+        self.assertEqual(loaded.daily_base_signal_times, {})
+        self.assertEqual(loaded.daily_base_signal_counts, {})
+
+    def test_failed_stop_submission_immediately_repairs_partial_stop_coverage(self) -> None:
+        from momentum_alpha.models import MarketSnapshot
+        from momentum_alpha.poll_worker_core_live import _repair_failed_stop_coverage
+
+        now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        class Client:
+            def fetch_position_risk(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "positionAmt": "2",
+                        "entryPrice": "120",
+                        "updateTime": int(now.timestamp() * 1000),
+                    }
+                ]
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_open_algo_orders(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "orderType": "STOP_MARKET",
+                        "side": "SELL",
+                        "algoStatus": "NEW",
+                        "quantity": "1",
+                        "triggerPrice": "110",
+                        "clientAlgoId": "ma_260612020000_ETHUSDT_a00s",
+                    }
+                ]
+
+        class Broker:
+            def __init__(self) -> None:
+                self.last_stop_replacement_failures = []
+                self.replacement_calls = []
+
+            def replace_stop_orders(self, *, replacements: list):
+                self.replacement_calls = list(replacements)
+                return [{"status": "NEW"}]
+
+        broker = Broker()
+
+        repaired, responses, failures = _repair_failed_stop_coverage(
+            client=Client(),
+            broker=broker,
+            failed_stop_orders=[{"symbol": "ETHUSDT"}],
+            runtime_market={
+                "ETHUSDT": MarketSnapshot(
+                    symbol="ETHUSDT",
+                    daily_open_price=Decimal("100"),
+                    latest_price=Decimal("120"),
+                    previous_hour_low=Decimal("110"),
+                    tradable=True,
+                    has_previous_hour_candle=True,
+                )
+            },
+            current_day=now,
+            previous_leader_symbol="ETHUSDT",
+            position_side=None,
         )
-        self.assertEqual(loaded.daily_base_signal_counts, {"ETHUSDT": 1})
+
+        self.assertEqual(repaired, [("ETHUSDT", Decimal("110"))])
+        self.assertEqual(responses, [{"status": "NEW"}])
+        self.assertEqual(failures, [])
+        self.assertEqual(broker.replacement_calls, [("ETHUSDT", "2", "110")])
 
     def test_repeated_base_persists_complete_replay_telemetry(self) -> None:
         from momentum_alpha.audit import AuditRecorder
