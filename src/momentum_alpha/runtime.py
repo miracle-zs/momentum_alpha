@@ -74,6 +74,8 @@ def process_runtime_tick(
         last_add_on_hour=last_add_on_hour,
         entry_start_hour_utc=runtime.config.entry_start_hour_utc,
         entry_end_hour_utc=runtime.config.entry_end_hour_utc,
+        blocked_base_entry_hour_beijing=runtime.config.blocked_base_entry_hour_beijing,
+        first_add_on_min_hold_minutes=runtime.config.first_add_on_min_hold_minutes,
     )
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,

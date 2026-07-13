@@ -67,6 +67,8 @@ class SkippedAddOn:
     symbol: str
     stop_price: Decimal
     reason: str
+    base_opened_at: datetime | None = None
+    base_age_minutes: Decimal | None = None
 
 
 @dataclass(frozen=True)

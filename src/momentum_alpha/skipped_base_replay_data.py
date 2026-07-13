@@ -27,6 +27,7 @@ class ReplaySeed:
     min_qty: Decimal | None
     tick_size: Decimal | None
     warnings: tuple[str, ...] = ()
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ def load_replay_inputs(
             min_qty=decimal_values["min_qty"],
             tick_size=decimal_values["tick_size"],
             warnings=tuple(seed_warnings),
+            blocked_reason=(str(payload["blocked_reason"]) if payload.get("blocked_reason") else None),
         )
         seeds.append(seed)
         warnings.extend(

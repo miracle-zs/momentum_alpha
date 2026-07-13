@@ -88,7 +88,7 @@ class RuntimeTests(unittest.TestCase):
         result = process_runtime_tick(
             runtime=runtime,
             state=state,
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
         )
         self.assertEqual(result.decision.base_entries[0].symbol, "BTCUSDT")
         self.assertEqual(result.execution_plan.entry_orders[0]["symbol"], "BTCUSDT")
@@ -135,7 +135,7 @@ class RuntimeTests(unittest.TestCase):
         result = process_runtime_tick(
             runtime=runtime,
             state=state,
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
         )
         filled_state = apply_fill(
             state=result.next_state,
@@ -144,7 +144,7 @@ class RuntimeTests(unittest.TestCase):
             entry_price=Decimal("61200"),
             stop_price=Decimal(result.decision.base_entries[0].stop_price),
             leg_type="base",
-            filled_at=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            filled_at=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
         )
 
         self.assertIn("BTCUSDT", filled_state.positions)
@@ -211,12 +211,12 @@ class RuntimeTests(unittest.TestCase):
         result = process_runtime_tick(
             runtime=runtime,
             state=state,
-            now=datetime(2026, 6, 12, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 6, 12, 2, 1, tzinfo=timezone.utc),
         )
 
         self.assertEqual(result.next_state.current_day, date(2026, 6, 12))
         self.assertEqual(
             result.next_state.daily_base_signal_times,
-            {"BTCUSDT": datetime(2026, 6, 12, 1, 1, tzinfo=timezone.utc)},
+            {"BTCUSDT": datetime(2026, 6, 12, 2, 1, tzinfo=timezone.utc)},
         )
         self.assertEqual(result.next_state.daily_base_signal_counts, {"BTCUSDT": 1})

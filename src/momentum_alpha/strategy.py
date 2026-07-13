@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from momentum_alpha.models import (
@@ -30,6 +30,19 @@ def _in_entry_window(now: datetime, *, start_hour_utc: int = 1, end_hour_utc: in
     return now.hour >= start_hour_utc or now.hour <= end_hour_utc
 
 
+def _in_blocked_beijing_hour(now: datetime, *, blocked_hour: int | None) -> bool:
+    if blocked_hour is None:
+        return False
+    beijing = timezone(timedelta(hours=8))
+    return now.astimezone(beijing).hour == blocked_hour
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _entry_stop_price(snapshot: MarketSnapshot) -> Decimal:
     if snapshot.latest_price < snapshot.previous_hour_low:
         return snapshot.current_hour_low
@@ -43,6 +56,7 @@ def evaluate_minute_close(
     market: dict[str, MarketSnapshot],
     entry_start_hour_utc: int = 1,
     entry_end_hour_utc: int = 23,
+    blocked_base_entry_hour_beijing: int | None = 9,
 ) -> MinuteCloseDecision:
     daily_base_signal_times = dict(state.daily_base_signal_times)
     daily_base_signal_counts = dict(state.daily_base_signal_counts)
@@ -76,15 +90,11 @@ def evaluate_minute_close(
     elif stop_price >= snapshot.latest_price:
         blocked_reason = "invalid_stop_price"
 
-    can_enter = blocked_reason is None
-    if can_enter:
+    if blocked_reason is None:
         sequence = daily_base_signal_counts.get(leader, 0) + 1
-        daily_base_signal_counts[leader] = sequence
         first_signal_at = daily_base_signal_times.get(leader)
-        if first_signal_at is None:
-            daily_base_signal_times[leader] = now
-            entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
-        else:
+        if first_signal_at is not None:
+            daily_base_signal_counts[leader] = sequence
             blocked_reason = "daily_repeat_base"
             skipped_base_entries.append(
                 SkippedBaseEntry(
@@ -100,6 +110,26 @@ def evaluate_minute_close(
                     ),
                 )
             )
+        elif _in_blocked_beijing_hour(now, blocked_hour=blocked_base_entry_hour_beijing):
+            blocked_reason = "beijing_09_base_block"
+            skipped_base_entries.append(
+                SkippedBaseEntry(
+                    symbol=leader,
+                    stop_price=stop_price,
+                    reason=blocked_reason,
+                    base_signal_sequence=sequence,
+                    first_base_signal_at=now,
+                    shadow_opportunity_id=build_shadow_opportunity_id(
+                        symbol=leader,
+                        signal_at=now,
+                        sequence=sequence,
+                    ),
+                )
+            )
+        else:
+            daily_base_signal_counts[leader] = sequence
+            daily_base_signal_times[leader] = now
+            entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
     else:
         blocked_reason = blocked_reason if leader_changed else None
 
@@ -120,8 +150,8 @@ def evaluate_hour_close(
     latest_hour_lows: dict[str, Decimal],
     latest_prices: dict[str, Decimal] | None = None,
     current_leader_symbol: str | None,
+    first_add_on_min_hold_minutes: int = 30,
 ) -> HourCloseDecision:
-    _ = now
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []
     updated_stop_prices: dict[str, Decimal] = {}
@@ -138,12 +168,29 @@ def evaluate_hour_close(
             continue
         if stop_price > position.stop_price:
             updated_stop_prices[symbol] = stop_price
-        if symbol == current_leader_symbol:
-            add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
-        else:
+        if symbol != current_leader_symbol:
             skipped_add_ons.append(
                 SkippedAddOn(symbol=symbol, stop_price=stop_price, reason="not_current_leader")
             )
+            continue
+        has_add_on = any(leg.leg_type == "add_on" for leg in position.legs)
+        base_legs = [leg for leg in position.legs if leg.leg_type in {"base", "restored"}]
+        base_opened_at = min((leg.opened_at for leg in base_legs), default=None)
+        if not has_add_on and base_opened_at is not None:
+            base_age = _as_utc(now) - _as_utc(base_opened_at)
+            minimum_age = timedelta(minutes=first_add_on_min_hold_minutes)
+            if base_age < minimum_age:
+                skipped_add_ons.append(
+                    SkippedAddOn(
+                        symbol=symbol,
+                        stop_price=stop_price,
+                        reason="first_add_on_before_30m",
+                        base_opened_at=base_opened_at,
+                        base_age_minutes=Decimal(str(base_age.total_seconds())) / Decimal("60"),
+                    )
+                )
+                continue
+        add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
     return HourCloseDecision(
         add_on_entries=add_on_entries,
         updated_stop_prices=updated_stop_prices,
@@ -159,6 +206,8 @@ def process_clock_tick(
     last_add_on_hour: int | None = None,
     entry_start_hour_utc: int = 1,
     entry_end_hour_utc: int = 23,
+    blocked_base_entry_hour_beijing: int | None = 9,
+    first_add_on_min_hold_minutes: int = 30,
 ) -> TickDecision:
     minute_close = evaluate_minute_close(
         now=now,
@@ -166,6 +215,7 @@ def process_clock_tick(
         market=market,
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
+        blocked_base_entry_hour_beijing=blocked_base_entry_hour_beijing,
     )
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []
@@ -193,6 +243,7 @@ def process_clock_tick(
             latest_hour_lows=latest_hour_lows,
             latest_prices=latest_prices,
             current_leader_symbol=minute_close.new_previous_leader_symbol,
+            first_add_on_min_hold_minutes=first_add_on_min_hold_minutes,
         )
         add_on_entries = hour_close.add_on_entries
         skipped_add_ons = hour_close.skipped_add_ons

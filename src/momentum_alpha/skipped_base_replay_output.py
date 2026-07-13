@@ -15,6 +15,7 @@ SUMMARY_FIELDS = [
     "base_signal_at",
     "base_signal_sequence",
     "first_base_signal_at",
+    "blocked_reason",
     "status",
     "base_entry_price",
     "initial_stop_price",
@@ -86,6 +87,7 @@ def _summary_rows(report: ShadowReplayReport) -> list[dict]:
             "base_signal_at": _value(item.base_signal_at),
             "base_signal_sequence": item.base_signal_sequence,
             "first_base_signal_at": _value(item.first_base_signal_at),
+            "blocked_reason": _value(item.blocked_reason),
             "status": item.status,
             "base_entry_price": _value(item.base_entry_price),
             "initial_stop_price": _value(item.initial_stop_price),
@@ -200,9 +202,14 @@ def _markdown(report: ShadowReplayReport) -> str:
     base_count = sum(1 for item in report.opportunities if item.base_quantity is not None)
 
     sequence_pnl: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    reason_pnl: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    reason_count: dict[str, int] = defaultdict(int)
     week_pnl: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for item in closed:
         sequence_pnl[item.base_signal_sequence] += item.net_pnl or Decimal("0")
+        reason = item.blocked_reason or "unknown"
+        reason_count[reason] += 1
+        reason_pnl[reason] += item.net_pnl or Decimal("0")
         iso_year, iso_week, _ = item.base_signal_at.isocalendar()
         week_pnl[f"{iso_year}-W{iso_week:02d}"] += item.net_pnl or Decimal("0")
 
@@ -262,6 +269,14 @@ def _markdown(report: ShadowReplayReport) -> str:
         for sequence, pnl in sorted(sequence_pnl.items())
     )
     if not sequence_pnl:
+        lines.append("- None")
+
+    lines.extend(["", "## PnL by blocked reason"])
+    lines.extend(
+        f"- {reason}: count={reason_count[reason]} pnl={pnl}"
+        for reason, pnl in sorted(reason_pnl.items())
+    )
+    if not reason_pnl:
         lines.append("- None")
 
     lines.extend(["", "## PnL by ISO week"])

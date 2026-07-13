@@ -33,6 +33,7 @@ class SkippedBaseReplayDataTests(unittest.TestCase):
                 intent_id="shadow_aaa",
                 payload={
                     "shadow_opportunity_id": "shadow_aaa",
+                    "blocked_reason": "beijing_09_base_block",
                     "base_signal_sequence": 2,
                     "first_base_signal_at": "2026-06-12T01:00:00+00:00",
                     "latest_price": "110",
@@ -76,6 +77,7 @@ class SkippedBaseReplayDataTests(unittest.TestCase):
 
         self.assertEqual([seed.symbol for seed in seeds], ["AAAUSDT"])
         self.assertEqual(seeds[0].base_signal_sequence, 2)
+        self.assertEqual(seeds[0].blocked_reason, "beijing_09_base_block")
         self.assertEqual(seeds[0].latest_price, Decimal("110"))
         self.assertEqual(
             leaders[datetime(2026, 6, 12, 3, 0, tzinfo=timezone.utc)],

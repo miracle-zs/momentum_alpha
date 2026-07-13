@@ -89,7 +89,7 @@ def _prefer_position_history(existing: Position | None, candidate: Position) -> 
     """Keep richer leg history when restored data would collapse a position."""
     if existing is None:
         return candidate
-    if len(existing.legs) > len(candidate.legs) and existing.total_quantity == candidate.total_quantity:
+    if len(existing.legs) >= len(candidate.legs) and existing.total_quantity == candidate.total_quantity:
         return existing if existing.stop_price == candidate.stop_price else existing.with_stop_price(candidate.stop_price)
     return candidate
 
@@ -260,8 +260,13 @@ def run_once_live(
             daily_base_signal_counts=stored_daily_base_signal_counts,
         )
         if stored_state is not None:
+            merged_restored_positions = {
+                symbol: _prefer_position_history(stored_state.positions.get(symbol), candidate)
+                for symbol, candidate in initial_state.positions.items()
+            }
             initial_state = replace(
                 initial_state,
+                positions=merged_restored_positions,
                 recent_stop_loss_exits={
                     symbol: datetime.fromisoformat(timestamp)
                     for symbol, timestamp in (stored_state.recent_stop_loss_exits or {}).items()
@@ -507,6 +512,16 @@ def run_once_live(
                     "blocked_reason": skipped.reason,
                     "stop_price": str(skipped.stop_price),
                     "would_add_on_under_previous_strategy": True,
+                    **(
+                        {"base_opened_at": skipped.base_opened_at.isoformat()}
+                        if skipped.base_opened_at is not None
+                        else {}
+                    ),
+                    **(
+                        {"base_age_minutes": str(skipped.base_age_minutes)}
+                        if skipped.base_age_minutes is not None
+                        else {}
+                    ),
                     **{key: value for key, value in market_payloads.get(skipped.symbol, {}).items() if value is not None},
                 },
             )

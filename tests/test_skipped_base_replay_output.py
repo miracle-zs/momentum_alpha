@@ -81,7 +81,10 @@ class SkippedBaseReplayOutputTests(unittest.TestCase):
         from momentum_alpha.skipped_base_replay import ShadowOverlap, ShadowReplayReport
         from momentum_alpha.skipped_base_replay_output import write_replay_artifacts
 
-        winner = self._result(shadow_id="winner", net_pnl=Decimal("9.885"), status="closed")
+        winner = replace(
+            self._result(shadow_id="winner", net_pnl=Decimal("9.885"), status="closed"),
+            blocked_reason="beijing_09_base_block",
+        )
         loser = replace(
             self._result(shadow_id="loser", net_pnl=Decimal("-10.105"), status="closed"),
             gross_pnl=Decimal("-10"),
@@ -111,6 +114,7 @@ class SkippedBaseReplayOutputTests(unittest.TestCase):
             markdown = paths["summary_md"].read_text(encoding="utf-8")
 
         self.assertEqual(summary_rows[0]["status"], "closed")
+        self.assertEqual(summary_rows[0]["blocked_reason"], "beijing_09_base_block")
         self.assertEqual(summary_rows[0]["add_on_count"], "2")
         self.assertIn("open_at_cutoff", [row["event_type"] for row in event_rows])
         self.assertIn("overlap_existing_shadow", [row["event_type"] for row in event_rows])
@@ -119,6 +123,8 @@ class SkippedBaseReplayOutputTests(unittest.TestCase):
         self.assertIn("Open mark-to-market net PnL: 4.8", markdown)
         self.assertIn("Win rate: 50.00%", markdown)
         self.assertIn("PnL by base signal sequence", markdown)
+        self.assertIn("PnL by blocked reason", markdown)
+        self.assertIn("beijing_09_base_block", markdown)
         self.assertIn("PnL by ISO week", markdown)
         self.assertIn("report_warning", markdown)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -634,3 +634,151 @@ class PollWorkerTests(unittest.TestCase):
         self.assertEqual(snapshots[0]["payload"]["skipped_base_symbols"], ["ETHUSDT"])
         tick_event = next(row for row in events if row["event_type"] == "tick_result")
         self.assertEqual(tick_event["payload"]["skipped_base_symbols"], ["ETHUSDT"])
+
+    def test_beijing_nine_base_block_persists_replayable_shadow_without_consuming_daily_state(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.exchange_info import parse_exchange_info
+        from momentum_alpha.poll_worker_core_live import run_once_live
+        from momentum_alpha.runtime_store import RuntimeStateStore, fetch_recent_signal_decisions
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 7, 14, 1, 5, tzinfo=timezone.utc)
+
+        class Client:
+            def fetch_exchange_info(self):
+                return self_test._exchange_info()
+
+        class Broker:
+            pass
+
+        class MarketDataCache:
+            def resolve_symbols(self, *, symbols, client):
+                return ["BTCUSDT", "ETHUSDT"]
+
+            def exchange_symbol_map(self, *, client):
+                return parse_exchange_info(client.fetch_exchange_info())
+
+        self_test = self
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            store = RuntimeStateStore(path=db_path)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-07-14",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+            with patch(
+                "momentum_alpha.poll_worker_core_live._build_live_snapshots",
+                return_value=self._leader_change_snapshots(),
+            ):
+                run_once_live(
+                    symbols=None,
+                    now=now,
+                    previous_leader_symbol=None,
+                    client=Client(),
+                    broker=Broker(),
+                    submit_orders=False,
+                    restore_positions=False,
+                    runtime_state_store=store,
+                    market_data_cache=MarketDataCache(),
+                    audit_recorder=AuditRecorder(runtime_db_path=db_path, source="poll"),
+                )
+            decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
+            loaded = store.load()
+
+        skipped = next(row for row in decisions if row["decision_type"] == "base_entry_skipped")
+        self.assertEqual(skipped["intent_id"], "shadow_260714010500_ETHUSDT_01")
+        self.assertEqual(skipped["payload"]["blocked_reason"], "beijing_09_base_block")
+        self.assertEqual(skipped["payload"]["base_signal_sequence"], 1)
+        self.assertEqual(skipped["payload"]["first_base_signal_at"], now.isoformat())
+        self.assertEqual(loaded.daily_base_signal_times, {})
+        self.assertEqual(loaded.daily_base_signal_counts, {})
+
+    def test_early_first_add_on_persists_shadow_age_and_keeps_stop_update(self) -> None:
+        from momentum_alpha.audit import AuditRecorder
+        from momentum_alpha.exchange_info import parse_exchange_info
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.poll_worker_core_live import run_once_live
+        from momentum_alpha.runtime_store import RuntimeStateStore, fetch_recent_signal_decisions
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 7, 14, 2, 0, tzinfo=timezone.utc)
+        base_opened_at = now - timedelta(minutes=15)
+        position = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("100"),
+            legs=(PositionLeg("ETHUSDT", Decimal("1"), Decimal("120"), Decimal("100"), base_opened_at, "base"),),
+        )
+
+        class Client:
+            def fetch_exchange_info(self):
+                return self_test._exchange_info()
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_position_risk(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "positionAmt": "1",
+                        "entryPrice": "120",
+                        "updateTime": int(base_opened_at.timestamp() * 1000),
+                    }
+                ]
+
+        class Broker:
+            pass
+
+        class MarketDataCache:
+            def resolve_symbols(self, *, symbols, client):
+                return ["BTCUSDT", "ETHUSDT"]
+
+            def exchange_symbol_map(self, *, client):
+                return parse_exchange_info(client.fetch_exchange_info())
+
+        self_test = self
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            store = RuntimeStateStore(path=db_path)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-07-14",
+                    previous_leader_symbol="ETHUSDT",
+                    positions={"ETHUSDT": position},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={},
+                )
+            )
+            with patch(
+                "momentum_alpha.poll_worker_core_live._build_live_snapshots",
+                return_value=self._leader_change_snapshots(),
+            ):
+                result = run_once_live(
+                    symbols=None,
+                    now=now,
+                    previous_leader_symbol=None,
+                    client=Client(),
+                    broker=Broker(),
+                    submit_orders=False,
+                    restore_positions=True,
+                    runtime_state_store=store,
+                    market_data_cache=MarketDataCache(),
+                    audit_recorder=AuditRecorder(runtime_db_path=db_path, source="poll"),
+                    last_add_on_hour=1,
+                )
+            decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
+
+        self.assertEqual(result.runtime_result.decision.add_on_entries, [])
+        self.assertEqual(result.runtime_result.decision.updated_stop_prices, {"ETHUSDT": Decimal("110")})
+        skipped = next(row for row in decisions if row["decision_type"] == "add_on_skipped")
+        self.assertEqual(skipped["payload"]["blocked_reason"], "first_add_on_before_30m")
+        self.assertEqual(skipped["payload"]["base_opened_at"], base_opened_at.isoformat())
+        self.assertEqual(Decimal(skipped["payload"]["base_age_minutes"]), Decimal("15"))
+        self.assertTrue(skipped["payload"]["would_add_on_under_previous_strategy"])

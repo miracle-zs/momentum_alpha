@@ -461,7 +461,7 @@ class MainTests(unittest.TestCase):
         broker = FakeBroker()
         result = run_once(
             snapshots=snapshots,
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol="ETHUSDT",
             client=FakeClient(),
             broker=broker,
@@ -511,7 +511,7 @@ class MainTests(unittest.TestCase):
                     "has_previous_hour_candle": True,
                 }
             ],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol=None,
             client=FakeClient(),
             broker=FakeBroker(),
@@ -581,7 +581,7 @@ class MainTests(unittest.TestCase):
 
         result = run_once_live(
             symbols=["BTCUSDT", "ETHUSDT"],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol="ETHUSDT",
             client=FakeClient(),
             broker=FakeBroker(),
@@ -638,7 +638,7 @@ class MainTests(unittest.TestCase):
                     "totalUnrealizedProfit": "25.56",
                 }
 
-        now = datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc)
 
         class FakeBroker:
             def submit_execution_plan(self, plan):
@@ -944,7 +944,7 @@ class MainTests(unittest.TestCase):
         client = FakeClient()
         result = run_once_live(
             symbols=["BTCUSDT"],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol=None,
             client=client,
             broker=FakeBroker(),
@@ -1005,7 +1005,7 @@ class MainTests(unittest.TestCase):
         client = FakeClient()
         result = run_once_live(
             symbols=["BTCUSDT"],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol=None,
             client=client,
             broker=FakeBroker(),
@@ -1014,8 +1014,8 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.runtime_result.decision.base_entries[0].stop_price, Decimal("61000"))
         hour_call = client.kline_calls[1]
         self.assertEqual(hour_call["interval"], "1h")
-        self.assertEqual(hour_call["start_time_ms"], 1776211200000)
-        self.assertEqual(hour_call["end_time_ms"], 1776214799999)
+        self.assertEqual(hour_call["start_time_ms"], 1776214800000)
+        self.assertEqual(hour_call["end_time_ms"], 1776218399999)
 
     def test_run_once_live_skips_base_entry_without_previous_closed_hour(self) -> None:
         from momentum_alpha.main import run_once_live
@@ -1113,7 +1113,7 @@ class MainTests(unittest.TestCase):
         client = FakeClient()
         result = run_once_live(
             symbols=["NEWUSDT"],
-            now=datetime(2026, 4, 15, 1, 30, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 30, tzinfo=timezone.utc),
             previous_leader_symbol=None,
             client=client,
             broker=FakeBroker(),
@@ -1125,7 +1125,7 @@ class MainTests(unittest.TestCase):
         self.assertEqual(first_minute_call["start_time_ms"], 1776211200000)
         self.assertEqual(first_minute_call["end_time_ms"], 1776211259999)
         self.assertEqual(fallback_call["start_time_ms"], 1776211200000)
-        self.assertEqual(fallback_call["end_time_ms"], 1776216600000)
+        self.assertEqual(fallback_call["end_time_ms"], 1776220200000)
 
     def test_run_once_live_skips_symbol_when_daily_open_candle_is_unavailable(self) -> None:
         from momentum_alpha.main import run_once_live
@@ -1185,7 +1185,7 @@ class MainTests(unittest.TestCase):
 
         result = run_once_live(
             symbols=["BTCUSDT", "MISSUSDT"],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol="ETHUSDT",
             client=FakeClient(),
             broker=FakeBroker(),
@@ -1254,7 +1254,7 @@ class MainTests(unittest.TestCase):
 
         result = run_once_live(
             symbols=["BTCUSDT", "BADUSDT"],
-            now=datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
             previous_leader_symbol="ETHUSDT",
             client=FakeClient(),
             broker=FakeBroker(),
@@ -1291,7 +1291,7 @@ class MainTests(unittest.TestCase):
             def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
                 if interval == "1m":
                     return [[1776211200000, "100", "0", "0", "0"]]
-                if start_time_ms == 1776211200000 and end_time_ms == 1776214799999:
+                if start_time_ms == 1776214800000 and end_time_ms == 1776218399999:
                     return [[1776211200000, "0", "0", "110", "0"]]
                 return [[1776214800000, "0", "0", "106", "0"]]
 
@@ -1301,7 +1301,7 @@ class MainTests(unittest.TestCase):
 
         result = run_once_live(
             symbols=["ETHUSDT"],
-            now=datetime(2026, 4, 15, 1, 5, tzinfo=timezone.utc),
+            now=datetime(2026, 4, 15, 2, 5, tzinfo=timezone.utc),
             previous_leader_symbol="BTCUSDT",
             client=FakeClient(),
             broker=FakeBroker(),
@@ -1359,7 +1359,7 @@ class MainTests(unittest.TestCase):
                     ],
                     client_factory=lambda: FakeClient(),
                     broker_factory=lambda client: FakeBroker(),
-                    now_provider=lambda: datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc),
+                    now_provider=lambda: datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
                 )
         self.assertEqual(exit_code, 0)
         self.assertIn("mode=DRY_RUN", out.getvalue())

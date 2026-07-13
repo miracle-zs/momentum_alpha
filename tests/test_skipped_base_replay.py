@@ -114,6 +114,32 @@ class SkippedBaseReplayTests(unittest.TestCase):
         event_types = [event.event_type for event in result.events]
         self.assertLess(event_types.index("stop_update"), event_types.index("add_on"))
 
+    def test_hour_boundary_skips_first_add_on_when_base_age_is_under_thirty_minutes(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_seed
+
+        hour_start = datetime(2026, 6, 12, 1, 0, tzinfo=timezone.utc)
+        signal_at = hour_start + timedelta(minutes=31)
+        candles = [
+            self._candle(
+                hour_start + timedelta(minutes=minute),
+                low="95" if minute == 20 else "109",
+                close="110",
+            )
+            for minute in range(60)
+        ]
+
+        result = replay_shadow_seed(
+            seed=self._seed(signal_at=signal_at),
+            candles=candles,
+            leaders={datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc): "AAAUSDT"},
+            cutoff=datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc),
+            taker_fee_rate=Decimal("0"),
+        )
+
+        self.assertEqual(result.add_on_count, 0)
+        self.assertEqual(result.skipped_add_on_count, 1)
+        self.assertIn("first_add_on_before_30m", [event.reason for event in result.events])
+
     def test_missing_leader_skips_add_on_and_open_result_has_mtm(self) -> None:
         from momentum_alpha.skipped_base_replay import replay_shadow_seed
 

@@ -70,6 +70,7 @@ class ShadowReplayResult:
     legs: tuple[ShadowLegResult, ...]
     events: tuple[ShadowReplayEvent, ...]
     warnings: tuple[str, ...]
+    blocked_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ def _unresolved_result(
         legs=(),
         events=tuple(unresolved_events),
         warnings=tuple(warnings),
+        blocked_reason=seed.blocked_reason,
     )
 
 
@@ -215,6 +217,7 @@ def replay_shadow_seed(
     leaders: dict[datetime, str],
     cutoff: datetime,
     taker_fee_rate: Decimal,
+    first_add_on_min_hold_minutes: int = 30,
 ) -> ShadowReplayResult:
     warnings = list(seed.warnings)
     required = {
@@ -358,6 +361,7 @@ def replay_shadow_seed(
                 legs=closed_legs,
                 events=tuple(events),
                 warnings=tuple(warnings),
+                blocked_reason=seed.blocked_reason,
             )
 
         if candle_open.minute != 59:
@@ -415,6 +419,20 @@ def replay_shadow_seed(
                     event_type="add_on_skipped",
                     reason="not_current_leader",
                     stop_price=active_stop,
+                )
+            )
+            continue
+        if add_on_count == 0 and boundary - signal_at < timedelta(minutes=first_add_on_min_hold_minutes):
+            skipped_add_on_count += 1
+            events.append(
+                ShadowReplayEvent(
+                    shadow_opportunity_id=seed.shadow_opportunity_id,
+                    symbol=seed.symbol,
+                    timestamp=boundary,
+                    event_type="add_on_skipped",
+                    price=candle.close_price,
+                    stop_price=active_stop,
+                    reason="first_add_on_before_30m",
                 )
             )
             continue
@@ -511,6 +529,7 @@ def replay_shadow_seed(
         ),
         events=tuple(events),
         warnings=tuple(warnings),
+        blocked_reason=seed.blocked_reason,
     )
 
 
