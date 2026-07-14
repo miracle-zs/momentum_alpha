@@ -45,14 +45,7 @@ def apply_user_stream_event_to_state(
                 if resolved_stop_price is not None
                 else (existing_position.stop_price if existing_position is not None else Decimal("0"))
             )
-            if existing_position is not None and existing_position.total_quantity == quantity:
-                positions[symbol] = (
-                    existing_position
-                    if existing_position.stop_price == stop_price
-                    else existing_position.with_stop_price(stop_price)
-                )
-                continue
-            if existing_position is not None and len(existing_position.legs) > 1:
+            if existing_position is not None and quantity >= existing_position.total_quantity:
                 positions[symbol] = (
                     existing_position
                     if existing_position.stop_price == stop_price
@@ -81,18 +74,20 @@ def apply_user_stream_event_to_state(
     if event.event_type != "ORDER_TRADE_UPDATE" or event.order_status != "FILLED" or event.symbol is None:
         return state
 
+    fill_quantity = event.last_filled_quantity or event.filled_quantity
     if (
         event.side == "BUY"
         and is_strategy_client_order_id(event.client_order_id)
         and event.average_price is not None
-        and event.filled_quantity is not None
+        and fill_quantity is not None
+        and fill_quantity > 0
     ):
         stop_price = event.stop_price if event.stop_price is not None else Decimal("0")
         filled_at = event.event_time or datetime.now(timezone.utc)
         return apply_fill(
             state=state,
             symbol=event.symbol,
-            quantity=event.filled_quantity,
+            quantity=fill_quantity,
             entry_price=event.average_price,
             stop_price=stop_price,
             leg_type="stream_fill",

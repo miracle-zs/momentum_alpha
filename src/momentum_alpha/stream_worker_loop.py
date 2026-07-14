@@ -9,7 +9,7 @@ from pathlib import Path
 
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.models import StrategyState
-from momentum_alpha.reconciliation import restore_state
+from momentum_alpha.reconciliation import merge_position_history, restore_state
 from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
 from momentum_alpha.strategy_state_codec import StoredStrategyState
@@ -305,7 +305,11 @@ def run_user_stream(
             position_risk=position_risk,
             open_orders=restored_open_orders,
         )
-        context.state = replace(context.state, positions=restored_state.positions)
+        merged_positions = {
+            symbol: merge_position_history(context.state.positions.get(symbol), position)
+            for symbol, position in restored_state.positions.items()
+        }
+        context.state = replace(context.state, positions=merged_positions)
         context.order_statuses = {
             str(order.get("orderId")): {
                 "symbol": order.get("symbol"),

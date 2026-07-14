@@ -453,6 +453,7 @@ class UserStreamTests(unittest.TestCase):
                     "ot": "MARKET",
                     "ap": "100",
                     "z": "1",
+                    "l": "1",
                     "sp": "95",
                 },
             }
@@ -471,6 +472,7 @@ class UserStreamTests(unittest.TestCase):
                     "ot": "MARKET",
                     "ap": "110",
                     "z": "2",
+                    "l": "1",
                     "sp": "95",
                 },
             }
@@ -480,11 +482,11 @@ class UserStreamTests(unittest.TestCase):
         updated = apply_user_stream_event_to_state(state=after_first, event=second_fill)
 
         self.assertIn("ETHUSDT", updated.positions)
-        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("3"))
+        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
         self.assertEqual(len(updated.positions["ETHUSDT"].legs), 1)
         self.assertEqual(updated.positions["ETHUSDT"].legs[0].entry_order_id, "ma_260415010000_ETHUSDT_b00e")
-        self.assertEqual(updated.positions["ETHUSDT"].legs[0].quantity, Decimal("3"))
-        self.assertAlmostEqual(float(updated.positions["ETHUSDT"].legs[0].entry_price), 106.6666666667, places=9)
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].quantity, Decimal("2"))
+        self.assertAlmostEqual(float(updated.positions["ETHUSDT"].legs[0].entry_price), 105, places=9)
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("95"))
 
     def test_apply_order_trade_update_replaces_matching_restored_leg(self) -> None:
@@ -714,9 +716,9 @@ class UserStreamTests(unittest.TestCase):
             }
         )
         updated = apply_user_stream_event_to_state(state=state, event=event)
-        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("3"))
-        self.assertEqual(updated.positions["ETHUSDT"].legs[0].entry_price, Decimal("109"))
-        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "account_update_synced")
+        self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].entry_price, Decimal("108"))
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "base")
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
 
     def test_apply_account_update_preserves_existing_multi_leg_history_when_quantity_is_unchanged(self) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from momentum_alpha.models import Position
+from momentum_alpha.reconciliation import merge_position_history
 from momentum_alpha.runtime_store import RuntimeStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 
@@ -47,7 +48,7 @@ def _save_strategy_state(
                     position,
                     existing_recent_stop_loss_exits.get(symbol),
                 ):
-                    existing_positions[symbol] = position
+                    existing_positions[symbol] = merge_position_history(existing_positions.get(symbol), position)
 
         return StoredStrategyState(
             current_day=state.current_day,

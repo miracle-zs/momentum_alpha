@@ -15,6 +15,7 @@ from momentum_alpha.reconciliation import (
     build_missing_stop_reconciliation_plan,
     build_stale_stop_reconciliation_plan,
     build_stop_reconciliation_plan,
+    merge_position_history,
     restore_state,
 )
 from momentum_alpha.runtime_store import RuntimeStateStore
@@ -87,11 +88,7 @@ def _apply_restored_stop_loss_cooldowns(
 
 def _prefer_position_history(existing: Position | None, candidate: Position) -> Position:
     """Keep richer leg history when restored data would collapse a position."""
-    if existing is None:
-        return candidate
-    if len(existing.legs) >= len(candidate.legs) and existing.total_quantity == candidate.total_quantity:
-        return existing if existing.stop_price == candidate.stop_price else existing.with_stop_price(candidate.stop_price)
-    return candidate
+    return merge_position_history(existing, candidate)
 
 
 def _is_add_on_client_order_id(client_order_id: str | None) -> bool:

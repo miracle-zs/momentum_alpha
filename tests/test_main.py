@@ -3246,8 +3246,8 @@ class MainTests(unittest.TestCase):
             )
             loaded = store.load()
             self.assertEqual(exit_code, 0)
-            self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("3"))
-            self.assertEqual(loaded.positions["ETHUSDT"].legs[0].entry_price, Decimal("109"))
+            self.assertEqual(loaded.positions["ETHUSDT"].total_quantity, Decimal("2"))
+            self.assertEqual(loaded.positions["ETHUSDT"].legs[0].entry_price, Decimal("108"))
             self.assertEqual(loaded.positions["ETHUSDT"].stop_price, Decimal("106"))
 
     def test_run_user_stream_account_update_can_restore_stop_price_from_order_statuses(self) -> None:

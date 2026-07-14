@@ -7,6 +7,7 @@ from typing import Any
 
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.models import StrategyState
+from momentum_alpha.reconciliation import merge_position_history
 from momentum_alpha.runtime_store import (
     MAX_PROCESSED_EVENT_ID_AGE_HOURS,
     RuntimeStateStore,
@@ -76,6 +77,10 @@ def _save_user_stream_strategy_state(
             else state.previous_leader_symbol
         )
         pruned_event_ids = prune_processed_event_ids_fn(state.processed_event_ids, now)
+        positions = dict(state.positions or {})
+        if existing is not None and existing.positions:
+            for symbol, position in positions.items():
+                positions[symbol] = merge_position_history(existing.positions.get(symbol), position)
         return StoredStrategyState(
             current_day=existing.current_day if existing is not None else state.current_day,
             previous_leader_symbol=previous_leader_symbol,
@@ -89,7 +94,7 @@ def _save_user_stream_strategy_state(
                 if existing is not None
                 else {}
             ),
-            positions=state.positions,
+            positions=positions,
             processed_event_ids=pruned_event_ids,
             order_statuses=state.order_statuses,
             recent_stop_loss_exits=state.recent_stop_loss_exits,

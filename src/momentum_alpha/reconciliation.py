@@ -87,6 +87,39 @@ def restore_state(
     )
 
 
+def merge_position_history(existing: Position | None, candidate: Position) -> Position:
+    """Merge exchange snapshots without discarding known entry-leg history."""
+
+    if existing is None:
+        return candidate
+
+    stop_price = candidate.stop_price if candidate.stop_price > 0 else existing.stop_price
+    if len(candidate.legs) > len(existing.legs) and candidate.total_quantity >= existing.total_quantity:
+        return candidate.with_stop_price(stop_price)
+    if candidate.total_quantity == existing.total_quantity:
+        return existing if existing.stop_price == stop_price else existing.with_stop_price(stop_price)
+    if candidate.total_quantity < existing.total_quantity:
+        return candidate.with_stop_price(stop_price)
+
+    additional_quantity = candidate.total_quantity - existing.total_quantity
+    existing_notional = sum((leg.quantity * leg.entry_price for leg in existing.legs), Decimal("0"))
+    candidate_notional = sum((leg.quantity * leg.entry_price for leg in candidate.legs), Decimal("0"))
+    additional_entry_price = (candidate_notional - existing_notional) / additional_quantity
+    residual_leg = PositionLeg(
+        symbol=candidate.symbol,
+        quantity=additional_quantity,
+        entry_price=additional_entry_price,
+        stop_price=stop_price,
+        opened_at=candidate.legs[-1].opened_at,
+        leg_type="restored_reconciliation",
+    )
+    return Position(
+        symbol=candidate.symbol,
+        stop_price=stop_price,
+        legs=tuple([*existing.with_stop_price(stop_price).legs, residual_leg]),
+    )
+
+
 def build_stop_reconciliation_plan(
     *,
     state: StrategyState,

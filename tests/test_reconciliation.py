@@ -11,6 +11,67 @@ if str(SRC) not in sys.path:
 
 
 class ReconciliationTests(unittest.TestCase):
+    def test_merge_position_history_reconstructs_incremental_quantity(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.reconciliation import merge_position_history
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        existing = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("9"),
+            legs=(PositionLeg("ETHUSDT", Decimal("100"), Decimal("10"), Decimal("9"), opened_at, "base"),),
+        )
+        candidate = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("9.5"),
+            legs=(
+                PositionLeg(
+                    "ETHUSDT",
+                    Decimal("150"),
+                    Decimal("10.6666666666666666666666666667"),
+                    Decimal("9.5"),
+                    opened_at,
+                    "restored",
+                ),
+            ),
+        )
+
+        merged = merge_position_history(existing, candidate)
+
+        self.assertEqual(merged.total_quantity, Decimal("150"))
+        self.assertEqual(len(merged.legs), 2)
+        self.assertEqual(merged.legs[0].leg_type, "base")
+        self.assertEqual(merged.legs[1].quantity, Decimal("50"))
+        self.assertAlmostEqual(float(merged.legs[1].entry_price), 12.0, places=9)
+        self.assertEqual(merged.stop_price, Decimal("9.5"))
+
+    def test_merge_position_history_prefers_known_candidate_legs(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.reconciliation import merge_position_history
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        existing = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("9"),
+            legs=(PositionLeg("ETHUSDT", Decimal("100"), Decimal("10"), Decimal("9"), opened_at, "restored"),),
+        )
+        candidate = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("9.5"),
+            legs=(
+                PositionLeg("ETHUSDT", Decimal("100"), Decimal("10"), Decimal("9.5"), opened_at, "base"),
+                PositionLeg("ETHUSDT", Decimal("50"), Decimal("12"), Decimal("9.5"), opened_at, "add_on"),
+            ),
+        )
+
+        merged = merge_position_history(existing, candidate)
+
+        self.assertEqual(merged.legs, candidate.legs)
+
     def test_restore_state_builds_positions_from_position_risk_and_open_orders(self) -> None:
         from momentum_alpha.reconciliation import restore_state
 
