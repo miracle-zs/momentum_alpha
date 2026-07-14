@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.execution import apply_fill
+from momentum_alpha.leg_semantics import infer_leg_type_from_client_order_id
 from momentum_alpha.models import Position, PositionLeg, StrategyState
 from momentum_alpha.orders import is_strategy_client_order_id
 
@@ -52,7 +53,7 @@ def apply_user_stream_event_to_state(
                     else existing_position.with_stop_price(stop_price)
                 )
                 continue
-            leg_type = "account_update_synced" if existing_position is not None else "account_update_restored"
+            leg_type = existing_position.legs[0].leg_type if existing_position is not None and existing_position.legs else "base"
             positions[symbol] = Position(
                 symbol=symbol,
                 stop_price=stop_price,
@@ -64,6 +65,7 @@ def apply_user_stream_event_to_state(
                         stop_price=stop_price,
                         opened_at=restored_at,
                         leg_type=leg_type,
+                        leg_source="account_update",
                     ),
                 ),
             )
@@ -90,9 +92,10 @@ def apply_user_stream_event_to_state(
             quantity=fill_quantity,
             entry_price=event.average_price,
             stop_price=stop_price,
-            leg_type="stream_fill",
+            leg_type=infer_leg_type_from_client_order_id(event.client_order_id) or "base",
             filled_at=filled_at,
             entry_order_id=event.client_order_id or (str(event.order_id) if event.order_id is not None else None),
+            leg_source="user_stream",
         )
 
     if _is_strategy_stop_fill(event):

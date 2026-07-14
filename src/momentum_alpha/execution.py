@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from momentum_alpha.exchange_info import ExchangeSymbol
+from momentum_alpha.leg_semantics import LegSource, LegType
 from momentum_alpha.models import EntryIntent, MarketSnapshot, Position, PositionLeg, StrategyState, TickDecision
 from momentum_alpha.orders import build_client_order_id, build_market_entry_order, build_stop_market_order
 from momentum_alpha.sizing import size_from_stop_budget
@@ -112,9 +113,10 @@ def apply_fill(
     quantity: Decimal,
     entry_price: Decimal,
     stop_price: Decimal,
-    leg_type: str,
+    leg_type: LegType,
     filled_at: datetime,
     entry_order_id: str | None = None,
+    leg_source: LegSource = "strategy_fill",
     new_previous_leader_symbol: str | None = None,
 ) -> StrategyState:
     positions = dict(state.positions)
@@ -127,6 +129,7 @@ def apply_fill(
         opened_at=filled_at,
         leg_type=leg_type,
         entry_order_id=entry_order_id,
+        leg_source=leg_source,
     )
 
     if position is None:

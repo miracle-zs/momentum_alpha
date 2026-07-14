@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from momentum_alpha.leg_semantics import is_add_on_leg
 from momentum_alpha.models import (
     EntryIntent,
     HourCloseDecision,
@@ -173,8 +174,15 @@ def evaluate_hour_close(
                 SkippedAddOn(symbol=symbol, stop_price=stop_price, reason="not_current_leader")
             )
             continue
-        has_add_on = any(leg.leg_type == "add_on" for leg in position.legs)
-        base_legs = [leg for leg in position.legs if leg.leg_type in {"base", "restored"}]
+        has_add_on = any(
+            is_add_on_leg(leg_type=leg.leg_type, entry_order_id=leg.entry_order_id)
+            for leg in position.legs
+        )
+        base_legs = [
+            leg
+            for leg in position.legs
+            if not is_add_on_leg(leg_type=leg.leg_type, entry_order_id=leg.entry_order_id)
+        ]
         base_opened_at = min((leg.opened_at for leg in base_legs), default=None)
         if not has_add_on and base_opened_at is not None:
             base_age = _as_utc(now) - _as_utc(base_opened_at)

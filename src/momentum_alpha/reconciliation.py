@@ -73,7 +73,8 @@ def restore_state(
             entry_price=Decimal(item["entryPrice"]),
             stop_price=stop_price,
             opened_at=opened_at,
-            leg_type="restored",
+            leg_type="base",
+            leg_source="rest_restore",
         )
         positions[symbol] = Position(symbol=symbol, stop_price=stop_price, legs=(leg,))
 
@@ -111,7 +112,8 @@ def merge_position_history(existing: Position | None, candidate: Position) -> Po
         entry_price=additional_entry_price,
         stop_price=stop_price,
         opened_at=candidate.legs[-1].opened_at,
-        leg_type="restored_reconciliation",
+        leg_type="add_on",
+        leg_source="reconciliation",
     )
     return Position(
         symbol=candidate.symbol,

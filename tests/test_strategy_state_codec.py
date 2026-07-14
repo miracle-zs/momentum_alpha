@@ -40,7 +40,8 @@ class StrategyStateCodecTests(unittest.TestCase):
                             entry_price=Decimal("108"),
                             stop_price=Decimal("106"),
                             opened_at=opened_at,
-                            leg_type="stream_fill",
+                            leg_type="base",
+                            leg_source="user_stream",
                         ),
                     ),
                 )
@@ -56,6 +57,8 @@ class StrategyStateCodecTests(unittest.TestCase):
         self.assertEqual(restored.current_day, "2026-04-15")
         self.assertEqual(restored.previous_leader_symbol, "BTCUSDT")
         self.assertEqual(restored.positions["ETHUSDT"].total_quantity, Decimal("2"))
+        self.assertEqual(restored.positions["ETHUSDT"].legs[0].leg_type, "base")
+        self.assertEqual(restored.positions["ETHUSDT"].legs[0].leg_source, "user_stream")
         self.assertEqual(restored.processed_event_ids, {"evt-1": "2026-04-15T01:00:00+00:00"})
         self.assertEqual(restored.order_statuses["101"]["status"], "NEW")
         self.assertEqual(restored.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
@@ -83,6 +86,40 @@ class StrategyStateCodecTests(unittest.TestCase):
         self.assertIsInstance(restored.processed_event_ids["evt-1"], str)
         self.assertEqual(restored.daily_base_signal_times, {})
         self.assertEqual(restored.daily_base_signal_counts, {})
+
+    def test_deserialize_legacy_leg_types_into_strategy_role_and_source(self) -> None:
+        from momentum_alpha.strategy_state_codec import deserialize_strategy_state
+
+        restored = deserialize_strategy_state(
+            {
+                "current_day": "2026-04-15",
+                "previous_leader_symbol": None,
+                "positions": {
+                    "ETHUSDT": {
+                        "symbol": "ETHUSDT",
+                        "stop_price": "106",
+                        "legs": [
+                            {
+                                "symbol": "ETHUSDT",
+                                "quantity": "2",
+                                "entry_price": "108",
+                                "stop_price": "106",
+                                "opened_at": "2026-04-15T01:05:00+00:00",
+                                "leg_type": "stream_fill",
+                                "entry_order_id": "ma_260415010000_ETHUSDT_b00e",
+                            }
+                        ],
+                    }
+                },
+                "processed_event_ids": {},
+                "order_statuses": {},
+                "recent_stop_loss_exits": {},
+            }
+        )
+
+        leg = restored.positions["ETHUSDT"].legs[0]
+        self.assertEqual(leg.leg_type, "base")
+        self.assertEqual(leg.leg_source, "user_stream")
 
 
 if __name__ == "__main__":

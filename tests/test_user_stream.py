@@ -537,9 +537,61 @@ class UserStreamTests(unittest.TestCase):
 
         self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
         self.assertEqual(len(updated.positions["ETHUSDT"].legs), 1)
-        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "stream_fill")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "base")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_source, "user_stream")
         self.assertEqual(updated.positions["ETHUSDT"].legs[0].entry_order_id, "ma_260415010000_ETHUSDT_b00e")
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
+
+    def test_apply_order_trade_update_classifies_add_on_from_client_order_id(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(
+                        PositionLeg(
+                            "ETHUSDT",
+                            Decimal("2"),
+                            Decimal("108"),
+                            Decimal("106"),
+                            opened_at,
+                            "base",
+                            "ma_260415010000_ETHUSDT_b00e",
+                        ),
+                    ),
+                )
+            },
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1776218700000,
+                "o": {
+                    "s": "ETHUSDT",
+                    "i": 102,
+                    "c": "ma_260415020000_ETHUSDT_a00e",
+                    "S": "BUY",
+                    "X": "FILLED",
+                    "x": "TRADE",
+                    "ot": "MARKET",
+                    "ap": "110",
+                    "z": "1",
+                    "l": "1",
+                    "sp": "106",
+                },
+            }
+        )
+
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+
+        self.assertEqual(updated.positions["ETHUSDT"].legs[1].leg_type, "add_on")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[1].leg_source, "user_stream")
 
     def test_apply_stop_market_sell_fill_removes_position(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
@@ -681,7 +733,8 @@ class UserStreamTests(unittest.TestCase):
         self.assertIn("ETHUSDT", updated.positions)
         self.assertEqual(updated.positions["ETHUSDT"].total_quantity, Decimal("2"))
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("0"))
-        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "account_update_restored")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_type, "base")
+        self.assertEqual(updated.positions["ETHUSDT"].legs[0].leg_source, "account_update")
 
     def test_apply_account_update_positive_position_syncs_existing_position_quantity_and_entry(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState

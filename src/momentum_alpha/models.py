@@ -4,6 +4,8 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 
+from momentum_alpha.leg_semantics import LegSource, LegType
+
 
 @dataclass(frozen=True)
 class MarketSnapshot:
@@ -29,8 +31,9 @@ class PositionLeg:
     entry_price: Decimal
     stop_price: Decimal
     opened_at: datetime
-    leg_type: str
+    leg_type: LegType
     entry_order_id: str | None = None
+    leg_source: LegSource = "strategy_fill"
 
     @property
     def stop_risk(self) -> Decimal:

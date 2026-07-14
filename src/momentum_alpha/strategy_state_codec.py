@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from momentum_alpha.leg_semantics import normalize_legacy_leg_source, normalize_legacy_leg_type
 from momentum_alpha.models import Position, PositionLeg
 
 
@@ -32,6 +33,7 @@ def _serialize_position(position: Position) -> dict:
                 "opened_at": leg.opened_at.isoformat(),
                 "leg_type": leg.leg_type,
                 "entry_order_id": leg.entry_order_id,
+                "leg_source": leg.leg_source,
             }
             for leg in position.legs
         ],
@@ -39,22 +41,30 @@ def _serialize_position(position: Position) -> dict:
 
 
 def _deserialize_position(payload: dict) -> Position:
-    legs = tuple(
-        PositionLeg(
-            symbol=leg["symbol"],
-            quantity=Decimal(leg["quantity"]),
-            entry_price=Decimal(leg["entry_price"]),
-            stop_price=Decimal(leg["stop_price"]),
-            opened_at=datetime.fromisoformat(leg["opened_at"]),
-            leg_type=leg["leg_type"],
-            entry_order_id=leg.get("entry_order_id"),
+    legs = []
+    for leg_index, leg in enumerate(payload["legs"]):
+        raw_leg_type = leg.get("leg_type")
+        entry_order_id = leg.get("entry_order_id")
+        legs.append(
+            PositionLeg(
+                symbol=leg["symbol"],
+                quantity=Decimal(leg["quantity"]),
+                entry_price=Decimal(leg["entry_price"]),
+                stop_price=Decimal(leg["stop_price"]),
+                opened_at=datetime.fromisoformat(leg["opened_at"]),
+                leg_type=normalize_legacy_leg_type(
+                    raw_leg_type,
+                    entry_order_id=entry_order_id,
+                    leg_index=leg_index,
+                ),
+                entry_order_id=entry_order_id,
+                leg_source=normalize_legacy_leg_source(raw_leg_type, leg.get("leg_source")),
+            )
         )
-        for leg in payload["legs"]
-    )
     return Position(
         symbol=payload["symbol"],
         stop_price=Decimal(payload["stop_price"]),
-        legs=legs,
+        legs=tuple(legs),
     )
 
 

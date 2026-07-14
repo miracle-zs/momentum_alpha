@@ -576,6 +576,43 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual([item.symbol for item in result.add_on_entries], ["ETHUSDT"])
         self.assertEqual(result.skipped_add_ons, [])
 
+    def test_first_add_on_before_thirty_minutes_is_skipped_for_legacy_stream_fill_base(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import evaluate_hour_close
+
+        now = datetime(2026, 7, 14, 2, 0, tzinfo=timezone.utc)
+        position = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("100"),
+            legs=(
+                PositionLeg(
+                    "ETHUSDT",
+                    Decimal("1"),
+                    Decimal("110"),
+                    Decimal("100"),
+                    now - timedelta(minutes=10),
+                    "stream_fill",
+                    "ma_260714015000_ETHUSDT_b00e",
+                ),
+            ),
+        )
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="ETHUSDT",
+            positions={"ETHUSDT": position},
+        )
+
+        result = evaluate_hour_close(
+            now=now,
+            state=state,
+            latest_hour_lows={"ETHUSDT": Decimal("105")},
+            latest_prices={"ETHUSDT": Decimal("120")},
+            current_leader_symbol="ETHUSDT",
+        )
+
+        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual(result.skipped_add_ons[0].reason, "first_add_on_before_30m")
+
     def test_first_valid_base_signal_consumes_daily_opportunity(self) -> None:
         from momentum_alpha.models import StrategyState
         from momentum_alpha.strategy import evaluate_minute_close

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from momentum_alpha.leg_semantics import infer_leg_type_from_client_order_id
 from momentum_alpha.orders import is_strategy_client_order_id
 
 from .runtime_analytics_common import _decimal_to_text, _text_to_decimal, _text_to_optional_decimal
@@ -20,15 +21,8 @@ def _strategy_stop_client_order_id(client_order_id: str | None) -> str | None:
 
 
 def _trade_leg_type_from_client_order_id(client_order_id: str | None, leg_index: int) -> str:
-    if is_strategy_client_order_id(client_order_id) and client_order_id is not None:
-        token_index = len(client_order_id) - 4
-        if token_index >= 0:
-            token = client_order_id[token_index]
-            if token == "b":
-                return "base"
-            if token == "a":
-                return "add_on"
-    return "base" if leg_index == 1 else "add_on"
+    inferred = infer_leg_type_from_client_order_id(client_order_id)
+    return inferred or ("base" if leg_index == 1 else "add_on")
 
 
 def _position_net_risk(*, legs: list[dict], stop_price: Decimal, direction: str) -> Decimal | None:
