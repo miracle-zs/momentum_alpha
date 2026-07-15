@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -95,6 +95,8 @@ def merge_position_history(existing: Position | None, candidate: Position) -> Po
         return candidate
 
     stop_price = candidate.stop_price if candidate.stop_price > 0 else existing.stop_price
+    if candidate.legs and all(leg.leg_source == "trade_recovery" for leg in candidate.legs):
+        return candidate.with_stop_price(stop_price)
     if len(candidate.legs) > len(existing.legs) and candidate.total_quantity >= existing.total_quantity:
         return candidate.with_stop_price(stop_price)
     if candidate.total_quantity == existing.total_quantity:
@@ -102,23 +104,31 @@ def merge_position_history(existing: Position | None, candidate: Position) -> Po
     if candidate.total_quantity < existing.total_quantity:
         return candidate.with_stop_price(stop_price)
 
-    additional_quantity = candidate.total_quantity - existing.total_quantity
-    existing_notional = sum((leg.quantity * leg.entry_price for leg in existing.legs), Decimal("0"))
+    if not existing.legs:
+        return candidate.with_stop_price(stop_price)
+
+    preceding_legs = existing.legs[:-1]
+    preceding_quantity = sum((leg.quantity for leg in preceding_legs), Decimal("0"))
+    if candidate.total_quantity <= preceding_quantity:
+        return candidate.with_stop_price(stop_price)
+    preceding_notional = sum((leg.quantity * leg.entry_price for leg in preceding_legs), Decimal("0"))
     candidate_notional = sum((leg.quantity * leg.entry_price for leg in candidate.legs), Decimal("0"))
-    additional_entry_price = (candidate_notional - existing_notional) / additional_quantity
-    residual_leg = PositionLeg(
-        symbol=candidate.symbol,
-        quantity=additional_quantity,
-        entry_price=additional_entry_price,
+    reconciled_quantity = candidate.total_quantity - preceding_quantity
+    reconciled_entry_price = (candidate_notional - preceding_notional) / reconciled_quantity
+    reconciled_leg = PositionLeg(
+        symbol=existing.legs[-1].symbol,
+        quantity=reconciled_quantity,
+        entry_price=reconciled_entry_price,
         stop_price=stop_price,
-        opened_at=candidate.legs[-1].opened_at,
-        leg_type="add_on",
+        opened_at=existing.legs[-1].opened_at,
+        leg_type=existing.legs[-1].leg_type,
+        entry_order_id=existing.legs[-1].entry_order_id,
         leg_source="reconciliation",
     )
     return Position(
         symbol=candidate.symbol,
         stop_price=stop_price,
-        legs=tuple([*existing.with_stop_price(stop_price).legs, residual_leg]),
+        legs=tuple([*(replace(leg, stop_price=stop_price) for leg in preceding_legs), reconciled_leg]),
     )
 
 

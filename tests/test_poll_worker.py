@@ -133,7 +133,7 @@ class PollWorkerTests(unittest.TestCase):
             run_once_live_fn=live_runner,
         )
 
-        self.assertEqual(calls, [1, 2])
+        self.assertEqual(calls, [0, 2])
 
     def test_run_forever_keeps_add_on_hour_when_add_on_entry_submission_is_retryable(self) -> None:
         from momentum_alpha.execution import ExecutionPlan

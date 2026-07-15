@@ -28,6 +28,8 @@ def _resolve_stop_trigger_price_for_exit(
             (opened_at is None or algo_time >= opened_at)
             and algo_time <= exit_fills[-1]["time"]
             and algo_row["order_type"] == "STOP_MARKET"
+            and str(algo_row.get("algo_status") or "").upper() == "TRIGGERED"
+            and _strategy_stop_client_order_id(algo_row.get("client_algo_id")) is not None
         ):
             trigger_price = algo_row["trigger_price"]
             if trigger_price is not None:

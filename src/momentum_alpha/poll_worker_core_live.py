@@ -238,6 +238,7 @@ def run_once_live(
         daily_base_signal_times=stored_daily_base_signal_times,
         daily_base_signal_counts=stored_daily_base_signal_counts,
     )
+    removed_positions: dict[str, Position] = {}
     restored_open_orders: list[dict] = []
     if restore_positions:
         open_orders = client.fetch_open_orders()
@@ -257,6 +258,11 @@ def run_once_live(
             daily_base_signal_counts=stored_daily_base_signal_counts,
         )
         if stored_state is not None:
+            removed_positions = {
+                symbol: position
+                for symbol, position in (stored_state.positions or {}).items()
+                if symbol not in initial_state.positions
+            }
             merged_restored_positions = {
                 symbol: _prefer_position_history(stored_state.positions.get(symbol), candidate)
                 for symbol, candidate in initial_state.positions.items()
@@ -404,9 +410,12 @@ def run_once_live(
                     )
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
-        merged_positions = dict(stored_state.positions) if stored_state is not None and stored_state.positions else {}
+        merged_positions = {}
         for symbol, candidate_position in result.runtime_result.next_state.positions.items():
-            merged_positions[symbol] = _prefer_position_history(merged_positions.get(symbol), candidate_position)
+            merged_positions[symbol] = _prefer_position_history(
+                None if stored_state is None or not stored_state.positions else stored_state.positions.get(symbol),
+                candidate_position,
+            )
         merged_next_state = replace(result.runtime_result.next_state, positions=merged_positions)
         result = replace(result, runtime_result=replace(result.runtime_result, next_state=merged_next_state))
         merged_state = StoredStrategyState(
@@ -425,7 +434,11 @@ def run_once_live(
             processed_event_ids=stored_state.processed_event_ids if stored_state is not None else {},
             order_statuses=stored_state.order_statuses if stored_state is not None else {},
         )
-        _save_strategy_state(runtime_state_store=runtime_state_store, state=merged_state)
+        _save_strategy_state(
+            runtime_state_store=runtime_state_store,
+            state=merged_state,
+            removed_positions=removed_positions,
+        )
     if audit_recorder is not None:
         skipped_base_symbols = [
             item.symbol

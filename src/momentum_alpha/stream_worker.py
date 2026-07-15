@@ -37,6 +37,7 @@ def _save_user_stream_strategy_state(
     state: StoredStrategyState,
     now,
     trade_fill=None,
+    removed_position_symbols=None,
     prune_processed_event_ids_fn=None,
 ) -> None:
     _core_save_user_stream_strategy_state(
@@ -44,6 +45,7 @@ def _save_user_stream_strategy_state(
         state=state,
         now=now,
         trade_fill=trade_fill,
+        removed_position_symbols=removed_position_symbols,
         prune_processed_event_ids_fn=(
             _prune_processed_event_ids if prune_processed_event_ids_fn is None else prune_processed_event_ids_fn
         ),

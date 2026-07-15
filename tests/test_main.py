@@ -20,6 +20,41 @@ if str(SRC) not in sys.path:
 
 
 class MainTests(unittest.TestCase):
+    def test_poll_save_removes_only_the_exchange_confirmed_stale_position_version(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.poll_worker_core_state import _save_strategy_state
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+
+        def position(quantity: str) -> Position:
+            return Position(
+                "BTCUSDT",
+                Decimal("90"),
+                (PositionLeg("BTCUSDT", Decimal(quantity), Decimal("100"), Decimal("90"), now, "base"),),
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(Path(tmpdir) / "runtime.db")
+            old_position = position("1")
+            store.save(StoredStrategyState("2026-07-15", None, positions={"BTCUSDT": old_position}))
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState("2026-07-15", None, positions={}),
+                removed_positions={"BTCUSDT": old_position},
+            )
+            self.assertNotIn("BTCUSDT", store.load().positions)
+
+            newer_position = position("2")
+            store.save(StoredStrategyState("2026-07-15", None, positions={"BTCUSDT": newer_position}))
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState("2026-07-15", None, positions={}),
+                removed_positions={"BTCUSDT": old_position},
+            )
+            self.assertEqual(store.load().positions["BTCUSDT"].total_quantity, Decimal("2"))
+
     def test_main_module_exports_cli_and_worker_entrypoints(self) -> None:
         from momentum_alpha import main
 
@@ -2758,6 +2793,124 @@ class MainTests(unittest.TestCase):
             self.assertEqual(loaded.order_statuses["123"]["stop_price"], "106")
             self.assertEqual(client.position_risk_calls, 1)
             self.assertEqual(client.open_orders_calls, 1)
+
+    def test_run_user_stream_recovers_restored_position_legs_from_trade_history(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        class FakeClient:
+            def fetch_position_risk(self):
+                return [
+                    {
+                        "symbol": "BSBUSDT",
+                        "positionAmt": "906",
+                        "entryPrice": "0.1575",
+                        "updateTime": 1784038680000,
+                    }
+                ]
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_all_orders(self, **kwargs):
+                return [
+                    {
+                        "orderId": 101,
+                        "clientOrderId": "ma_260714141800_BSBUSDT_b00e",
+                        "side": "BUY",
+                    }
+                ]
+
+            def fetch_user_trades(self, **kwargs):
+                return [
+                    {
+                        "id": index,
+                        "orderId": 101,
+                        "side": "BUY",
+                        "price": price,
+                        "qty": quantity,
+                        "time": 1784038680000 + index,
+                    }
+                    for index, (quantity, price) in enumerate(
+                        [
+                            ("75", "0.1570"),
+                            ("174", "0.1572"),
+                            ("35", "0.1574"),
+                            ("33", "0.1576"),
+                            ("589", "0.1578"),
+                        ],
+                        start=1,
+                    )
+                ]
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            opened_at = datetime(2026, 7, 14, 14, 18, tzinfo=timezone.utc)
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-07-14",
+                    previous_leader_symbol="BSBUSDT",
+                    positions={
+                        "BSBUSDT": Position(
+                            symbol="BSBUSDT",
+                            stop_price=Decimal("0.14585"),
+                            legs=(
+                                PositionLeg(
+                                    "BSBUSDT",
+                                    Decimal("75"),
+                                    Decimal("0.1570"),
+                                    Decimal("0.14585"),
+                                    opened_at,
+                                    "base",
+                                    leg_source="account_update",
+                                ),
+                                PositionLeg(
+                                    "BSBUSDT",
+                                    Decimal("589"),
+                                    Decimal("0.1578"),
+                                    Decimal("0.14585"),
+                                    opened_at,
+                                    "base",
+                                    entry_order_id="ma_260714141800_BSBUSDT_b00e",
+                                    leg_source="user_stream",
+                                ),
+                                PositionLeg(
+                                    "BSBUSDT",
+                                    Decimal("242"),
+                                    Decimal("0.1575"),
+                                    Decimal("0.14585"),
+                                    opened_at,
+                                    "add_on",
+                                    leg_source="reconciliation",
+                                ),
+                            ),
+                        )
+                    },
+                )
+            )
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                runtime_state_store=store,
+                now_provider=lambda: datetime(2026, 7, 14, 15, 0, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            )
+            loaded = store.load()
+
+        self.assertEqual(exit_code, 0)
+        position = loaded.positions["BSBUSDT"]
+        self.assertEqual(position.total_quantity, Decimal("906"))
+        self.assertEqual(len(position.legs), 1)
+        self.assertEqual(position.legs[0].leg_type, "base")
+        self.assertEqual(position.legs[0].leg_source, "trade_recovery")
+        self.assertEqual(position.legs[0].entry_order_id, "ma_260714141800_BSBUSDT_b00e")
 
     def test_run_user_stream_prewarms_restored_stop_from_open_algo_orders(self) -> None:
         from momentum_alpha.main import run_user_stream

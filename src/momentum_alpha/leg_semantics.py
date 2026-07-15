@@ -12,6 +12,7 @@ LegSource = Literal[
     "rest_restore",
     "account_update",
     "reconciliation",
+    "trade_recovery",
     "legacy",
 ]
 
@@ -56,6 +57,7 @@ def normalize_legacy_leg_source(
         "rest_restore",
         "account_update",
         "reconciliation",
+        "trade_recovery",
         "legacy",
     }
     if explicit_source in allowed_sources:

@@ -16,6 +16,7 @@ class SymbolFilters:
     step_size: Decimal
     min_qty: Decimal
     tick_size: Decimal
+    max_qty: Decimal | None = None
 
     def normalize_quantity(self, quantity: Decimal) -> Decimal:
         return _round_down_to_increment(quantity, self.step_size)
@@ -23,6 +24,8 @@ class SymbolFilters:
     def valid_quantity_or_none(self, quantity: Decimal) -> Decimal | None:
         normalized = self.normalize_quantity(quantity)
         if normalized < self.min_qty or normalized <= 0:
+            return None
+        if self.max_qty is not None and self.max_qty > 0 and normalized > self.max_qty:
             return None
         return normalized
 

@@ -7,7 +7,7 @@ def run_loop(*, run_once, now_provider, sleep_fn, max_ticks: int | None = None, 
     while max_ticks is None or ticks < max_ticks:
         now = now_provider()
         minute_key = (now.year, now.month, now.day, now.hour, now.minute)
-        if minute_key != last_seen_minute:
+        if now.second <= 2 and minute_key != last_seen_minute:
             try:
                 run_once(now)
             except Exception as exc:  # pragma: no cover - behavior verified through tests

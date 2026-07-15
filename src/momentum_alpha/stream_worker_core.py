@@ -63,6 +63,7 @@ def _save_user_stream_strategy_state(
     state: StoredStrategyState,
     now: datetime,
     trade_fill: dict[str, Any] | None = None,
+    removed_position_symbols: set[str] | None = None,
     prune_processed_event_ids_fn: Callable[
         [dict[str, str] | None, datetime],
         dict[str, str],
@@ -77,10 +78,11 @@ def _save_user_stream_strategy_state(
             else state.previous_leader_symbol
         )
         pruned_event_ids = prune_processed_event_ids_fn(state.processed_event_ids, now)
-        positions = dict(state.positions or {})
-        if existing is not None and existing.positions:
-            for symbol, position in positions.items():
-                positions[symbol] = merge_position_history(existing.positions.get(symbol), position)
+        positions = dict(existing.positions or {}) if existing is not None else {}
+        for symbol, position in (state.positions or {}).items():
+            positions[symbol] = merge_position_history(positions.get(symbol), position)
+        for symbol in removed_position_symbols or set():
+            positions.pop(symbol, None)
         return StoredStrategyState(
             current_day=existing.current_day if existing is not None else state.current_day,
             previous_leader_symbol=previous_leader_symbol,
@@ -286,51 +288,55 @@ def build_user_stream_event_handler(
                                 "error": str(exc),
                             },
                         )
+        candidate_order_statuses = dict(context.order_statuses)
         order_status_update = extract_order_status_update_fn(event)
         if order_status_update is not None:
             order_id, order_snapshot = order_status_update
             if order_snapshot is None:
-                context.order_statuses.pop(order_id, None)
+                candidate_order_statuses.pop(order_id, None)
             else:
                 if decision_id is not None or intent_id is not None:
                     order_snapshot = {**order_snapshot, "decision_id": decision_id, "intent_id": intent_id}
-                context.order_statuses[order_id] = order_snapshot
+                candidate_order_statuses[order_id] = order_snapshot
         algo_order_status_update = extract_algo_order_status_update_fn(event)
         if algo_order_status_update is not None:
             algo_key, algo_snapshot = algo_order_status_update
             if algo_snapshot is None:
-                context.order_statuses.pop(algo_key, None)
+                candidate_order_statuses.pop(algo_key, None)
             else:
                 if decision_id is not None or intent_id is not None:
                     algo_snapshot = {**algo_snapshot, "decision_id": decision_id, "intent_id": intent_id}
-                context.order_statuses[algo_key] = algo_snapshot
-        context.state = apply_user_stream_event_to_state_fn(
+                candidate_order_statuses[algo_key] = algo_snapshot
+        candidate_state = apply_user_stream_event_to_state_fn(
             state=context.state,
             event=event,
-            order_statuses=context.order_statuses,
+            order_statuses=candidate_order_statuses,
         )
+        candidate_processed_event_ids = dict(context.processed_event_ids)
         if event_id is not None:
-            context.processed_event_ids[event_id] = timestamp.isoformat()
+            candidate_processed_event_ids[event_id] = timestamp.isoformat()
+        removed_position_symbols = set(context.state.positions) - set(candidate_state.positions)
         if runtime_state_store is not None:
             save_user_stream_strategy_state_fn(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
-                    current_day=context.state.current_day.isoformat(),
-                    previous_leader_symbol=context.state.previous_leader_symbol,
+                    current_day=candidate_state.current_day.isoformat(),
+                    previous_leader_symbol=candidate_state.previous_leader_symbol,
                     daily_base_signal_times={
                         symbol: timestamp.isoformat()
-                        for symbol, timestamp in context.state.daily_base_signal_times.items()
+                        for symbol, timestamp in candidate_state.daily_base_signal_times.items()
                     },
-                    daily_base_signal_counts=dict(context.state.daily_base_signal_counts),
-                    positions=context.state.positions,
-                    processed_event_ids=context.processed_event_ids,
-                    order_statuses=context.order_statuses,
+                    daily_base_signal_counts=dict(candidate_state.daily_base_signal_counts),
+                    positions=candidate_state.positions,
+                    processed_event_ids=candidate_processed_event_ids,
+                    order_statuses=candidate_order_statuses,
                     recent_stop_loss_exits={
                         symbol: exit_time.isoformat()
-                        for symbol, exit_time in context.state.recent_stop_loss_exits.items()
+                        for symbol, exit_time in candidate_state.recent_stop_loss_exits.items()
                     },
                 ),
                 now=timestamp,
+                removed_position_symbols=removed_position_symbols,
                 trade_fill=(
                     None
                     if not use_atomic_trade_fill
@@ -361,6 +367,9 @@ def build_user_stream_event_handler(
             )
             if use_atomic_trade_fill and on_trade_fill_persisted_fn is not None:
                 on_trade_fill_persisted_fn()
+        context.state = candidate_state
+        context.order_statuses = candidate_order_statuses
+        context.processed_event_ids = candidate_processed_event_ids
         record_position_snapshot_fn(
             audit_recorder=audit_recorder,
             now=timestamp,

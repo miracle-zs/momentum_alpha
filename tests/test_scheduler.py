@@ -91,3 +91,22 @@ class SchedulerTests(unittest.TestCase):
         )
         self.assertEqual(len(calls), 2)
         self.assertEqual(errors, [("boom", 1)])
+
+    def test_scheduler_waits_for_minute_boundary_after_mid_minute_start(self) -> None:
+        from momentum_alpha.scheduler import run_loop
+
+        times = iter(
+            [
+                datetime(2026, 4, 15, 1, 1, 37, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 1, 58, tzinfo=timezone.utc),
+                datetime(2026, 4, 15, 1, 2, 0, tzinfo=timezone.utc),
+            ]
+        )
+        calls = []
+        run_loop(
+            run_once=lambda now: calls.append(now),
+            now_provider=lambda: next(times),
+            sleep_fn=lambda seconds: None,
+            max_ticks=1,
+        )
+        self.assertEqual([item.second for item in calls], [0])

@@ -40,6 +40,7 @@ def parse_exchange_info(payload: dict) -> dict[str, ExchangeSymbol]:
             step_size=Decimal(market_lot_size["stepSize"]),
             min_qty=Decimal(market_lot_size["minQty"]),
             tick_size=Decimal(price_filter["tickSize"]),
+            max_qty=Decimal(market_lot_size["maxQty"]) if market_lot_size.get("maxQty") else None,
         )
         symbols[item["symbol"]] = ExchangeSymbol(
             symbol=item["symbol"],

@@ -12,6 +12,21 @@ if str(SRC) not in sys.path:
 
 
 class ExecutionPlanTests(unittest.TestCase):
+    def test_add_on_client_order_id_is_stable_within_hour(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.execution import build_execution_plan
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.models import EntryIntent, MarketSnapshot, TickDecision
+
+        symbols = {"BTCUSDT": ExchangeSymbol("BTCUSDT", "TRADING", SymbolFilters(Decimal("1"), Decimal("1"), Decimal("0.1")), Decimal("0"))}
+        market = {"BTCUSDT": MarketSnapshot("BTCUSDT", Decimal("100"), Decimal("110"), Decimal("100"), True, True)}
+        decision = TickDecision([], [EntryIntent("BTCUSDT", Decimal("100"), "add_on")], {}, "BTCUSDT")
+
+        first = build_execution_plan(symbols=symbols, market=market, decision=decision, stop_budget=Decimal("10"), now=datetime(2026, 7, 15, 3, 1, tzinfo=timezone.utc))
+        retried = build_execution_plan(symbols=symbols, market=market, decision=decision, stop_budget=Decimal("10"), now=datetime(2026, 7, 15, 3, 59, tzinfo=timezone.utc))
+
+        self.assertEqual(first.entry_orders[0]["newClientOrderId"], retried.entry_orders[0]["newClientOrderId"])
+
     def test_builds_entry_and_stop_orders_from_base_entry_intent(self) -> None:
         from momentum_alpha.binance_filters import SymbolFilters
         from momentum_alpha.execution import build_execution_plan
@@ -125,3 +140,46 @@ class StateUpdateTests(unittest.TestCase):
         self.assertEqual(updated.positions["BTCUSDT"].total_quantity, Decimal("1.5"))
         self.assertEqual(updated.positions["BTCUSDT"].stop_price, Decimal("61300"))
         self.assertEqual(len(updated.positions["BTCUSDT"].legs), 2)
+
+    def test_apply_fill_replaces_restored_leg_using_leg_source(self) -> None:
+        from momentum_alpha.execution import apply_fill
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+
+        opened_at = datetime(2026, 4, 15, 1, 1, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("61000"),
+                    legs=(
+                        PositionLeg(
+                            "BTCUSDT",
+                            Decimal("1"),
+                            Decimal("61200"),
+                            Decimal("61000"),
+                            opened_at,
+                            "base",
+                            leg_source="rest_restore",
+                        ),
+                    ),
+                )
+            },
+        )
+
+        updated = apply_fill(
+            state=state,
+            symbol="BTCUSDT",
+            quantity=Decimal("1"),
+            entry_price=Decimal("61200"),
+            stop_price=Decimal("61000"),
+            leg_type="base",
+            filled_at=opened_at,
+            entry_order_id="ma_260415010100_BTCUSDT_b00e",
+            leg_source="user_stream",
+        )
+
+        self.assertEqual(len(updated.positions["BTCUSDT"].legs), 1)
+        self.assertEqual(updated.positions["BTCUSDT"].legs[0].entry_order_id, "ma_260415010100_BTCUSDT_b00e")
+        self.assertEqual(updated.positions["BTCUSDT"].legs[0].leg_source, "user_stream")

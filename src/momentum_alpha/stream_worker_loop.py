@@ -4,11 +4,17 @@ import time
 import threading
 import sqlite3
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from momentum_alpha.audit import AuditRecorder
+from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.models import StrategyState
+from momentum_alpha.position_recovery import (
+    fetch_complete_history,
+    position_needs_trade_recovery,
+    rebuild_position_from_trade_history,
+)
 from momentum_alpha.reconciliation import merge_position_history, restore_state
 from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
@@ -289,6 +295,7 @@ def run_user_stream(
         fetch_open_orders = getattr(client, "fetch_open_orders", None)
         if not callable(fetch_position_risk) or not callable(fetch_open_orders):
             return
+        previous_position_symbols = set(context.state.positions)
         position_risk = fetch_position_risk()
         open_orders = fetch_open_orders()
         fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
@@ -309,6 +316,42 @@ def run_user_stream(
             symbol: merge_position_history(context.state.positions.get(symbol), position)
             for symbol, position in restored_state.positions.items()
         }
+        fetch_user_trades = getattr(client, "fetch_user_trades", None)
+        fetch_all_orders = getattr(client, "fetch_all_orders", None)
+        if callable(fetch_user_trades) and callable(fetch_all_orders):
+            recovery_end = now_provider().astimezone(timezone.utc)
+            recovery_start = recovery_end - timedelta(days=6, hours=23)
+            for symbol, position in list(merged_positions.items()):
+                if not position_needs_trade_recovery(position):
+                    continue
+                try:
+                    start_time_ms = int(recovery_start.timestamp() * 1000)
+                    end_time_ms = int(recovery_end.timestamp() * 1000)
+                    rebuilt = rebuild_position_from_trade_history(
+                        position=position,
+                        trades=fetch_complete_history(
+                            fetch_user_trades,
+                            symbol=symbol,
+                            start_time_ms=start_time_ms,
+                            end_time_ms=end_time_ms,
+                        ),
+                        orders=fetch_complete_history(
+                            fetch_all_orders,
+                            symbol=symbol,
+                            start_time_ms=start_time_ms,
+                            end_time_ms=end_time_ms,
+                        ),
+                    )
+                    if rebuilt is not None:
+                        merged_positions[symbol] = rebuilt
+                        _log(
+                            "position-trade-recovery",
+                            symbol=symbol,
+                            quantity=rebuilt.total_quantity,
+                            leg_count=len(rebuilt.legs),
+                        )
+                except Exception as exc:
+                    _log("position-trade-recovery-error", level="WARNING", symbol=symbol, error=str(exc))
         context.state = replace(context.state, positions=merged_positions)
         context.order_statuses = {
             str(order.get("orderId")): {
@@ -358,6 +401,7 @@ def run_user_stream(
                     },
                 ),
                 now=now_provider(),
+                removed_position_symbols=previous_position_symbols - set(context.state.positions),
                 prune_processed_event_ids_fn=prune_processed_event_ids_fn,
             )
 
@@ -445,7 +489,9 @@ def run_user_stream(
                 reconnect_sleep_fn(sleep_seconds)
             except Exception as exc:
                 reconnect_attempt += 1
-                sleep_seconds = min(reconnect_attempt, 5)
+                sleep_seconds = rate_limit_backoff_seconds(exc, fallback_seconds=120)
+                if sleep_seconds <= 0:
+                    sleep_seconds = min(reconnect_attempt, 5)
                 _log("stream-error", level="ERROR", attempt=reconnect_attempt, sleep_seconds=sleep_seconds, error=str(exc))
                 reconnect_sleep_fn(sleep_seconds)
             finally:

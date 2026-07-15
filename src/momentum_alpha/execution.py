@@ -44,6 +44,10 @@ def _build_orders_for_intent(
         return None
 
     opened_at = now.astimezone(timezone.utc)
+    if intent.leg_type == "add_on":
+        # One add-on opportunity exists per UTC hour. Keep its exchange
+        # idempotency key stable across minute-level retries in that hour.
+        opened_at = opened_at.replace(minute=0, second=0, microsecond=0)
     entry_order = build_market_entry_order(
         symbol=exchange_symbol,
         quantity=quantity,
@@ -117,14 +121,22 @@ def apply_fill(
     filled_at: datetime,
     entry_order_id: str | None = None,
     leg_source: LegSource = "strategy_fill",
+    cumulative_quantity: Decimal | None = None,
+    cumulative_average_price: Decimal | None = None,
     new_previous_leader_symbol: str | None = None,
 ) -> StrategyState:
     positions = dict(state.positions)
     position = positions.get(symbol)
+    projected_quantity = cumulative_quantity if cumulative_quantity is not None and cumulative_quantity > 0 else quantity
+    projected_entry_price = (
+        cumulative_average_price
+        if cumulative_average_price is not None and cumulative_average_price > 0
+        else entry_price
+    )
     new_leg = PositionLeg(
         symbol=symbol,
-        quantity=quantity,
-        entry_price=entry_price,
+        quantity=projected_quantity,
+        entry_price=projected_entry_price,
         stop_price=stop_price,
         opened_at=filled_at,
         leg_type=leg_type,
@@ -141,8 +153,8 @@ def apply_fill(
             len(updated_legs) == 1
             and last_leg is not None
             and last_leg.entry_order_id is None
-            and last_leg.leg_type in {"restored", "account_update_restored", "account_update_synced"}
-            and last_leg.quantity == quantity
+            and last_leg.leg_source in {"rest_restore", "account_update", "reconciliation"}
+            and last_leg.quantity == projected_quantity
         ):
             updated_legs[0] = new_leg
             positions[symbol] = Position(symbol=symbol, stop_price=stop_price, legs=tuple(updated_legs))
@@ -151,22 +163,33 @@ def apply_fill(
                 previous_leader_symbol=new_previous_leader_symbol if new_previous_leader_symbol is not None else state.previous_leader_symbol,
                 positions=positions,
             )
-        if (
-            last_leg is not None
-            and last_leg.entry_order_id is not None
-            and entry_order_id is not None
-            and last_leg.entry_order_id == entry_order_id
-            and last_leg.leg_type == leg_type
-        ):
-            merged_quantity = last_leg.quantity + quantity
-            merged_entry_price = (
-                (last_leg.entry_price * last_leg.quantity) + (entry_price * quantity)
-            ) / merged_quantity
-            updated_legs[-1] = replace(
-                last_leg,
+        matching_leg_index = next(
+            (
+                index
+                for index, leg in enumerate(updated_legs)
+                if leg.entry_order_id is not None
+                and entry_order_id is not None
+                and leg.entry_order_id == entry_order_id
+                and leg.leg_type == leg_type
+            ),
+            None,
+        )
+        if matching_leg_index is not None:
+            matching_leg = updated_legs[matching_leg_index]
+            if cumulative_quantity is not None and cumulative_quantity > 0:
+                merged_quantity = cumulative_quantity
+                merged_entry_price = projected_entry_price
+            else:
+                merged_quantity = matching_leg.quantity + quantity
+                merged_entry_price = (
+                    (matching_leg.entry_price * matching_leg.quantity) + (entry_price * quantity)
+                ) / merged_quantity
+            updated_legs[matching_leg_index] = replace(
+                matching_leg,
                 quantity=merged_quantity,
                 entry_price=merged_entry_price,
                 stop_price=stop_price,
+                leg_source=leg_source,
             )
         else:
             updated_legs.append(new_leg)

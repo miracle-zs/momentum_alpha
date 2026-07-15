@@ -22,11 +22,15 @@ def _save_strategy_state(
     *,
     runtime_state_store: RuntimeStateStore,
     state: StoredStrategyState,
+    removed_positions: dict[str, Position] | None = None,
 ) -> None:
     """Persist poll-owned state changes without clobbering newer stream fields."""
 
     def _updater(existing: StoredStrategyState | None) -> StoredStrategyState:
         existing_positions = {} if existing is None or existing.positions is None else dict(existing.positions)
+        for symbol, expected_position in (removed_positions or {}).items():
+            if existing_positions.get(symbol) == expected_position:
+                existing_positions.pop(symbol, None)
         existing_recent_stop_loss_exits = (
             {} if existing is None or existing.recent_stop_loss_exits is None else dict(existing.recent_stop_loss_exits)
         )

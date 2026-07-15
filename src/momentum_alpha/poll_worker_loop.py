@@ -5,6 +5,7 @@ from datetime import timedelta
 from urllib.error import HTTPError
 
 from momentum_alpha.audit import AuditRecorder
+from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.market_data import LiveMarketDataCache
 from momentum_alpha.runtime_store import RuntimeStateStore
@@ -93,46 +94,34 @@ def run_forever(
             _log("rate-limit-backoff", level="WARN", until=rate_limited_until)
             return
         if last_add_on_hour is None:
-            last_add_on_hour = now.hour
+            last_add_on_hour = (now.hour - 1) % 24 if now.minute == 0 else now.hour
         if symbols is None:
             resolved_symbols = list(market_data_cache.refresh_exchange_symbols(client=client).keys())
         _log("tick", now=now, last_add_on_hour=last_add_on_hour)
         try:
-            try:
-                result = run_once_live_fn(
-                    symbols=resolved_symbols,
-                    now=now,
-                    previous_leader_symbol=previous_leader_symbol,
-                    client=client,
-                    broker=broker,
-                    submit_orders=submit_orders,
-                    runtime_state_store=runtime_state_store,
-                    restore_positions=restore_positions,
-                    execute_stop_replacements=execute_stop_replacements,
-                    market_data_cache=market_data_cache,
-                    audit_recorder=audit_recorder,
-                    last_add_on_hour=last_add_on_hour,
-                    logger=logger,
-                )
-            except TypeError:
-                result = run_once_live_fn(
-                    symbols=resolved_symbols,
-                    now=now,
-                    previous_leader_symbol=previous_leader_symbol,
-                    client=client,
-                    broker=broker,
-                    submit_orders=submit_orders,
-                    runtime_state_store=runtime_state_store,
-                    restore_positions=restore_positions,
-                    execute_stop_replacements=execute_stop_replacements,
-                    last_add_on_hour=last_add_on_hour,
-                )
+            result = run_once_live_fn(
+                symbols=resolved_symbols,
+                now=now,
+                previous_leader_symbol=previous_leader_symbol,
+                client=client,
+                broker=broker,
+                submit_orders=submit_orders,
+                runtime_state_store=runtime_state_store,
+                restore_positions=restore_positions,
+                execute_stop_replacements=execute_stop_replacements,
+                market_data_cache=market_data_cache,
+                audit_recorder=audit_recorder,
+                last_add_on_hour=last_add_on_hour,
+                logger=logger,
+            )
             new_hour = result.runtime_result.decision.new_last_add_on_hour
             if new_hour is not None and new_hour != last_add_on_hour and not _has_retryable_add_on_entry_failure(result):
                 last_add_on_hour = new_hour
         except HTTPError as exc:
-            if exc.code == 429:
-                rate_limited_until = now + timedelta(minutes=2)
+            if exc.code in {418, 429}:
+                rate_limited_until = now + timedelta(
+                    seconds=rate_limit_backoff_seconds(exc, fallback_seconds=120),
+                )
             raise
         if audit_recorder is not None:
             audit_recorder.record(

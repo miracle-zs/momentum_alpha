@@ -105,6 +105,16 @@ def _retry_sleep_seconds(*, response_body: str, fallback_seconds: float) -> floa
     return max(fallback_seconds, ban_sleep_seconds + 1.0)
 
 
+def rate_limit_backoff_seconds(exc: Exception, *, fallback_seconds: float = 120.0) -> float:
+    status_code = getattr(exc, "status_code", getattr(exc, "code", None))
+    if status_code not in {418, 429}:
+        return 0.0
+    return _retry_sleep_seconds(
+        response_body=getattr(exc, "response_body", ""),
+        fallback_seconds=fallback_seconds,
+    )
+
+
 class BinanceRestClient:
     def __init__(
         self,

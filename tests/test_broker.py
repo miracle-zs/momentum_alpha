@@ -559,7 +559,7 @@ class BrokerTests(unittest.TestCase):
 
         self.assertEqual(responses[0]["status"], "NEW")
         self.assertEqual(broker.client.new_order_client_ids, ["ma_260510100000_BTCUSDT_a00e", "ma_260510100000_BTCUSDT_a00e"])
-        self.assertEqual(len(broker.client.fetch_order_calls), 1)
+        self.assertEqual(len(broker.client.fetch_order_calls), 2)
 
     def test_broker_exposes_failed_entry_attempts_when_retries_are_exhausted(self) -> None:
         from urllib.error import URLError

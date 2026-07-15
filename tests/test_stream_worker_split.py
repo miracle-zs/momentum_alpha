@@ -13,6 +13,66 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class StreamWorkerSplitTests(unittest.TestCase):
+    def test_stream_save_preserves_positions_owned_by_poll(self) -> None:
+        from decimal import Decimal
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.stream_worker_core import _save_user_stream_strategy_state
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        now = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+
+        def position(symbol: str) -> Position:
+            return Position(
+                symbol=symbol,
+                stop_price=Decimal("90"),
+                legs=(PositionLeg(symbol, Decimal("1"), Decimal("100"), Decimal("90"), now, "base"),),
+            )
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(Path(tmpdir) / "runtime.db")
+            store.save(StoredStrategyState(current_day="2026-07-15", previous_leader_symbol=None, positions={"BTCUSDT": position("BTCUSDT")}))
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(current_day="2026-07-15", previous_leader_symbol=None, positions={"ETHUSDT": position("ETHUSDT")}),
+                now=now,
+            )
+            loaded = store.load()
+
+        self.assertEqual(set(loaded.positions), {"BTCUSDT", "ETHUSDT"})
+
+    def test_handler_does_not_commit_memory_when_state_save_fails(self) -> None:
+        from dataclasses import replace
+
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.user_stream_event_model import UserStreamEvent
+
+        now = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+        context = UserStreamWorkerContext(
+            state=StrategyState(current_day=now.date(), previous_leader_symbol="BTCUSDT", positions={}),
+            processed_event_ids={},
+            order_statuses={},
+        )
+        handler = build_user_stream_event_handler(
+            logger=lambda message: None,
+            runtime_state_store=object(),
+            audit_recorder=None,
+            now_provider=lambda: now,
+            context=context,
+            user_stream_event_id_fn=lambda event: "evt-1",
+            apply_user_stream_event_to_state_fn=lambda **kwargs: replace(kwargs["state"], previous_leader_symbol="ETHUSDT"),
+            save_user_stream_strategy_state_fn=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")),
+            record_position_snapshot_fn=lambda **kwargs: None,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "disk full"):
+            handler(UserStreamEvent(event_type="ACCOUNT_UPDATE", payload={}, event_time=now))
+
+        self.assertEqual(context.state.previous_leader_symbol, "BTCUSDT")
+        self.assertEqual(context.processed_event_ids, {})
+
     def test_split_modules_import_and_expose_worker_entrypoints(self) -> None:
         from momentum_alpha import stream_worker, stream_worker_core, stream_worker_loop
 

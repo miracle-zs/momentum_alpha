@@ -352,7 +352,9 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             if qty <= Decimal("0"):
                 continue
             fill_time = datetime.fromisoformat(timestamp)
-            fill_price = _text_to_decimal(average_price) or _text_to_decimal(last_price)
+            # User Stream's average price is cumulative for the order. Each
+            # trade_fills row represents one execution, so use its last price.
+            fill_price = _text_to_decimal(last_price) or _text_to_decimal(average_price)
             fill_snapshot = {
                 "timestamp": timestamp,
                 "time": fill_time,

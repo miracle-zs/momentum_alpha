@@ -82,6 +82,10 @@ class BinanceBroker:
         return responses
 
     def _submit_entry_order(self, order: dict[str, str]) -> dict | None:
+        existing = self._fetch_existing_entry_order(order)
+        if existing is not None:
+            existing.setdefault("recoveredBeforeSubmit", True)
+            return existing
         attempts = len(self.entry_retry_delays) + 1
         last_error: Exception | None = None
         for attempt in range(attempts):
@@ -132,6 +136,8 @@ class BinanceBroker:
         try:
             return fetch_order(symbol=symbol, orig_client_order_id=client_order_id)
         except Exception as exc:
+            if _is_rate_limit_error(exc):
+                raise
             if _is_order_not_found_error(exc):
                 return None
             logger.warning(f"entry order status lookup failed for {symbol}: {exc}")

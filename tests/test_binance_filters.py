@@ -28,3 +28,14 @@ class BinanceFilterTests(unittest.TestCase):
 
         filters = SymbolFilters(step_size=Decimal("0.1"), min_qty=Decimal("1"), tick_size=Decimal("0.05"))
         self.assertEqual(filters.normalize_price(Decimal("123.47")), Decimal("123.45"))
+
+    def test_rejects_quantity_above_market_maximum(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+
+        filters = SymbolFilters(
+            step_size=Decimal("1"),
+            min_qty=Decimal("1"),
+            tick_size=Decimal("0.01"),
+            max_qty=Decimal("100"),
+        )
+        self.assertIsNone(filters.valid_quantity_or_none(Decimal("101")))

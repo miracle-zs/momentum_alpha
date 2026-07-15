@@ -11,7 +11,7 @@ if str(SRC) not in sys.path:
 
 
 class ReconciliationTests(unittest.TestCase):
-    def test_merge_position_history_reconstructs_incremental_quantity(self) -> None:
+    def test_merge_position_history_updates_aggregate_without_inventing_add_on(self) -> None:
         from datetime import datetime, timezone
 
         from momentum_alpha.models import Position, PositionLeg
@@ -41,10 +41,11 @@ class ReconciliationTests(unittest.TestCase):
         merged = merge_position_history(existing, candidate)
 
         self.assertEqual(merged.total_quantity, Decimal("150"))
-        self.assertEqual(len(merged.legs), 2)
+        self.assertEqual(len(merged.legs), 1)
         self.assertEqual(merged.legs[0].leg_type, "base")
-        self.assertEqual(merged.legs[1].quantity, Decimal("50"))
-        self.assertAlmostEqual(float(merged.legs[1].entry_price), 12.0, places=9)
+        self.assertEqual(merged.legs[0].quantity, Decimal("150"))
+        self.assertAlmostEqual(float(merged.legs[0].entry_price), 10.666666666666666, places=9)
+        self.assertEqual(merged.legs[0].leg_source, "reconciliation")
         self.assertEqual(merged.stop_price, Decimal("9.5"))
 
     def test_merge_position_history_prefers_known_candidate_legs(self) -> None:

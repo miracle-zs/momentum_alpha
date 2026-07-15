@@ -42,7 +42,11 @@ def _build_live_snapshots(
         return []
 
     leader_runtime = build_runtime(snapshots=provisional_snapshots)
-    leader_snapshot = max(leader_runtime.market.values(), key=lambda item: item.daily_change_pct, default=None)
+    leader_snapshot = min(
+        leader_runtime.market.values(),
+        key=lambda item: (-item.daily_change_pct, item.symbol),
+        default=None,
+    )
     symbols_requiring_hour_data = set(held_symbols)
     if leader_snapshot is not None:
         symbols_requiring_hour_data.add(leader_snapshot.symbol)

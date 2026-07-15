@@ -73,14 +73,15 @@ def apply_user_stream_event_to_state(
             return state
         return replace(state, positions=positions, recent_stop_loss_exits=recent_stop_loss_exits)
 
-    if event.event_type != "ORDER_TRADE_UPDATE" or event.order_status != "FILLED" or event.symbol is None:
+    if event.event_type != "ORDER_TRADE_UPDATE" or event.symbol is None:
         return state
 
     fill_quantity = event.last_filled_quantity or event.filled_quantity
     if (
-        event.side == "BUY"
+        event.execution_type == "TRADE"
+        and event.side == "BUY"
         and is_strategy_client_order_id(event.client_order_id)
-        and event.average_price is not None
+        and (event.last_filled_price is not None or event.average_price is not None)
         and fill_quantity is not None
         and fill_quantity > 0
     ):
@@ -90,15 +91,17 @@ def apply_user_stream_event_to_state(
             state=state,
             symbol=event.symbol,
             quantity=fill_quantity,
-            entry_price=event.average_price,
+            entry_price=event.last_filled_price or event.average_price or Decimal("0"),
             stop_price=stop_price,
             leg_type=infer_leg_type_from_client_order_id(event.client_order_id) or "base",
             filled_at=filled_at,
             entry_order_id=event.client_order_id or (str(event.order_id) if event.order_id is not None else None),
             leg_source="user_stream",
+            cumulative_quantity=event.filled_quantity,
+            cumulative_average_price=event.average_price,
         )
 
-    if _is_strategy_stop_fill(event):
+    if event.order_status == "FILLED" and _is_strategy_stop_fill(event):
         positions = dict(state.positions)
         positions.pop(event.symbol, None)
         recent_stop_loss_exits = dict(state.recent_stop_loss_exits)
