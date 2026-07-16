@@ -29,7 +29,7 @@ class RuntimeTickResult:
     next_state: StrategyState
 
 
-def build_runtime(*, snapshots: list[dict]) -> Runtime:
+def build_runtime(*, snapshots: list[dict], config: StrategyConfig | None = None) -> Runtime:
     market = {
         snapshot["symbol"]: MarketSnapshot(
             symbol=snapshot["symbol"],
@@ -45,7 +45,7 @@ def build_runtime(*, snapshots: list[dict]) -> Runtime:
     return Runtime(
         market=market,
         exchange_symbols={},
-        config=StrategyConfig(),
+        config=config or StrategyConfig(),
     )
 
 

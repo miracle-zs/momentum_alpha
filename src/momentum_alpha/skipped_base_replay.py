@@ -385,7 +385,7 @@ def replay_shadow_seed(
             )
             continue
 
-        active_stop = min(item.low_price for item in completed_hour)
+        active_stop = max(active_stop, min(item.low_price for item in completed_hour))
         events.append(
             ShadowReplayEvent(
                 shadow_opportunity_id=seed.shadow_opportunity_id,

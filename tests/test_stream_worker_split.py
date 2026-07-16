@@ -73,6 +73,39 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(context.state.previous_leader_symbol, "BTCUSDT")
         self.assertEqual(context.processed_event_ids, {})
 
+    def test_handler_retries_event_when_required_projection_fails(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.user_stream_event_model import UserStreamEvent
+
+        now = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+        context = UserStreamWorkerContext(
+            state=StrategyState(current_day=now.date(), previous_leader_symbol=None, positions={}),
+            processed_event_ids={},
+            order_statuses={},
+        )
+        saved_states = []
+        audit_recorder = SimpleNamespace(runtime_db_path=Path("/tmp/runtime.db"), source="user-stream", record=lambda **kwargs: None)
+
+        handler = build_user_stream_event_handler(
+            logger=lambda message: None,
+            runtime_state_store=object(),
+            audit_recorder=audit_recorder,
+            now_provider=lambda: now,
+            context=context,
+            user_stream_event_id_fn=lambda event: "evt-1",
+            extract_algo_order_event_fn=lambda event: {"symbol": "BTCUSDT", "algo_id": "1"},
+            insert_algo_order_fn=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("db unavailable")),
+            save_user_stream_strategy_state_fn=lambda **kwargs: saved_states.append(kwargs["state"]),
+            record_position_snapshot_fn=lambda **kwargs: None,
+        )
+
+        handler(UserStreamEvent(event_type="ORDER_TRADE_UPDATE", payload={}, event_time=now))
+
+        self.assertEqual(len(saved_states), 1)
+        self.assertNotIn("evt-1", saved_states[0].processed_event_ids)
+        self.assertNotIn("evt-1", context.processed_event_ids)
+
     def test_split_modules_import_and_expose_worker_entrypoints(self) -> None:
         from momentum_alpha import stream_worker, stream_worker_core, stream_worker_loop
 

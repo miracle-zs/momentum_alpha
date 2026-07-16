@@ -190,6 +190,7 @@ def build_user_stream_event_handler(
             return
         trade_fill = extract_trade_fill_fn(event)
         use_atomic_trade_fill = trade_fill is not None and runtime_state_store is not None
+        durable_projection_succeeded = True
         if (
             trade_fill is not None
             and audit_recorder is not None
@@ -223,6 +224,7 @@ def build_user_stream_event_handler(
                 if on_trade_fill_persisted_fn is not None:
                     on_trade_fill_persisted_fn()
             except Exception as exc:
+                durable_projection_succeeded = False
                 emit_log_line(
                     logger,
                     "trade-fill-insert-error "
@@ -249,6 +251,7 @@ def build_user_stream_event_handler(
                     payload=event.payload,
                 )
             except Exception as exc:
+                durable_projection_succeeded = False
                 emit_log_line(
                     logger,
                     "algo-order-insert-error "
@@ -271,6 +274,7 @@ def build_user_stream_event_handler(
                         payload=event.payload,
                     )
                 except Exception as exc:
+                    durable_projection_succeeded = False
                     emit_log_line(
                         logger,
                         "account-flow-insert-error "
@@ -313,7 +317,7 @@ def build_user_stream_event_handler(
             order_statuses=candidate_order_statuses,
         )
         candidate_processed_event_ids = dict(context.processed_event_ids)
-        if event_id is not None:
+        if event_id is not None and durable_projection_succeeded:
             candidate_processed_event_ids[event_id] = timestamp.isoformat()
         removed_position_symbols = set(context.state.positions) - set(candidate_state.positions)
         if runtime_state_store is not None:

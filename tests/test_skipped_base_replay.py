@@ -106,11 +106,11 @@ class SkippedBaseReplayTests(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "closed")
-        self.assertEqual(result.exit_price, Decimal("95"))
+        self.assertEqual(result.exit_price, Decimal("100"))
         self.assertEqual(result.add_on_count, 1)
         self.assertEqual(result.legs[1].entry_price, Decimal("110"))
-        self.assertEqual(result.legs[1].stop_at_entry, Decimal("95"))
-        self.assertEqual(result.legs[1].quantity, Decimal("0.6"))
+        self.assertEqual(result.legs[1].stop_at_entry, Decimal("100"))
+        self.assertEqual(result.legs[1].quantity, Decimal("1.0"))
         event_types = [event.event_type for event in result.events]
         self.assertLess(event_types.index("stop_update"), event_types.index("add_on"))
 

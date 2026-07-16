@@ -207,7 +207,9 @@ def run_once_live(
     audit_recorder: AuditRecorder | None = None,
     last_add_on_hour: int | None = None,
     logger: object | None = None,
+    strategy_config: StrategyConfig | None = None,
 ) -> RunOnceResult:
+    strategy_config = strategy_config or StrategyConfig.from_env()
     stored_state = runtime_state_store.load() if runtime_state_store is not None else None
     current_day = now.astimezone(timezone.utc).date()
     stored_daily_base_signal_times = {}
@@ -308,11 +310,12 @@ def run_once_live(
         ),
         position_side=position_side,
         last_add_on_hour=last_add_on_hour,
+        strategy_config=strategy_config,
     )
     stop_replacements: list[tuple[str, Decimal]] = []
     stop_replacement_responses: list[dict] = []
     stop_replacement_failures: list[dict] = []
-    runtime_market = build_runtime_from_snapshots(snapshots=snapshots).market
+    runtime_market = build_runtime_from_snapshots(snapshots=snapshots, config=strategy_config).market
     if restore_positions and initial_state is not None:
         stop_replacements = build_stop_reconciliation_plan(
             state=initial_state,
@@ -476,7 +479,7 @@ def run_once_live(
         position_count = len(result.runtime_result.next_state.positions)
         order_status_count = 0
         signal_records: list[tuple[str, str | None, str | None, dict]] = []
-        stop_budget_usdt = StrategyConfig().stop_budget_usdt
+        stop_budget_usdt = strategy_config.stop_budget_usdt
         for sequence, intent in enumerate([*result.runtime_result.decision.base_entries, *result.runtime_result.decision.add_on_entries]):
             signal_records.append(
                 (

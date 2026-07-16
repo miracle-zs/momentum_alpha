@@ -5,6 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from momentum_alpha.broker import BinanceBroker
+from momentum_alpha.config import StrategyConfig
 from momentum_alpha.exchange_info import parse_exchange_info
 from momentum_alpha.models import StrategyState
 from momentum_alpha.runtime import Runtime, RuntimeTickResult, build_runtime, process_runtime_tick
@@ -23,8 +24,12 @@ class RunOnceResult:
         return self.runtime_result.execution_plan
 
 
-def build_runtime_from_snapshots(*, snapshots: list[dict]) -> Runtime:
-    return build_runtime(snapshots=snapshots)
+def build_runtime_from_snapshots(
+    *,
+    snapshots: list[dict],
+    config: StrategyConfig | None = None,
+) -> Runtime:
+    return build_runtime(snapshots=snapshots, config=config)
 
 
 def run_once(
@@ -39,8 +44,9 @@ def run_once(
     exchange_symbols: dict | None = None,
     position_side: str | None = None,
     last_add_on_hour: int | None = None,
+    strategy_config: StrategyConfig | None = None,
 ) -> RunOnceResult:
-    runtime = build_runtime_from_snapshots(snapshots=snapshots).with_exchange_symbols(
+    runtime = build_runtime_from_snapshots(snapshots=snapshots, config=strategy_config).with_exchange_symbols(
         exchange_symbols if exchange_symbols is not None else parse_exchange_info(client.fetch_exchange_info())
     )
     state = initial_state or StrategyState(
