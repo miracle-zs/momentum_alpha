@@ -3309,7 +3309,7 @@ console.log(JSON.stringify(cases));
         self.assertIn("Open Risk", html)
         self.assertLess(html.index("Position Count"), html.index("Open Risk"))
         self.assertIn(
-            ".live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }",
+            ".live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }",
             html,
         )
         self.assertIn(".live-core-lines-grid { grid-template-columns: 1fr; }", html)

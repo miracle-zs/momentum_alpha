@@ -144,10 +144,10 @@ def _build_live_account_risk_panel(
     )
 def _build_live_core_lines_panel(core_live_points: list[dict], *, account_range_key: str = "1D") -> str:
     chart_specs = (
-        ("Account Equity", "equity", "#4cc9f0", "", False),
-        ("Margin Usage %", "margin_usage_pct", "#ff8c42", "", False),
-        ("Position Count", "position_count", "#36d98a", "", True),
-        ("Open Risk", "open_risk", "#ff5d73", "live-core-line-card--open-risk", False),
+        ("Account Equity", "equity", "#58a6ff", "", False),
+        ("Margin Usage %", "margin_usage_pct", "#f0b429", "", False),
+        ("Position Count", "position_count", "#0ecb81", "", True),
+        ("Open Risk", "open_risk", "#f6465d", "live-core-line-card--open-risk", False),
     )
     range_keys = ("1H", "1D", "1W", "1M", "1Y", "ALL")
     active_range_key = str(account_range_key or "1D").upper()

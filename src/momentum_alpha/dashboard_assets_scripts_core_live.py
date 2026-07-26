@@ -152,10 +152,10 @@ def render_dashboard_core_live_script() -> str:
         tooltip: {
           trigger: 'axis',
           confine: true,
-          backgroundColor: 'rgba(8,10,15,0.94)',
-          borderColor: 'rgba(245,210,138,0.24)',
-          textStyle: { color: '#f5f6f8', fontSize: 12 },
-          axisPointer: { type: 'line', lineStyle: { color: 'rgba(245,210,138,0.34)' } },
+          backgroundColor: 'rgba(14,17,23,0.96)',
+          borderColor: 'rgba(151,163,186,0.22)',
+          textStyle: { color: '#e8ecf3', fontSize: 12 },
+          axisPointer: { type: 'line', lineStyle: { color: 'rgba(151,163,186,0.35)' } },
           formatter: (params) => {
             const point = Array.isArray(params) ? params[0] : params;
             if (!point || !point.value) return '';
@@ -167,16 +167,16 @@ def render_dashboard_core_live_script() -> str:
           min: domain[0],
           max: domain[1],
           boundaryGap: false,
-          axisLine: { lineStyle: { color: 'rgba(180,200,230,0.28)' } },
+          axisLine: { lineStyle: { color: 'rgba(151,163,186,0.22)' } },
           axisTick: { show: false },
           axisLabel: {
-            color: '#9aa3b2',
+            color: '#5f6b80',
             fontSize: compact ? 9 : 10,
             hideOverlap: true,
             formatter: (value) => formatCoreLiveTime(value)
           },
           splitNumber: compact ? 3 : 4,
-          splitLine: { show: true, lineStyle: { color: 'rgba(100,130,170,0.1)' } }
+          splitLine: { show: true, lineStyle: { color: 'rgba(151,163,186,0.08)' } }
         },
         yAxis: {
           type: 'value',
@@ -185,12 +185,12 @@ def render_dashboard_core_live_script() -> str:
           axisLine: { show: false },
           axisTick: { show: false },
           axisLabel: {
-            color: '#9aa3b2',
+            color: '#5f6b80',
             fontSize: compact ? 9 : 10,
             formatter: (value) => formatCoreLiveValue(value, integerAxis)
           },
           splitNumber: compact ? 2 : 4,
-          splitLine: { show: true, lineStyle: { color: 'rgba(100,130,170,0.1)' } }
+          splitLine: { show: true, lineStyle: { color: 'rgba(151,163,186,0.08)' } }
         },
         series: [{
           name: label,
@@ -287,7 +287,7 @@ def render_dashboard_core_live_script() -> str:
       chartNodes.forEach((chartNode) => {
         const metric = chartNode.dataset.coreMetric;
         const label = chartNode.dataset.coreLabel || metric;
-        const color = chartNode.dataset.coreColor || '#4cc9f0';
+        const color = chartNode.dataset.coreColor || '#58a6ff';
         const integerAxis = chartNode.dataset.coreIntegerAxis === 'true';
         const seriesData = getCoreLiveSeries(points, metric);
         if (!seriesData.length) {
