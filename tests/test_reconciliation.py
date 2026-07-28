@@ -308,6 +308,105 @@ class ReconciliationTests(unittest.TestCase):
 
         self.assertEqual(plan, [("BTCUSDT", Decimal("61000"))])
 
+    def test_find_uncovered_stop_symbols_detects_missing_and_partial_coverage(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.reconciliation import find_uncovered_stop_symbols
+
+        state = StrategyState(
+            current_day=datetime(2026, 4, 15, tzinfo=timezone.utc).date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("61000"),
+                    legs=(
+                        PositionLeg(
+                            symbol="BTCUSDT",
+                            quantity=Decimal("2"),
+                            entry_price=Decimal("61100"),
+                            stop_price=Decimal("61000"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                ),
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("2900"),
+                    legs=(
+                        PositionLeg(
+                            symbol="ETHUSDT",
+                            quantity=Decimal("1"),
+                            entry_price=Decimal("3000"),
+                            stop_price=Decimal("2900"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                ),
+            },
+        )
+        open_orders = [
+            {
+                "symbol": "BTCUSDT",
+                "type": "STOP_MARKET",
+                "side": "SELL",
+                "status": "NEW",
+                "quantity": "1",
+                "clientOrderId": "ma_260415010000_BTCUSDT_b00s",
+            }
+        ]
+
+        self.assertEqual(
+            find_uncovered_stop_symbols(state=state, open_orders=open_orders),
+            ["BTCUSDT", "ETHUSDT"],
+        )
+
+    def test_stop_coverage_plan_uses_emergency_buffer_when_candle_lows_are_above_market(self) -> None:
+        from datetime import datetime, timezone
+
+        from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
+        from momentum_alpha.reconciliation import build_stop_coverage_reconciliation_plan
+
+        latest_price = Decimal("100")
+        state = StrategyState(
+            current_day=datetime(2026, 4, 15, tzinfo=timezone.utc).date(),
+            previous_leader_symbol="BTCUSDT",
+            positions={
+                "BTCUSDT": Position(
+                    symbol="BTCUSDT",
+                    stop_price=Decimal("0"),
+                    legs=(
+                        PositionLeg(
+                            symbol="BTCUSDT",
+                            quantity=Decimal("1"),
+                            entry_price=Decimal("110"),
+                            stop_price=Decimal("0"),
+                            opened_at=datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc),
+                            leg_type="restored",
+                        ),
+                    ),
+                )
+            },
+        )
+        market = {
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=latest_price,
+                previous_hour_low=Decimal("105"),
+                current_hour_low=Decimal("101"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            )
+        }
+
+        plan = build_stop_coverage_reconciliation_plan(state=state, market=market, open_orders=[])
+
+        self.assertEqual(plan, [("BTCUSDT", Decimal("99.900"))])
+
     def test_build_stale_stop_reconciliation_plan_retries_stop_below_previous_hour_low(self) -> None:
         from datetime import datetime, timezone
 

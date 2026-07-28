@@ -124,6 +124,8 @@ class BinanceRestClient:
         base_url: str = BINANCE_FAPI_BASE_URL,
         opener=None,
         retry_delays: tuple[float, ...] = (),
+        allow_non_idempotent_retries: bool = False,
+        read_retry_delays: tuple[float, ...] = (0.5, 1.5),
         sleep_fn=None,
         timeout_seconds: float = 10.0,
         logger: object | None = None,
@@ -133,6 +135,8 @@ class BinanceRestClient:
         self.base_url = base_url.rstrip("/")
         self.opener = opener or urlopen
         self.retry_delays = retry_delays
+        self.allow_non_idempotent_retries = allow_non_idempotent_retries
+        self.read_retry_delays = read_retry_delays
         self.sleep_fn = sleep_fn or time.sleep
         self.timeout_seconds = timeout_seconds
         self.logger = logger or logging.getLogger(__name__)
@@ -206,7 +210,13 @@ class BinanceRestClient:
         return self.build_signed_request(method="POST", path="/fapi/v1/algoOrder", params=algo_params)
 
     def send(self, request: BinanceRequest) -> dict:
-        attempts = len(self.retry_delays) + 1
+        retry_delays = self.retry_delays
+        method = request.method.upper()
+        if method not in {"GET", "DELETE"} and not self.allow_non_idempotent_retries:
+            retry_delays = ()
+        elif not retry_delays and method in {"GET", "DELETE"}:
+            retry_delays = self.read_retry_delays
+        attempts = len(retry_delays) + 1
         for attempt in range(attempts):
             attempt_request = request if attempt == 0 or request.refresh is None else request.refresh()
             raw_request = Request(
@@ -241,8 +251,8 @@ class BinanceRestClient:
                 if exc.fp is not None:
                     response_body = exc.fp.read().decode("utf-8", errors="replace")
                 elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
-                if exc.code in _RETRYABLE_HTTP_STATUS_CODES and attempt < len(self.retry_delays):
-                    sleep_seconds = self.retry_delays[attempt]
+                if exc.code in _RETRYABLE_HTTP_STATUS_CODES and attempt < len(retry_delays):
+                    sleep_seconds = retry_delays[attempt]
                     if exc.code in {418, 429}:
                         sleep_seconds = _retry_sleep_seconds(
                             response_body=response_body,
@@ -256,7 +266,7 @@ class BinanceRestClient:
                         method=attempt_request.method,
                         endpoint=urlsplit(attempt_request.url).path,
                         attempt=attempt + 1,
-                        retries=len(self.retry_delays),
+                        retries=len(retry_delays),
                         elapsed_ms=elapsed_ms,
                         status_code=exc.code,
                         response_body=response_body,
@@ -272,7 +282,7 @@ class BinanceRestClient:
                     method=attempt_request.method,
                     endpoint=urlsplit(attempt_request.url).path,
                     attempt=attempt + 1,
-                    retries=len(self.retry_delays),
+                    retries=len(retry_delays),
                     elapsed_ms=elapsed_ms,
                     status_code=exc.code,
                     response_body=response_body,
@@ -283,9 +293,9 @@ class BinanceRestClient:
                     request_method=attempt_request.method,
                     request_url=attempt_request.url,
                 ) from exc
-            except URLError as exc:
+            except (URLError, TimeoutError) as exc:
                 elapsed_ms = int((time.perf_counter() - attempt_started_at) * 1000)
-                if attempt >= len(self.retry_delays):
+                if attempt >= len(retry_delays):
                     emit_structured_log(
                         self.logger,
                         service="binance-client",
@@ -294,7 +304,7 @@ class BinanceRestClient:
                         method=attempt_request.method,
                         endpoint=urlsplit(attempt_request.url).path,
                         attempt=attempt + 1,
-                        retries=len(self.retry_delays),
+                        retries=len(retry_delays),
                         elapsed_ms=elapsed_ms,
                         error=str(exc),
                     )
@@ -307,12 +317,12 @@ class BinanceRestClient:
                     method=attempt_request.method,
                     endpoint=urlsplit(attempt_request.url).path,
                     attempt=attempt + 1,
-                    retries=len(self.retry_delays),
+                    retries=len(retry_delays),
                     elapsed_ms=elapsed_ms,
                     error=str(exc),
-                    sleep_seconds=self.retry_delays[attempt],
+                    sleep_seconds=retry_delays[attempt],
                 )
-                self.sleep_fn(self.retry_delays[attempt])
+                self.sleep_fn(retry_delays[attempt])
 
     def fetch_exchange_info(self) -> dict:
         return self.send(self.build_public_request(path="/fapi/v1/exchangeInfo"))

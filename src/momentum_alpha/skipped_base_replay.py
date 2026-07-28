@@ -552,7 +552,7 @@ def replay_shadow_opportunities(
         key=lambda item: (item.symbol, item.signal_at, item.shadow_opportunity_id),
     ):
         active = active_by_symbol.get(seed.symbol)
-        if active is not None and (
+        if active is not None and active.status != "unresolved" and (
             active.exit_at is None
             or active.exit_at > seed.signal_at
         ):

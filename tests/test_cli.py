@@ -13,6 +13,34 @@ if str(SRC) not in sys.path:
 
 
 class CliTests(unittest.TestCase):
+    def test_client_factory_does_not_swallow_internal_type_error(self) -> None:
+        from momentum_alpha.cli_env import _build_client_from_factory
+
+        calls: list[bool] = []
+
+        def factory(*, testnet: bool):
+            calls.append(testnet)
+            raise TypeError("factory construction failed")
+
+        with self.assertRaisesRegex(TypeError, "factory construction failed"):
+            _build_client_from_factory(client_factory=factory, testnet=True)
+        self.assertEqual(calls, [True])
+
+    def test_client_factory_without_testnet_parameter_keeps_compatibility(self) -> None:
+        from momentum_alpha.cli_env import _build_client_from_factory
+
+        calls: list[str] = []
+
+        def factory():
+            calls.append("called")
+            return "client"
+
+        self.assertEqual(
+            _build_client_from_factory(client_factory=factory, testnet=True),
+            "client",
+        )
+        self.assertEqual(calls, ["called"])
+
     def test_cli_module_exports_environment_and_entrypoint_helpers(self) -> None:
         from momentum_alpha import cli
         from momentum_alpha import cli_backfill, cli_backfill_candidates, cli_commands, cli_env, cli_parser

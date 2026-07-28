@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+is_truthy() (
+  shopt -s nocasematch
+  [[ "${1:-}" =~ ^[[:space:]]*(1|true|yes|on)[[:space:]]*$ ]]
+)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"
@@ -15,7 +20,7 @@ RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 ARGS=(user-stream)
 ARGS+=(--runtime-db-file "${RUNTIME_DB_FILE}")
 
-if [[ "${BINANCE_USE_TESTNET:-0}" == "1" ]]; then
+if is_truthy "${BINANCE_USE_TESTNET:-0}"; then
   ARGS+=(--testnet)
 fi
 

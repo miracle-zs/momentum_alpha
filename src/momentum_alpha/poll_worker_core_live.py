@@ -15,6 +15,7 @@ from momentum_alpha.reconciliation import (
     build_missing_stop_reconciliation_plan,
     build_stale_stop_reconciliation_plan,
     build_stop_reconciliation_plan,
+    find_uncovered_stop_symbols,
     merge_position_history,
     restore_state,
 )
@@ -96,7 +97,12 @@ def _is_add_on_client_order_id(client_order_id: str | None) -> bool:
     return bool(intent_id and intent_id.rsplit("_", 1)[-1].startswith("a"))
 
 
-def _release_rejected_base_entries(*, result: RunOnceResult, submit_orders: bool) -> RunOnceResult:
+def _release_rejected_base_entries(
+    *,
+    result: RunOnceResult,
+    submit_orders: bool,
+    previous_leader_symbol: str | None,
+) -> RunOnceResult:
     """Allow a later leader rotation after a locally skipped or rejected base order."""
 
     if not submit_orders:
@@ -111,15 +117,19 @@ def _release_rejected_base_entries(*, result: RunOnceResult, submit_orders: bool
         if not _is_add_on_client_order_id(order.get("newClientOrderId"))
     }
     released_symbols = base_symbols - planned_base_symbols
+    retryable_symbols: set[str] = set()
     for failure in result.entry_order_failures:
         client_order_id = failure.get("clientOrderId") or failure.get("client_order_id")
         symbol = failure.get("symbol")
         if (
             symbol in base_symbols
             and not _is_add_on_client_order_id(client_order_id)
-            and failure.get("retryable") is False
         ):
-            released_symbols.add(symbol)
+            if failure.get("retryable") is True:
+                retryable_symbols.add(symbol)
+                released_symbols.add(symbol)
+            elif failure.get("retryable") is False:
+                released_symbols.add(symbol)
     if not released_symbols:
         return result
 
@@ -135,6 +145,11 @@ def _release_rejected_base_entries(*, result: RunOnceResult, submit_orders: bool
             result.runtime_result,
             next_state=replace(
                 next_state,
+                previous_leader_symbol=(
+                    previous_leader_symbol
+                    if retryable_symbols
+                    else next_state.previous_leader_symbol
+                ),
                 daily_base_signal_times=daily_signal_times,
                 daily_base_signal_counts=daily_signal_counts,
             ),
@@ -192,6 +207,39 @@ def _repair_failed_stop_coverage(
     return replacements, responses, list(getattr(broker, "last_stop_replacement_failures", []) or [])
 
 
+def _fetch_open_orders_with_algo_orders(*, client) -> list[dict]:
+    fetch_open_orders = getattr(client, "fetch_open_orders", None)
+    if not callable(fetch_open_orders):
+        raise RuntimeError("client does not provide fetch_open_orders")
+    open_orders = list(fetch_open_orders())
+    fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
+    if callable(fetch_open_algo_orders):
+        open_orders.extend(fetch_open_algo_orders())
+    return open_orders
+
+
+def _verify_stop_protection(
+    *,
+    client,
+    current_day: datetime,
+    previous_leader_symbol: str | None,
+) -> tuple[str, list[str], str | None]:
+    try:
+        open_orders = _fetch_open_orders_with_algo_orders(client=client)
+        state = restore_state(
+            current_day=current_day.astimezone(timezone.utc).date().isoformat(),
+            previous_leader_symbol=previous_leader_symbol,
+            position_risk=client.fetch_position_risk(),
+            open_orders=open_orders,
+        )
+        uncovered_symbols = find_uncovered_stop_symbols(state=state, open_orders=open_orders)
+    except Exception as exc:
+        return "check_failed", [], str(exc)
+    if uncovered_symbols:
+        return "unprotected", uncovered_symbols, None
+    return "confirmed", [], None
+
+
 def run_once_live(
     *,
     symbols: list[str] | None,
@@ -209,6 +257,11 @@ def run_once_live(
     logger: object | None = None,
     strategy_config: StrategyConfig | None = None,
 ) -> RunOnceResult:
+    if submit_orders and not restore_positions:
+        raise ValueError("live order submission requires restore_positions=True")
+    if submit_orders and not execute_stop_replacements:
+        raise ValueError("live order submission requires execute_stop_replacements=True")
+
     strategy_config = strategy_config or StrategyConfig.from_env()
     stored_state = runtime_state_store.load() if runtime_state_store is not None else None
     current_day = now.astimezone(timezone.utc).date()
@@ -226,11 +279,19 @@ def run_once_live(
     if callable(fetch_position_mode):
         try:
             position_mode = fetch_position_mode()
-        except Exception:
+        except Exception as exc:
+            if submit_orders:
+                raise RuntimeError("unable to determine Binance position mode for live submission") from exc
             position_mode = None
-        dual_side = None if position_mode is None else position_mode.get("dualSidePosition")
+        dual_side = (
+            position_mode.get("dualSidePosition")
+            if isinstance(position_mode, dict)
+            else None
+        )
         if dual_side in (True, "true", "TRUE", "True"):
             position_side = "LONG"
+        elif dual_side not in (False, "false", "FALSE", "False") and submit_orders:
+            raise RuntimeError(f"unable to determine Binance position mode from response={position_mode!r}")
     if previous_leader_symbol is None and stored_state is not None:
         previous_leader_symbol = stored_state.previous_leader_symbol
 
@@ -243,10 +304,7 @@ def run_once_live(
     removed_positions: dict[str, Position] = {}
     restored_open_orders: list[dict] = []
     if restore_positions:
-        open_orders = client.fetch_open_orders()
-        fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
-        if callable(fetch_open_algo_orders):
-            open_orders = [*open_orders, *fetch_open_algo_orders()]
+        open_orders = _fetch_open_orders_with_algo_orders(client=client)
         restored_open_orders = open_orders
         initial_state = restore_state(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
@@ -296,6 +354,16 @@ def run_once_live(
         now=now,
         market_data_cache=market_data_cache,
     )
+    snapshot_symbols = {snapshot["symbol"] for snapshot in snapshots}
+    missing_held_symbols = sorted(held_symbols - snapshot_symbols)
+    if missing_held_symbols and logger is not None:
+        emit_structured_log(
+            logger,
+            service="poll",
+            event="held-position-market-data-missing",
+            level="ERROR",
+            symbols=missing_held_symbols,
+        )
 
     result = run_once(
         snapshots=snapshots,
@@ -312,11 +380,27 @@ def run_once_live(
         last_add_on_hour=last_add_on_hour,
         strategy_config=strategy_config,
     )
+    # The broker is reused across ticks, so a previous rate-limit marker must
+    # not suppress this tick before its own REST calls have started.
+    if hasattr(broker, "last_rate_limit_error"):
+        broker.last_rate_limit_error = None
     stop_replacements: list[tuple[str, Decimal]] = []
     stop_replacement_responses: list[dict] = []
     stop_replacement_failures: list[dict] = []
+    stop_protection_status = "not_applicable"
+    unprotected_position_symbols: list[str] = []
+    stop_protection_check_error: str | None = None
+    stop_protection_verified_before_entry = False
     runtime_market = build_runtime_from_snapshots(snapshots=snapshots, config=strategy_config).market
     if restore_positions and initial_state is not None:
+        initial_uncovered_stop_symbols = find_uncovered_stop_symbols(
+            state=initial_state,
+            open_orders=restored_open_orders,
+        )
+        if not initial_state.positions:
+            stop_protection_status = "not_applicable"
+        else:
+            stop_protection_status = "pending_execution" if initial_uncovered_stop_symbols else "confirmed"
         stop_replacements = build_stop_reconciliation_plan(
             state=initial_state,
             decision=result.runtime_result.decision,
@@ -374,21 +458,55 @@ def run_once_live(
                     )
                 else:
                     print(f"stop replacement failed: {exc}")
+    if restore_positions and execute_stop_replacements and (
+        initial_uncovered_stop_symbols or stop_replacements
+    ):
+        (
+            stop_protection_status,
+            unprotected_position_symbols,
+            stop_protection_check_error,
+        ) = _verify_stop_protection(
+            client=client,
+            current_day=now,
+            previous_leader_symbol=previous_leader_symbol,
+        )
+        stop_protection_verified_before_entry = True
+
+    rate_limit_error = getattr(broker, "last_rate_limit_error", None)
     broker_responses: list[dict] = []
     entry_order_failures: list[dict] = []
     stop_order_failures: list[dict] = []
+    entries_blocked_by_stop_protection = stop_protection_status in {"unprotected", "check_failed"}
     if submit_orders:
-        broker_responses = broker.submit_execution_plan(result.execution_plan)
-        entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
-        stop_order_failures = list(getattr(broker, "last_stop_order_failures", []) or [])
+        if rate_limit_error is None and not entries_blocked_by_stop_protection:
+            broker_responses = broker.submit_execution_plan(result.execution_plan)
+            entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
+            stop_order_failures = list(getattr(broker, "last_stop_order_failures", []) or [])
+            rate_limit_error = getattr(broker, "last_rate_limit_error", None)
+        elif entries_blocked_by_stop_protection:
+            entry_order_failures = [
+                {
+                    "symbol": order.get("symbol"),
+                    "clientOrderId": order.get("newClientOrderId"),
+                    "status": "ENTRY_BLOCKED_STOP_PROTECTION",
+                    "retryable": True,
+                    "error": stop_protection_check_error,
+                }
+                for order in result.execution_plan.entry_orders
+            ]
         result = replace(
             result,
             broker_responses=broker_responses,
             entry_order_failures=entry_order_failures,
             stop_order_failures=stop_order_failures,
+            rate_limit_error=rate_limit_error,
         )
-        result = _release_rejected_base_entries(result=result, submit_orders=submit_orders)
-        if stop_order_failures:
+        result = _release_rejected_base_entries(
+            result=result,
+            submit_orders=submit_orders,
+            previous_leader_symbol=previous_leader_symbol,
+        )
+        if stop_order_failures and rate_limit_error is None:
             try:
                 repaired_replacements, repaired_responses, repaired_failures = _repair_failed_stop_coverage(
                     client=client,
@@ -402,6 +520,7 @@ def run_once_live(
                 stop_replacements = sorted({*stop_replacements, *repaired_replacements})
                 stop_replacement_responses.extend(repaired_responses)
                 stop_replacement_failures.extend(repaired_failures)
+                rate_limit_error = getattr(broker, "last_rate_limit_error", None)
             except Exception as exc:
                 if logger is not None:
                     emit_structured_log(
@@ -411,6 +530,40 @@ def run_once_live(
                         level="ERROR",
                         error=str(exc),
                     )
+    result = replace(result, rate_limit_error=rate_limit_error)
+    if restore_positions:
+        needs_stop_verification = bool(
+            initial_uncovered_stop_symbols
+            or stop_order_failures
+            or stop_replacement_failures
+            or (execute_stop_replacements and stop_replacements)
+        )
+        if (
+            needs_stop_verification
+            and (execute_stop_replacements or stop_order_failures)
+            and (not stop_protection_verified_before_entry or stop_order_failures)
+        ):
+            (
+                stop_protection_status,
+                unprotected_position_symbols,
+                stop_protection_check_error,
+            ) = _verify_stop_protection(
+                client=client,
+                current_day=now,
+                previous_leader_symbol=previous_leader_symbol,
+            )
+        elif initial_uncovered_stop_symbols:
+            unprotected_position_symbols = initial_uncovered_stop_symbols
+    if logger is not None and stop_protection_status in {"unprotected", "check_failed"}:
+        emit_structured_log(
+            logger,
+            service="poll",
+            event="stop-protection-unconfirmed",
+            level="ERROR",
+            status=stop_protection_status,
+            symbols=unprotected_position_symbols,
+            error=stop_protection_check_error,
+        )
     if runtime_state_store is not None:
         stored_state = runtime_state_store.load()
         merged_positions = {}
@@ -436,11 +589,13 @@ def run_once_live(
             },
             processed_event_ids=stored_state.processed_event_ids if stored_state is not None else {},
             order_statuses=stored_state.order_statuses if stored_state is not None else {},
+            last_add_on_hour=last_add_on_hour,
         )
         _save_strategy_state(
             runtime_state_store=runtime_state_store,
             state=merged_state,
             removed_positions=removed_positions,
+            now=now,
         )
     if audit_recorder is not None:
         skipped_base_symbols = [
@@ -474,6 +629,11 @@ def run_once_live(
                 "stop_order_failure_count": len(stop_order_failures),
                 "stop_replacement_count": len(stop_replacements),
                 "stop_replacement_failure_count": len(stop_replacement_failures),
+                "missing_held_symbols": missing_held_symbols,
+                "stop_protection_status": stop_protection_status,
+                "unprotected_position_symbols": unprotected_position_symbols,
+                "stop_protection_check_error": stop_protection_check_error,
+                "entry_submission_blocked_by_stop_protection": entries_blocked_by_stop_protection,
             },
         )
         position_count = len(result.runtime_result.next_state.positions)
@@ -606,6 +766,8 @@ def run_once_live(
                 "skipped_base_symbols": skipped_base_symbols,
                 "add_on_symbols": [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
                 "updated_stop_symbols": sorted(result.runtime_result.decision.updated_stop_prices),
+                "stop_protection_status": stop_protection_status,
+                "unprotected_position_symbols": unprotected_position_symbols,
             },
         )
         _record_account_snapshot(
@@ -684,10 +846,28 @@ def run_once_live(
                 decision_id=decision_id,
                 payload={"failures": stop_replacement_failures, "decision_id": decision_id},
             )
+        if stop_protection_status in {"unprotected", "check_failed"} or (
+            submit_orders and stop_protection_status == "pending_execution"
+        ):
+            audit_recorder.record(
+                event_type="stop_protection_unconfirmed",
+                now=now,
+                decision_id=decision_id,
+                payload={
+                    "status": stop_protection_status,
+                    "symbols": unprotected_position_symbols,
+                    "error": stop_protection_check_error,
+                    "decision_id": decision_id,
+                },
+            )
     return RunOnceResult(
         runtime_result=result.runtime_result,
         broker_responses=result.broker_responses,
         stop_replacements=stop_replacements,
         entry_order_failures=entry_order_failures,
         stop_order_failures=stop_order_failures,
+        rate_limit_error=rate_limit_error,
+        stop_protection_status=stop_protection_status,
+        unprotected_position_symbols=unprotected_position_symbols,
+        stop_protection_check_error=stop_protection_check_error,
     )

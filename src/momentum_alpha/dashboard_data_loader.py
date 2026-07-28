@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+import sqlite3
 
 from momentum_alpha.dashboard_common import build_strategy_config, normalize_account_range
 from momentum_alpha.health import build_runtime_health_report
@@ -39,6 +40,38 @@ from .dashboard_data_common import (
 )
 
 
+_DASHBOARD_REQUIRED_TABLES = frozenset(
+    {
+        "audit_events",
+        "signal_decisions",
+        "broker_orders",
+        "trade_fills",
+        "algo_orders",
+        "account_flows",
+        "trade_round_trips",
+        "stop_exit_summaries",
+        "position_snapshots",
+        "account_snapshots",
+        "daily_review_reports",
+    }
+)
+
+
+def _runtime_db_is_readable(path: Path) -> bool:
+    connection = None
+    try:
+        connection = sqlite3.connect(path)
+        try:
+            rows = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        finally:
+            connection.close()
+    except (OSError, sqlite3.Error):
+        return False
+    return _DASHBOARD_REQUIRED_TABLES.issubset({str(row[0]) for row in rows})
+
+
 def load_dashboard_snapshot(
     *,
     now: datetime,
@@ -61,8 +94,11 @@ def load_dashboard_snapshot(
     )
     warnings: list[str] = []
     state_payload: dict = {}
+    database_readable = runtime_db_file.exists() and _runtime_db_is_readable(runtime_db_file)
+    if runtime_db_file.exists() and not database_readable:
+        warnings.append(f"runtime database unavailable for dashboard reads path={runtime_db_file}")
 
-    if runtime_db_file.exists():
+    if database_readable:
         try:
             runtime_state = RuntimeStateStore(path=runtime_db_file).load()
         except Exception as exc:
@@ -93,7 +129,7 @@ def load_dashboard_snapshot(
     daily_review_report_dates: list[str] = []
     daily_review_history_summary: dict | None = None
 
-    if runtime_db_file.exists():
+    if database_readable:
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
         recent_signal_decisions = fetch_recent_signal_decisions(path=runtime_db_file, limit=8)
         recent_broker_orders = fetch_recent_broker_orders(path=runtime_db_file, limit=8)
@@ -132,7 +168,7 @@ def load_dashboard_snapshot(
     recent_events = events_for_metrics[:recent_limit]
     event_counts = dict(sorted(Counter(event.get("event_type") for event in events_for_metrics if event.get("event_type")).items()))
     source_counts = _build_source_counts(events_for_metrics)
-    if runtime_db_file.exists():
+    if database_readable:
         leader_history = fetch_leader_history(path=runtime_db_file, limit=8)
         if not leader_history:
             leader_history = _build_leader_history(events_for_metrics)

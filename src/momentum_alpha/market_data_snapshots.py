@@ -17,11 +17,16 @@ def _build_live_snapshots(
     market_data_cache: LiveMarketDataCache | None = None,
 ) -> list[dict]:
     cache = market_data_cache or LiveMarketDataCache()
-    latest_prices = cache.latest_prices(symbols=symbols, client=client)
-    cache.ensure_daily_open_prices(symbols=symbols, client=client, now=now)
+    tracked_symbols = list(dict.fromkeys([*symbols, *sorted(held_symbols)]))
+    latest_prices = cache.latest_prices(
+        symbols=tracked_symbols,
+        client=client,
+        fallback_symbols=held_symbols,
+    )
+    cache.ensure_daily_open_prices(symbols=tracked_symbols, client=client, now=now)
 
     provisional_snapshots: list[dict] = []
-    for symbol in symbols:
+    for symbol in tracked_symbols:
         latest_price = latest_prices.get(symbol)
         daily_open_price = cache.daily_open_prices.get(symbol)
         if latest_price is None or daily_open_price is None:

@@ -178,6 +178,64 @@ def build_stop_coverage_reconciliation_plan(
 ) -> list[tuple[str, Decimal]]:
     """Replace stops when active strategy-stop quantity does not cover the position."""
 
+    covered_quantity = _covered_stop_quantities(open_orders)
+
+    replacements: list[tuple[str, Decimal]] = []
+    for symbol, position in sorted(state.positions.items()):
+        if covered_quantity.get(symbol, Decimal("0")) >= position.total_quantity:
+            continue
+        snapshot = market.get(symbol)
+        if snapshot is None or snapshot.latest_price <= Decimal("0"):
+            continue
+
+        candidate_stop_prices: list[Decimal] = []
+        if snapshot.has_previous_hour_candle:
+            candidate_stop_prices.extend(
+                [
+                    max(position.stop_price, snapshot.previous_hour_low),
+                    snapshot.current_hour_low,
+                ]
+            )
+        # Keep an already-valid stored stop when the market has fallen below
+        # both candle lows.  If no valid historical stop exists, use a small
+        # emergency buffer below the current price instead of silently leaving
+        # the restored position naked.
+        candidate_stop_prices.extend(
+            [
+                position.stop_price,
+                snapshot.latest_price * Decimal("0.999"),
+            ]
+        )
+        target_stop_price = next(
+            (
+                candidate
+                for candidate in candidate_stop_prices
+                if Decimal("0") < candidate < snapshot.latest_price
+            ),
+            None,
+        )
+        if target_stop_price is None:
+            continue
+        replacements.append((symbol, target_stop_price))
+    return replacements
+
+
+def find_uncovered_stop_symbols(
+    *,
+    state: StrategyState,
+    open_orders: list[dict],
+) -> list[str]:
+    """Return live positions whose quantity is not covered by strategy stops."""
+
+    covered_quantity = _covered_stop_quantities(open_orders)
+    return sorted(
+        symbol
+        for symbol, position in state.positions.items()
+        if covered_quantity.get(symbol, Decimal("0")) < position.total_quantity
+    )
+
+
+def _covered_stop_quantities(open_orders: list[dict]) -> dict[str, Decimal]:
     covered_quantity: dict[str, Decimal] = {}
     for order in open_orders:
         quantity = _strategy_stop_quantity(order)
@@ -185,21 +243,7 @@ def build_stop_coverage_reconciliation_plan(
         if quantity is None or not symbol:
             continue
         covered_quantity[symbol] = covered_quantity.get(symbol, Decimal("0")) + quantity
-
-    replacements: list[tuple[str, Decimal]] = []
-    for symbol, position in sorted(state.positions.items()):
-        if covered_quantity.get(symbol, Decimal("0")) >= position.total_quantity:
-            continue
-        snapshot = market.get(symbol)
-        if snapshot is None or not snapshot.has_previous_hour_candle:
-            continue
-        target_stop_price = max(position.stop_price, snapshot.previous_hour_low)
-        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
-            target_stop_price = snapshot.current_hour_low
-        if target_stop_price <= Decimal("0") or target_stop_price >= snapshot.latest_price:
-            continue
-        replacements.append((symbol, target_stop_price))
-    return replacements
+    return covered_quantity
 
 
 def build_stale_stop_reconciliation_plan(

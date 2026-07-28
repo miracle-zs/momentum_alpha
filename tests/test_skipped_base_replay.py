@@ -221,6 +221,34 @@ class SkippedBaseReplayTests(unittest.TestCase):
         self.assertEqual(result.status, "unresolved")
         self.assertTrue(result.warnings)
 
+    def test_unresolved_seed_does_not_block_later_seed_for_same_symbol(self) -> None:
+        from dataclasses import replace
+
+        from momentum_alpha.skipped_base_replay import replay_shadow_opportunities
+
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        first_seed = replace(
+            self._seed(signal_at=first_at),
+            latest_price=None,
+            shadow_opportunity_id="unresolved",
+        )
+        second_at = first_at + timedelta(minutes=1)
+        second_seed = self._seed(signal_at=second_at, shadow_id="resolved")
+
+        report = replay_shadow_opportunities(
+            seeds=[first_seed, second_seed],
+            candles_by_symbol={"AAAUSDT": [self._candle(second_at, low="99")]},
+            leaders={},
+            cutoff=second_at + timedelta(minutes=1),
+            taker_fee_rate=Decimal("0"),
+        )
+
+        self.assertEqual(
+            [item.shadow_opportunity_id for item in report.opportunities],
+            ["unresolved", "resolved"],
+        )
+        self.assertEqual(report.overlaps, ())
+
     def test_orchestrator_loads_klines_and_writes_artifacts(self) -> None:
         from momentum_alpha.skipped_base_replay import replay_skipped_bases
 

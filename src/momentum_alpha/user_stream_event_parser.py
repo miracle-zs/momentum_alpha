@@ -15,6 +15,15 @@ def _parse_decimal(value):
         return None
 
 
+def _parse_int(value):
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _first_present(*values):
     for value in values:
         if value not in (None, ""):
@@ -48,8 +57,8 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
         stop_price=_parse_decimal(order_payload.get("sp")),
         original_order_type=_first_present(order_payload.get("ot"), payload.get("orderType"), order_payload.get("o")),
         event_time=datetime.fromtimestamp(int(event_time_ms) / 1000, tz=timezone.utc) if event_time_ms is not None else None,
-        order_id=_first_present(order_payload.get("i"), order_payload.get("ai")),
-        trade_id=order_payload.get("t"),
+        order_id=_parse_int(_first_present(order_payload.get("i"), order_payload.get("ai"))),
+        trade_id=_parse_int(order_payload.get("t")),
         client_order_id=order_payload.get("c"),
         account_update_reason=(payload.get("a") or {}).get("m"),
         # Algo order fields

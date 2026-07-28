@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,6 +74,17 @@ def _parse_cli_datetime(value: str) -> datetime:
 
 def _build_client_from_factory(*, client_factory, testnet: bool):
     try:
+        parameters = inspect.signature(client_factory).parameters
+    except (TypeError, ValueError):
+        # Do not swallow a TypeError raised inside an opaque factory. Let the
+        # caller see the real construction failure instead.
         return client_factory(testnet=testnet)
-    except TypeError:
-        return client_factory()
+
+    testnet_parameter = parameters.get("testnet")
+    if testnet_parameter is not None:
+        if testnet_parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+            return client_factory(testnet)
+        return client_factory(testnet=testnet)
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return client_factory(testnet=testnet)
+    return client_factory()

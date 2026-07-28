@@ -110,3 +110,25 @@ class SchedulerTests(unittest.TestCase):
             max_ticks=1,
         )
         self.assertEqual([item.second for item in calls], [0])
+
+    def test_scheduler_stops_after_in_flight_tick_when_requested(self) -> None:
+        from momentum_alpha.scheduler import run_loop
+
+        stop_requested = False
+        calls = []
+        sleeps = []
+
+        def fake_run_once(now):
+            nonlocal stop_requested
+            calls.append(now)
+            stop_requested = True
+
+        run_loop(
+            run_once=fake_run_once,
+            now_provider=lambda: datetime(2026, 4, 15, 1, 1, 0, tzinfo=timezone.utc),
+            sleep_fn=lambda seconds: sleeps.append(seconds),
+            stop_requested=lambda: stop_requested,
+        )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(sleeps, [])

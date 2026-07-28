@@ -49,6 +49,7 @@ class StrategyStateCodecTests(unittest.TestCase):
             processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
             order_statuses={"101": {"symbol": "ETHUSDT", "status": "NEW"}},
             recent_stop_loss_exits={"ETHUSDT": "2026-04-15T01:05:00+00:00"},
+            position_removal_timestamps={"BTCUSDT": "2026-04-15T01:06:00+00:00"},
         )
 
         payload = serialize_strategy_state(state)
@@ -62,6 +63,10 @@ class StrategyStateCodecTests(unittest.TestCase):
         self.assertEqual(restored.processed_event_ids, {"evt-1": "2026-04-15T01:00:00+00:00"})
         self.assertEqual(restored.order_statuses["101"]["status"], "NEW")
         self.assertEqual(restored.recent_stop_loss_exits["ETHUSDT"], "2026-04-15T01:05:00+00:00")
+        self.assertEqual(
+            restored.position_removal_timestamps,
+            {"BTCUSDT": "2026-04-15T01:06:00+00:00"},
+        )
         self.assertEqual(
             restored.daily_base_signal_times,
             {"BTCUSDT": "2026-04-15T01:01:00+00:00"},

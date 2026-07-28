@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import time
+import signal
 import threading
 import sqlite3
 from dataclasses import dataclass, replace
@@ -42,6 +42,40 @@ from .stream_worker_rebuild_scheduler import DebouncedRebuildScheduler
 
 
 _USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_replacements")
+
+
+def _install_shutdown_handlers(
+    *,
+    shutdown_requested: threading.Event,
+    active_stream_stop_event,
+    signal_module=signal,
+    is_main_thread=None,
+):
+    if is_main_thread is None:
+        is_main_thread = lambda: threading.current_thread() is threading.main_thread()
+    if not is_main_thread():
+        return lambda: None
+
+    signal_numbers = (signal_module.SIGTERM, signal_module.SIGINT)
+    previous_handlers = {
+        signal_number: signal_module.getsignal(signal_number)
+        for signal_number in signal_numbers
+    }
+
+    def _request_shutdown(_signal_number, _frame) -> None:
+        shutdown_requested.set()
+        stream_stop_event = active_stream_stop_event()
+        if stream_stop_event is not None:
+            stream_stop_event.set()
+
+    for signal_number in signal_numbers:
+        signal_module.signal(signal_number, _request_shutdown)
+
+    def _restore() -> None:
+        for signal_number in signal_numbers:
+            signal_module.signal(signal_number, previous_handlers[signal_number])
+
+    return _restore
 
 
 @dataclass(frozen=True)
@@ -113,15 +147,13 @@ def _should_reconnect_stale_user_stream(
         event_types=("user_stream_event",),
         not_before=not_before,
     )
+    # An event after the action proves that the stream was alive at that point,
+    # but it must not disable the watchdog forever. Continue measuring silence
+    # from the latest actual stream event.
+    reference_time = latest_action_time
     if latest_event is not None and latest_event[0] >= latest_action_time:
-        return UserStreamWatchdogResult(
-            should_reconnect=False,
-            latest_action_event_type=latest_action_event_type,
-            latest_action_timestamp=latest_action_timestamp,
-            latest_user_stream_event_timestamp=latest_event[2],
-        )
-
-    silence_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_action_time.timestamp())
+        reference_time = latest_event[0]
+    silence_seconds = int(now.astimezone(timezone.utc).timestamp() - reference_time.timestamp())
     return UserStreamWatchdogResult(
         should_reconnect=silence_seconds > max_silence_seconds,
         silence_seconds=silence_seconds,
@@ -200,9 +232,13 @@ def run_user_stream(
     max_stream_cycles: int | None = None,
     heartbeat_interval_seconds: int = 60,
     max_user_stream_silence_after_action_seconds: int = 1800,
+    shutdown_requested: threading.Event | None = None,
+    signal_module=signal,
+    is_main_thread=None,
 ) -> int:
+    shutdown_requested = shutdown_requested or threading.Event()
     now_provider = now_provider or (lambda: datetime.now(timezone.utc))
-    reconnect_sleep_fn = reconnect_sleep_fn or (lambda seconds: time.sleep(seconds))
+    reconnect_sleep_fn = reconnect_sleep_fn or shutdown_requested.wait
     stream_client_factory = stream_client_factory or (lambda **kwargs: BinanceUserStreamClient(logger=logger, **kwargs))
     extract_trade_fill_fn = extract_trade_fill_fn or extract_trade_fill
     extract_algo_order_event_fn = extract_algo_order_event_fn or extract_algo_order_event
@@ -296,13 +332,16 @@ def run_user_stream(
         if not callable(fetch_position_risk) or not callable(fetch_open_orders):
             return
         previous_position_symbols = set(context.state.positions)
+        previous_order_status_keys = set(context.order_statuses)
         position_risk = fetch_position_risk()
         open_orders = fetch_open_orders()
         fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
         open_algo_orders = []
+        algo_order_snapshot_complete = False
         if callable(fetch_open_algo_orders):
             try:
                 open_algo_orders = fetch_open_algo_orders()
+                algo_order_snapshot_complete = True
             except Exception:
                 open_algo_orders = []
         restored_open_orders = [*open_orders, *open_algo_orders]
@@ -359,6 +398,7 @@ def run_user_stream(
                 "status": order.get("status"),
                 "execution_type": None,
                 "side": order.get("side"),
+                "client_order_id": order.get("clientOrderId") or order.get("origClientOrderId"),
                 "original_order_type": order.get("type"),
                 "stop_price": order.get("stopPrice"),
                 "event_time": None,
@@ -382,6 +422,12 @@ def run_user_stream(
                 "event_time": None,
             }
         if runtime_state_store is not None:
+            current_order_status_keys = set(context.order_statuses)
+            removed_order_status_keys = {
+                key
+                for key in previous_order_status_keys - current_order_status_keys
+                if not key.startswith("algo:") or algo_order_snapshot_complete
+            }
             save_user_stream_strategy_state_fn(
                 runtime_state_store=runtime_state_store,
                 state=StoredStrategyState(
@@ -402,6 +448,7 @@ def run_user_stream(
                 ),
                 now=now_provider(),
                 removed_position_symbols=previous_position_symbols - set(context.state.positions),
+                removed_order_status_keys=removed_order_status_keys,
                 prune_processed_event_ids_fn=prune_processed_event_ids_fn,
             )
 
@@ -430,9 +477,35 @@ def run_user_stream(
 
     reconnect_attempt = 0
     completed_stream_cycles = 0
+    active_stream_stop_event: list[threading.Event | None] = [None]
+    restore_shutdown_handlers = _install_shutdown_handlers(
+        shutdown_requested=shutdown_requested,
+        active_stream_stop_event=lambda: active_stream_stop_event[0],
+        signal_module=signal_module,
+        is_main_thread=is_main_thread,
+    )
     try:
-        while True:
-            _prewarm_state()
+        while not shutdown_requested.is_set():
+            try:
+                _prewarm_state()
+            except Exception as exc:
+                if shutdown_requested.is_set():
+                    break
+                reconnect_attempt += 1
+                sleep_seconds = rate_limit_backoff_seconds(exc, fallback_seconds=120)
+                if sleep_seconds <= 0:
+                    sleep_seconds = min(reconnect_attempt, 5)
+                _log(
+                    "prewarm-error",
+                    level="ERROR",
+                    attempt=reconnect_attempt,
+                    sleep_seconds=sleep_seconds,
+                    error=str(exc),
+                )
+                reconnect_sleep_fn(sleep_seconds)
+                continue
+            if shutdown_requested.is_set():
+                break
             if audit_recorder is not None:
                 audit_recorder.record(
                     event_type="user_stream_worker_start",
@@ -462,6 +535,10 @@ def run_user_stream(
                 )
             stream_cycle_started_at = now_provider()
             stream_stop_event = threading.Event()
+            active_stream_stop_event[0] = stream_stop_event
+            if shutdown_requested.is_set():
+                stream_stop_event.set()
+                break
             stream_client = stream_client_factory(rest_client=client, testnet=testnet)
             if hasattr(stream_client, "stop_event_factory"):
                 stream_client.stop_event_factory = lambda: stream_stop_event
@@ -473,6 +550,8 @@ def run_user_stream(
             try:
                 listen_key = stream_client.run_forever(on_event=event_handler)
                 _log("stream-ended")
+                if shutdown_requested.is_set():
+                    break
                 if not reconnect_on_stream_end:
                     return 0
                 completed_stream_cycles += 1
@@ -488,6 +567,9 @@ def run_user_stream(
                 _log("stream-ended", attempt=reconnect_attempt, sleep_seconds=sleep_seconds)
                 reconnect_sleep_fn(sleep_seconds)
             except Exception as exc:
+                if shutdown_requested.is_set():
+                    _log("stream-ended", reason="shutdown")
+                    break
                 reconnect_attempt += 1
                 sleep_seconds = rate_limit_backoff_seconds(exc, fallback_seconds=120)
                 if sleep_seconds <= 0:
@@ -499,6 +581,12 @@ def run_user_stream(
                     heartbeat_stop_event.set()
                 if heartbeat_thread is not None:
                     heartbeat_thread.join(timeout=1)
+                active_stream_stop_event[0] = None
     finally:
+        active_stream_stop_event[0] = None
+        restore_shutdown_handlers()
         if scheduler is not None:
             scheduler.close()
+        if shutdown_requested.is_set():
+            _log("shutdown-complete")
+    return 0

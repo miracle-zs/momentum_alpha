@@ -65,6 +65,18 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.base_entries[0].stop_price, Decimal("110"))
         self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
 
+    def test_empty_market_preserves_previous_leader_symbol(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 4, 14, 2, 5, tzinfo=timezone.utc)
+        state = StrategyState(current_day=now.date(), previous_leader_symbol="ETHUSDT", positions={})
+
+        result = evaluate_minute_close(now=now, state=state, market={})
+
+        self.assertEqual(result.new_previous_leader_symbol, "ETHUSDT")
+        self.assertEqual(result.blocked_reason, "no_tradable_leader")
+
     def test_base_entry_uses_current_hour_low_when_price_is_below_previous_hour_low(self) -> None:
         from momentum_alpha.models import MarketSnapshot, StrategyState
         from momentum_alpha.strategy import evaluate_minute_close

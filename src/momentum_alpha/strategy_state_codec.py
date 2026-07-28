@@ -18,6 +18,8 @@ class StoredStrategyState:
     processed_event_ids: dict[str, str] | None = None  # {event_id: iso_timestamp}
     order_statuses: dict[str, dict] | None = None
     recent_stop_loss_exits: dict[str, str] | None = None
+    position_removal_timestamps: dict[str, str] | None = None
+    last_add_on_hour: int | None = None
 
 
 def _serialize_position(position: Position) -> dict:
@@ -81,6 +83,8 @@ def serialize_strategy_state(state: StoredStrategyState) -> dict:
         "processed_event_ids": dict(state.processed_event_ids or {}),
         "order_statuses": dict(state.order_statuses or {}),
         "recent_stop_loss_exits": dict(state.recent_stop_loss_exits or {}),
+        "position_removal_timestamps": dict(state.position_removal_timestamps or {}),
+        "last_add_on_hour": state.last_add_on_hour,
     }
 
 
@@ -109,4 +113,10 @@ def deserialize_strategy_state(payload: dict) -> StoredStrategyState:
         processed_event_ids=processed_event_ids,
         order_statuses=payload.get("order_statuses", {}),
         recent_stop_loss_exits=payload.get("recent_stop_loss_exits", {}),
+        position_removal_timestamps=payload.get("position_removal_timestamps", {}),
+        last_add_on_hour=(
+            None
+            if payload.get("last_add_on_hour") in (None, "")
+            else int(payload["last_add_on_hour"])
+        ),
     )

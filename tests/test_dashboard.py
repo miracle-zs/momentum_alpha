@@ -1645,6 +1645,23 @@ class DashboardTests(unittest.TestCase):
                 snapshot["warnings"],
             )
 
+    def test_load_dashboard_snapshot_degrades_when_runtime_database_is_empty(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            runtime_db_file.touch()
+            snapshot = load_dashboard_snapshot(
+                now=datetime(2026, 4, 18, 7, 0, tzinfo=timezone.utc),
+                runtime_db_file=runtime_db_file,
+            )
+
+        self.assertEqual(snapshot["recent_events"], [])
+        self.assertTrue(
+            any("runtime database unavailable" in warning for warning in snapshot["warnings"]),
+            snapshot["warnings"],
+        )
+
     def test_load_dashboard_snapshot_includes_structured_runtime_summaries(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import (
@@ -4187,3 +4204,25 @@ console.log(JSON.stringify(cases));
         self.assertIn("CURRENT MARGIN USAGE", html)
         self.assertIn("PEAK MARGIN USAGE", html)
         self.assertIn("AVERAGE MARGIN USAGE", html)
+
+    def test_build_account_metrics_panel_escapes_script_closing_sequence(self) -> None:
+        from momentum_alpha.dashboard import _build_account_metrics_panel
+
+        html = _build_account_metrics_panel(
+            [
+                {
+                    "timestamp": "</script><script>alert(1)</script>",
+                    "equity": "100.00",
+                    "wallet_balance": "100.00",
+                    "adjusted_equity": "100.00",
+                    "available_balance": "90.00",
+                    "margin_usage_pct": 10.0,
+                    "unrealized_pnl": "0.00",
+                    "position_count": 0,
+                    "open_order_count": 0,
+                }
+            ]
+        )
+
+        self.assertNotIn("</script><script>alert(1)</script>", html)
+        self.assertIn("<\\/script><script>alert(1)<\\/script>", html)

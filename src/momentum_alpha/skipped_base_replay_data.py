@@ -207,6 +207,7 @@ class BinanceKlineCache:
         timeout: float = 20.0,
         max_attempts: int = 3,
         retry_sleep_seconds: float = 0.25,
+        now_provider: Callable[[], datetime] | None = None,
     ):
         self.cache_path = cache_path
         self.proxy = proxy
@@ -214,6 +215,7 @@ class BinanceKlineCache:
         self.timeout = timeout
         self.max_attempts = max(1, max_attempts)
         self.retry_sleep_seconds = retry_sleep_seconds
+        self.now_provider = now_provider or (lambda: datetime.now(timezone.utc))
         self._cache = self._load_cache()
 
     def _load_cache(self) -> dict[str, list]:
@@ -291,12 +293,20 @@ class BinanceKlineCache:
 
         rows: list[list] = []
         current_day = start_utc.date()
+        current_utc_date = _as_utc(self.now_provider()).date()
         while current_day <= end_utc.date():
             cache_key = f"{symbol}:{current_day.isoformat()}"
-            if refresh or cache_key not in self._cache:
-                self._cache[cache_key] = self._fetch_day(symbol=symbol, day=current_day)
-                self._save_cache()
-            rows.extend(self._cache[cache_key])
+            is_current_day = current_day == current_utc_date
+            if refresh or cache_key not in self._cache or is_current_day:
+                day_rows = self._fetch_day(symbol=symbol, day=current_day)
+                # Binance returns only completed minutes for the current day.
+                # Never persist that partial response as an immutable day cache.
+                if not is_current_day:
+                    self._cache[cache_key] = day_rows
+                    self._save_cache()
+            else:
+                day_rows = self._cache[cache_key]
+            rows.extend(day_rows)
             current_day += timedelta(days=1)
 
         candles = [

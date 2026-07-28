@@ -103,6 +103,60 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(snapshots[0]["latest_price"], Decimal("105"))
         self.assertEqual(snapshots[0]["previous_hour_low"], Decimal("95"))
 
+    def test_build_live_snapshots_keeps_held_symbol_in_tracking_universe(self) -> None:
+        from momentum_alpha.market_data import build_live_snapshots
+
+        class Client:
+            def fetch_ticker_prices(self):
+                return [
+                    {"symbol": "BTCUSDT", "price": "105"},
+                    {"symbol": "ETHUSDT", "price": "205"},
+                ]
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "100" if symbol == "BTCUSDT" else "200", "0", "0", "0"]]
+                return [[0, "0", "0", "95" if symbol == "BTCUSDT" else "195", "0"]]
+
+        snapshots = build_live_snapshots(
+            symbols=["BTCUSDT"],
+            held_symbols={"ETHUSDT"},
+            client=Client(),
+            now=datetime(2026, 4, 21, 2, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual({item["symbol"] for item in snapshots}, {"BTCUSDT", "ETHUSDT"})
+
+    def test_build_live_snapshots_falls_back_to_single_ticker_for_missing_held_symbol(self) -> None:
+        from momentum_alpha.market_data import build_live_snapshots
+
+        class Client:
+            def __init__(self) -> None:
+                self.fallback_calls = []
+
+            def fetch_ticker_prices(self):
+                return [{"symbol": "BTCUSDT", "price": "105"}]
+
+            def fetch_ticker_price(self, *, symbol):
+                self.fallback_calls.append(symbol)
+                return {"symbol": symbol, "price": "205"}
+
+            def fetch_klines(self, *, symbol, interval, limit, start_time_ms=None, end_time_ms=None):
+                if interval == "1m":
+                    return [[0, "100" if symbol == "BTCUSDT" else "200", "0", "0", "0"]]
+                return [[0, "0", "0", "95" if symbol == "BTCUSDT" else "195", "0"]]
+
+        client = Client()
+        snapshots = build_live_snapshots(
+            symbols=["BTCUSDT"],
+            held_symbols={"ETHUSDT"},
+            client=client,
+            now=datetime(2026, 4, 21, 2, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual({item["symbol"] for item in snapshots}, {"BTCUSDT", "ETHUSDT"})
+        self.assertEqual(client.fallback_calls, ["ETHUSDT"])
+
     def test_build_live_snapshots_uses_first_available_daily_minute_for_new_listing_open(self) -> None:
         from momentum_alpha.market_data import build_live_snapshots
 

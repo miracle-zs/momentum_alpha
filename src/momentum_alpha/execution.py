@@ -32,9 +32,10 @@ def _build_orders_for_intent(
     if exchange_symbol is None or snapshot is None:
         return None
 
+    normalized_stop_price = exchange_symbol.filters.normalize_price(intent.stop_price)
     quantity = size_from_stop_budget(
         entry_price=snapshot.latest_price,
-        stop_price=intent.stop_price,
+        stop_price=normalized_stop_price,
         stop_budget=stop_budget,
         filters=exchange_symbol.filters,
     )
@@ -63,7 +64,7 @@ def _build_orders_for_intent(
     stop_order = build_stop_market_order(
         symbol=exchange_symbol,
         quantity=quantity,
-        stop_price=intent.stop_price,
+        stop_price=normalized_stop_price,
         client_order_id=build_client_order_id(
             symbol=intent.symbol,
             opened_at=opened_at,

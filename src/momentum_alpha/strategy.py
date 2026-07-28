@@ -65,7 +65,7 @@ def evaluate_minute_close(
     if leader is None:
         return MinuteCloseDecision(
             base_entries=[],
-            new_previous_leader_symbol=None,
+            new_previous_leader_symbol=state.previous_leader_symbol,
             blocked_reason="no_tradable_leader",
             new_daily_base_signal_times=daily_base_signal_times,
             new_daily_base_signal_counts=daily_base_signal_counts,

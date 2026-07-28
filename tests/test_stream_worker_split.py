@@ -13,6 +13,136 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 class StreamWorkerSplitTests(unittest.TestCase):
+    def test_shutdown_signal_stops_active_stream_and_prevents_reconnect(self) -> None:
+        from momentum_alpha import stream_worker_loop
+
+        logs: list[str] = []
+        sleep_calls: list[int] = []
+        stream_stop_states: list[bool] = []
+
+        class FakeSignalModule:
+            SIGINT = 2
+            SIGTERM = 15
+
+            def __init__(self):
+                self.handlers = {
+                    self.SIGINT: "previous-int",
+                    self.SIGTERM: "previous-term",
+                }
+
+            def getsignal(self, signal_number):
+                return self.handlers[signal_number]
+
+            def signal(self, signal_number, handler):
+                self.handlers[signal_number] = handler
+
+        signal_module = FakeSignalModule()
+
+        class FakeStreamClient:
+            stop_event_factory = None
+
+            def run_forever(self, on_event):
+                _ = on_event
+                stop_event = self.stop_event_factory()
+                signal_module.handlers[signal_module.SIGTERM](signal_module.SIGTERM, None)
+                stream_stop_states.append(stop_event.is_set())
+                return "listen-key"
+
+        result = stream_worker_loop.run_user_stream(
+            client=object(),
+            testnet=False,
+            logger=logs.append,
+            runtime_state_store=None,
+            now_provider=lambda: datetime(2026, 4, 21, 8, 0, tzinfo=timezone.utc),
+            stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            reconnect_sleep_fn=sleep_calls.append,
+            reconnect_on_stream_end=True,
+            signal_module=signal_module,
+            is_main_thread=lambda: True,
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stream_stop_states, [True])
+        self.assertEqual(sleep_calls, [])
+        self.assertTrue(any("shutdown-complete" in message for message in logs))
+        self.assertEqual(signal_module.handlers[signal_module.SIGINT], "previous-int")
+        self.assertEqual(signal_module.handlers[signal_module.SIGTERM], "previous-term")
+
+    def test_stream_cannot_resurrect_poll_removed_position_from_stale_memory(self) -> None:
+        from decimal import Decimal
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.poll_worker_core_state import _save_strategy_state
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.stream_worker_core import _save_user_stream_strategy_state
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        opened_at = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+        position = Position(
+            symbol="BTCUSDT",
+            stop_price=Decimal("90"),
+            legs=(PositionLeg("BTCUSDT", Decimal("1"), Decimal("100"), Decimal("90"), opened_at, "base"),),
+        )
+        removed_at = datetime(2026, 7, 15, 1, 5, tzinfo=timezone.utc)
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(Path(tmpdir) / "runtime.db")
+            store.save(StoredStrategyState("2026-07-15", None, positions={"BTCUSDT": position}))
+            _save_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState("2026-07-15", None, positions={}),
+                removed_positions={"BTCUSDT": position},
+                now=removed_at,
+            )
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState("2026-07-15", None, positions={"BTCUSDT": position}),
+                now=removed_at,
+            )
+            loaded = store.load()
+
+        self.assertNotIn("BTCUSDT", loaded.positions)
+        self.assertEqual(
+            loaded.position_removal_timestamps["BTCUSDT"],
+            removed_at.isoformat(),
+        )
+
+    def test_stream_removal_does_not_delete_newer_position_version(self) -> None:
+        from decimal import Decimal
+
+        from momentum_alpha.models import Position, PositionLeg
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.stream_worker_core import _save_user_stream_strategy_state
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        old_opened_at = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+        new_opened_at = datetime(2026, 7, 15, 1, 6, tzinfo=timezone.utc)
+        old_position = Position(
+            symbol="BTCUSDT",
+            stop_price=Decimal("90"),
+            legs=(PositionLeg("BTCUSDT", Decimal("1"), Decimal("100"), Decimal("90"), old_opened_at, "base"),),
+        )
+        new_position = Position(
+            symbol="BTCUSDT",
+            stop_price=Decimal("95"),
+            legs=(PositionLeg("BTCUSDT", Decimal("2"), Decimal("101"), Decimal("95"), new_opened_at, "base"),),
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(Path(tmpdir) / "runtime.db")
+            store.save(StoredStrategyState("2026-07-15", None, positions={"BTCUSDT": new_position}))
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState("2026-07-15", None, positions={}),
+                now=new_opened_at,
+                removed_position_symbols={"BTCUSDT"},
+                removed_positions={"BTCUSDT": old_position},
+            )
+            loaded = store.load()
+
+        self.assertEqual(loaded.positions["BTCUSDT"].total_quantity, Decimal("2"))
+        self.assertNotIn("BTCUSDT", loaded.position_removal_timestamps)
+
     def test_stream_save_preserves_positions_owned_by_poll(self) -> None:
         from decimal import Decimal
 
@@ -105,6 +235,40 @@ class StreamWorkerSplitTests(unittest.TestCase):
         self.assertEqual(len(saved_states), 1)
         self.assertNotIn("evt-1", saved_states[0].processed_event_ids)
         self.assertNotIn("evt-1", context.processed_event_ids)
+
+    def test_handler_does_not_record_duplicate_event_telemetry(self) -> None:
+        from momentum_alpha.models import StrategyState
+        from momentum_alpha.stream_worker_core import UserStreamWorkerContext, build_user_stream_event_handler
+        from momentum_alpha.user_stream_event_model import UserStreamEvent
+
+        now = datetime(2026, 7, 15, 1, 0, tzinfo=timezone.utc)
+        context = UserStreamWorkerContext(
+            state=StrategyState(current_day=now.date(), previous_leader_symbol=None, positions={}),
+            processed_event_ids={"evt-1": now.isoformat()},
+            order_statuses={},
+        )
+        audit_calls = []
+        broker_order_calls = []
+        audit_recorder = SimpleNamespace(
+            runtime_db_path=None,
+            source="user-stream",
+            record=lambda **kwargs: audit_calls.append(kwargs),
+        )
+        handler = build_user_stream_event_handler(
+            logger=lambda message: None,
+            runtime_state_store=None,
+            audit_recorder=audit_recorder,
+            now_provider=lambda: now,
+            context=context,
+            user_stream_event_id_fn=lambda event: "evt-1",
+            record_broker_orders_fn=lambda **kwargs: broker_order_calls.append(kwargs),
+            record_position_snapshot_fn=lambda **kwargs: None,
+        )
+
+        handler(UserStreamEvent(event_type="ACCOUNT_UPDATE", payload={}, event_time=now))
+
+        self.assertEqual(audit_calls, [])
+        self.assertEqual(broker_order_calls, [])
 
     def test_split_modules_import_and_expose_worker_entrypoints(self) -> None:
         from momentum_alpha import stream_worker, stream_worker_core, stream_worker_loop
@@ -222,6 +386,43 @@ class StreamWorkerSplitTests(unittest.TestCase):
             {"ETHUSDT": "2026-06-12T01:00:00+00:00"},
         )
         self.assertEqual(loaded.daily_base_signal_counts, {"ETHUSDT": 2})
+
+    def test_save_user_stream_strategy_state_does_not_overwrite_newer_stop_exit_cooldown(self) -> None:
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.stream_worker_core import _save_user_stream_strategy_state
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-06-12T04:00:00+00:00"},
+                )
+            )
+
+            _save_user_stream_strategy_state(
+                runtime_state_store=store,
+                state=StoredStrategyState(
+                    current_day="2026-06-12",
+                    previous_leader_symbol="BTCUSDT",
+                    positions={},
+                    processed_event_ids={},
+                    order_statuses={},
+                    recent_stop_loss_exits={"ETHUSDT": "2026-06-12T03:00:00+00:00"},
+                ),
+                now=datetime(2026, 6, 12, 5, 0, tzinfo=timezone.utc),
+            )
+            loaded = store.load()
+
+        self.assertEqual(
+            loaded.recent_stop_loss_exits,
+            {"ETHUSDT": "2026-06-12T04:00:00+00:00"},
+        )
 
     def test_save_user_stream_strategy_state_preserves_newer_poll_day(self) -> None:
         from momentum_alpha.runtime_store import RuntimeStateStore
@@ -701,7 +902,7 @@ class StreamWorkerSplitTests(unittest.TestCase):
         from momentum_alpha import stream_worker_loop
         from momentum_alpha.runtime_store import insert_audit_event
 
-        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        now = datetime(2026, 4, 21, 8, 10, tzinfo=timezone.utc)
         with TemporaryDirectory() as tmpdir:
             runtime_db_path = Path(tmpdir) / "runtime.db"
             insert_audit_event(
@@ -726,6 +927,37 @@ class StreamWorkerSplitTests(unittest.TestCase):
             )
 
         self.assertFalse(result.should_reconnect)
+
+    def test_user_stream_watchdog_reconnects_when_event_followed_by_silence(self) -> None:
+        from momentum_alpha import stream_worker_loop
+        from momentum_alpha.runtime_store import insert_audit_event
+
+        now = datetime(2026, 4, 21, 8, 40, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_path = Path(tmpdir) / "runtime.db"
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 5, tzinfo=timezone.utc),
+                event_type="broker_submit",
+                payload={"symbol": "BTCUSDT"},
+                source="poll",
+            )
+            insert_audit_event(
+                path=runtime_db_path,
+                timestamp=datetime(2026, 4, 21, 8, 6, tzinfo=timezone.utc),
+                event_type="user_stream_event",
+                payload={"event_type": "ORDER_TRADE_UPDATE"},
+                source="user-stream",
+            )
+
+            result = stream_worker_loop._should_reconnect_stale_user_stream(
+                runtime_db_path=runtime_db_path,
+                now=now,
+                max_silence_seconds=1800,
+            )
+
+        self.assertTrue(result.should_reconnect)
+        self.assertEqual(result.silence_seconds, 2040)
 
     def test_user_stream_watchdog_ignores_broker_actions_before_current_stream_cycle(self) -> None:
         from momentum_alpha import stream_worker_loop

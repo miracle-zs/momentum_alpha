@@ -9,6 +9,18 @@ from pathlib import Path
 _USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_replacements")
 
 
+def _parse_utc_timestamp(value: object) -> datetime | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 @dataclass(frozen=True)
 class HealthCheckItem:
     name: str
@@ -44,7 +56,9 @@ def _check_runtime_db_freshness(*, path: Path, now: datetime, max_age_seconds: i
         return HealthCheckItem(name="runtime_db", status="FAIL", message=f"invalid runtime_db error={exc}")
     if row is None or not row[0]:
         return HealthCheckItem(name="runtime_db", status="WARN", message="empty runtime_db")
-    latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
+    latest_timestamp = _parse_utc_timestamp(row[0])
+    if latest_timestamp is None:
+        return HealthCheckItem(name="runtime_db", status="FAIL", message=f"invalid audit timestamp={row[0]}")
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
         return HealthCheckItem(
@@ -81,11 +95,17 @@ def _check_strategy_state_freshness(*, path: Path, now: datetime, max_age_second
             ).fetchone()
         finally:
             connection.close()
-    except sqlite3.Error:
-        return HealthCheckItem(name="strategy_state", status="OK", message="state exists but audit check failed")
+    except sqlite3.Error as exc:
+        return HealthCheckItem(
+            name="strategy_state",
+            status="FAIL",
+            message=f"audit check failed path={path} error={exc}",
+        )
     if row is None or not row[0]:
         return HealthCheckItem(name="strategy_state", status="WARN", message="no audit events")
-    latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
+    latest_timestamp = _parse_utc_timestamp(row[0])
+    if latest_timestamp is None:
+        return HealthCheckItem(name="strategy_state", status="FAIL", message=f"invalid audit timestamp={row[0]}")
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
         return HealthCheckItem(
@@ -129,7 +149,10 @@ def _check_audit_event_freshness(
     if row is None or not row[0]:
         status = no_events_status if no_events_status in {"FAIL", "WARN"} else "WARN"
         return HealthCheckItem(name=name, status=status, message=f"no events event_types={','.join(event_types)}")
-    latest_timestamp = datetime.fromisoformat(row[0]).astimezone(timezone.utc)
+    latest_timestamp = _parse_utc_timestamp(row[0])
+    if latest_timestamp is None:
+        status = stale_status if stale_status in {"FAIL", "WARN"} else "FAIL"
+        return HealthCheckItem(name=name, status=status, message=f"invalid audit timestamp={row[0]}")
     age_seconds = int(now.astimezone(timezone.utc).timestamp() - latest_timestamp.timestamp())
     if age_seconds > max_age_seconds:
         status = stale_status if stale_status in {"FAIL", "WARN"} else "FAIL"
@@ -173,7 +196,10 @@ def _latest_audit_event(
     if row is None or not row[0]:
         return None
     timestamp_text = str(row[0])
-    return datetime.fromisoformat(timestamp_text).astimezone(timezone.utc), str(row[1]), timestamp_text
+    timestamp = _parse_utc_timestamp(timestamp_text)
+    if timestamp is None:
+        raise ValueError(f"invalid audit timestamp={timestamp_text}")
+    return timestamp, str(row[1]), timestamp_text
 
 
 def _check_user_stream_event_health(*, path: Path, now: datetime, max_age_seconds: int) -> HealthCheckItem:
@@ -193,7 +219,7 @@ def _check_user_stream_event_health(*, path: Path, now: datetime, max_age_second
             event_types=("user_stream_event",),
             not_before=not_before,
         )
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, ValueError) as exc:
         return HealthCheckItem(name="user_stream_events", status="FAIL", message=f"invalid path={path} error={exc}")
 
     if latest_action is None:

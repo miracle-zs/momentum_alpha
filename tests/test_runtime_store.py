@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,30 @@ if str(SRC) not in sys.path:
 
 
 class RuntimeStoreTests(unittest.TestCase):
+    def test_runtime_state_store_retries_locked_transaction_start(self) -> None:
+        from unittest.mock import patch
+
+        from momentum_alpha.runtime_state_store import _begin_immediate_with_retry
+
+        class Connection:
+            def __init__(self) -> None:
+                self.begin_attempts = 0
+
+            def execute(self, sql):
+                if sql.startswith("PRAGMA"):
+                    return None
+                self.begin_attempts += 1
+                if self.begin_attempts < 3:
+                    raise sqlite3.OperationalError("database is locked")
+                return None
+
+        connection = Connection()
+        with patch("momentum_alpha.runtime_state_store.time.sleep") as sleep:
+            _begin_immediate_with_retry(connection)
+
+        self.assertEqual(connection.begin_attempts, 3)
+        self.assertEqual(sleep.call_count, 2)
+
     def test_runtime_store_module_exports_public_store_functions(self) -> None:
         from momentum_alpha import runtime_store
 

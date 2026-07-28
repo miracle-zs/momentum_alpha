@@ -166,7 +166,10 @@ class MainTests(unittest.TestCase):
                     previous_leader_symbol="BTCUSDT",
                     positions={},
                     processed_event_ids={"evt-1": "2026-04-15T01:00:00+00:00"},
-                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "NEW"}},
+                    order_statuses={
+                        "123": {"symbol": "ETHUSDT", "status": "NEW", "event_time": "2026-04-15T01:00:00+00:00"},
+                        "456": {"symbol": "BTCUSDT", "status": "NEW", "event_time": "2026-04-15T01:05:00+00:00"},
+                    },
                     recent_stop_loss_exits={},
                 )
             )
@@ -181,7 +184,7 @@ class MainTests(unittest.TestCase):
                         "evt-1": "2026-04-15T01:00:00+00:00",
                         "evt-2": "2026-04-15T02:00:00+00:00",
                     },
-                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "FILLED"}},
+                    order_statuses={"123": {"symbol": "ETHUSDT", "status": "FILLED", "event_time": "2026-04-15T02:00:00+00:00"}},
                     recent_stop_loss_exits={},
                 ),
                 now=datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc),
@@ -195,6 +198,7 @@ class MainTests(unittest.TestCase):
                 "evt-2": "2026-04-15T02:00:00+00:00",
             })
             self.assertEqual(loaded.order_statuses["123"]["status"], "FILLED")
+            self.assertEqual(loaded.order_statuses["456"]["status"], "NEW")
 
     def test_save_user_stream_state_prunes_old_event_ids(self) -> None:
         """Test that old event IDs are pruned to prevent unbounded growth."""
@@ -625,6 +629,73 @@ class MainTests(unittest.TestCase):
         self.assertEqual(result.execution_plan.entry_orders[0]["symbol"], "BTCUSDT")
         self.assertEqual(result.runtime_result.decision.base_entries[0].symbol, "BTCUSDT")
 
+    def test_run_once_live_rejects_order_submission_without_position_restore(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        with self.assertRaisesRegex(ValueError, "restore_positions=True"):
+            result = run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
+                previous_leader_symbol=None,
+                client=object(),
+                broker=object(),
+                submit_orders=True,
+                restore_positions=False,
+            )
+
+    def test_run_once_live_rejects_order_submission_without_stop_reconciliation(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        with self.assertRaisesRegex(ValueError, "execute_stop_replacements=True"):
+            run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
+                previous_leader_symbol=None,
+                client=object(),
+                broker=object(),
+                submit_orders=True,
+                restore_positions=True,
+                execute_stop_replacements=False,
+            )
+
+    def test_run_once_live_rejects_submission_when_position_mode_lookup_fails(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        class FakeClient:
+            def fetch_position_mode(self):
+                raise TimeoutError("position mode endpoint timed out")
+
+        with self.assertRaisesRegex(RuntimeError, "determine Binance position mode"):
+            run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
+                previous_leader_symbol=None,
+                client=FakeClient(),
+                broker=object(),
+                submit_orders=True,
+                restore_positions=True,
+                execute_stop_replacements=True,
+            )
+
+    def test_run_once_live_rejects_submission_when_position_mode_response_is_malformed(self) -> None:
+        from momentum_alpha.main import run_once_live
+
+        class FakeClient:
+            def fetch_position_mode(self):
+                return {}
+
+        with self.assertRaisesRegex(RuntimeError, "determine Binance position mode"):
+            run_once_live(
+                symbols=["BTCUSDT"],
+                now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
+                previous_leader_symbol=None,
+                client=FakeClient(),
+                broker=object(),
+                submit_orders=True,
+                restore_positions=True,
+                execute_stop_replacements=True,
+            )
+
     def test_run_once_live_persists_structured_runtime_records(self) -> None:
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.main import run_once_live
@@ -672,6 +743,12 @@ class MainTests(unittest.TestCase):
                     "totalMarginBalance": "1260.12",
                     "totalUnrealizedProfit": "25.56",
                 }
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_position_risk(self):
+                return []
 
         now = datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc)
 
@@ -729,6 +806,8 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=True,
+                restore_positions=True,
+                execute_stop_replacements=True,
                 runtime_state_store=RuntimeStateStore(path=runtime_db_path),
                 audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
@@ -809,6 +888,12 @@ class MainTests(unittest.TestCase):
                     return [[0, "0", "0", "62000", "0"]]
                 return [[0, "0", "0", "59000", "0"]]
 
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_position_risk(self):
+                return []
+
         class FakeBroker:
             def submit_execution_plan(self, plan):
                 return []
@@ -825,6 +910,8 @@ class MainTests(unittest.TestCase):
                 client=FakeClient(),
                 broker=FakeBroker(),
                 submit_orders=True,
+                restore_positions=True,
+                execute_stop_replacements=True,
                 audit_recorder=AuditRecorder(runtime_db_path=runtime_db_path, source="poll"),
             )
 
@@ -2966,6 +3053,104 @@ class MainTests(unittest.TestCase):
             "106",
         )
 
+    def test_run_user_stream_prewarms_regular_order_client_order_id(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import RuntimeStateStore
+
+        client_order_id = "ma_260415221700_ETHUSDT_b00s"
+
+        class FakeClient:
+            def fetch_position_risk(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "positionAmt": "2",
+                        "entryPrice": "108",
+                        "updateTime": 1776215100000,
+                    }
+                ]
+
+            def fetch_open_orders(self):
+                return [
+                    {
+                        "symbol": "ETHUSDT",
+                        "orderId": 123,
+                        "clientOrderId": client_order_id,
+                        "type": "STOP_MARKET",
+                        "side": "SELL",
+                        "status": "NEW",
+                        "stopPrice": "106",
+                    }
+                ]
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                runtime_state_store=store,
+                now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            )
+            loaded = store.load()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(loaded.order_statuses["123"]["client_order_id"], client_order_id)
+        self.assertEqual(loaded.positions["ETHUSDT"].stop_price, Decimal("106"))
+
+    def test_run_user_stream_prewarm_removes_stale_terminal_order_statuses(self) -> None:
+        from momentum_alpha.main import run_user_stream
+        from momentum_alpha.runtime_store import RuntimeStateStore
+        from momentum_alpha.strategy_state_codec import StoredStrategyState
+
+        class FakeClient:
+            def fetch_position_risk(self):
+                return []
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_open_algo_orders(self):
+                return []
+
+        class FakeStreamClient:
+            def run_forever(self, *, on_event):
+                return "abc"
+
+        with TemporaryDirectory() as tmpdir:
+            store = RuntimeStateStore(path=Path(tmpdir) / "runtime.db")
+            store.save(
+                StoredStrategyState(
+                    current_day="2026-04-15",
+                    previous_leader_symbol=None,
+                    order_statuses={
+                        "123": {
+                            "symbol": "ETHUSDT",
+                            "status": "FILLED",
+                            "event_time": "2026-04-15T01:00:00+00:00",
+                        }
+                    },
+                )
+            )
+
+            exit_code = run_user_stream(
+                client=FakeClient(),
+                testnet=True,
+                logger=lambda message: None,
+                runtime_state_store=store,
+                now_provider=lambda: datetime(2026, 4, 15, 1, 10, tzinfo=timezone.utc),
+                stream_client_factory=lambda **kwargs: FakeStreamClient(),
+            )
+            loaded = store.load()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(loaded.order_statuses, {})
+
     def test_run_user_stream_reconnects_after_stream_failure_and_reprewarms_state(self) -> None:
         from momentum_alpha.main import run_user_stream
         from momentum_alpha.runtime_store import RuntimeStateStore
@@ -3222,7 +3407,7 @@ class MainTests(unittest.TestCase):
             )
             loaded = store.load()
             self.assertEqual(exit_code, 0)
-            self.assertEqual(loaded.order_statuses["123"]["status"], "CANCELED")
+            self.assertNotIn("123", loaded.order_statuses)
             self.assertEqual(len(loaded.processed_event_ids), 2)
 
     def test_run_user_stream_account_update_can_clear_local_position(self) -> None:
@@ -3650,6 +3835,12 @@ class MainTests(unittest.TestCase):
                 if interval == "1m":
                     return [[0, "60000", "0", "0", "0"]]
                 return [[0, "0", "0", "61000", "0"]]
+
+            def fetch_open_orders(self):
+                return []
+
+            def fetch_position_risk(self):
+                return []
 
         class FakeBroker:
             def submit_execution_plan(self, plan):
@@ -4964,8 +5155,10 @@ class MainTests(unittest.TestCase):
         class FakeBroker:
             def __init__(self) -> None:
                 self.last_stop_replacement_failures = []
+                self.submit_calls = 0
 
             def submit_execution_plan(self, plan):
+                self.submit_calls += 1
                 return []
 
             def replace_stop_orders(self, *, replacements):
@@ -4983,13 +5176,14 @@ class MainTests(unittest.TestCase):
             runtime_db_path = Path(tmpdir) / "runtime.db"
             logs = []
 
-            run_once_live(
+            broker = FakeBroker()
+            result = run_once_live(
                 symbols=["BTCUSDT"],
                 now=datetime(2026, 4, 15, 2, 5, tzinfo=timezone.utc),
                 previous_leader_symbol="BTCUSDT",
                 client=FakeClient(),
-                broker=FakeBroker(),
-                submit_orders=False,
+                broker=broker,
+                submit_orders=True,
                 restore_positions=True,
                 execute_stop_replacements=True,
                 logger=lambda message: logs.append(message),
@@ -5001,6 +5195,10 @@ class MainTests(unittest.TestCase):
         failure_events = [event for event in audit_events if event["event_type"] == "stop_replacement_failures"]
         self.assertEqual(len(failure_events), 1)
         self.assertEqual(failure_events[0]["payload"]["failures"][0]["symbol"], "BTCUSDT")
+        self.assertEqual(result.stop_protection_status, "unprotected")
+        self.assertEqual(broker.submit_calls, 0)
+        protection_events = [event for event in audit_events if event["event_type"] == "stop_protection_unconfirmed"]
+        self.assertEqual(protection_events[0]["payload"]["symbols"], ["BTCUSDT"])
 
     def test_run_once_live_logs_stop_replacement_exceptions(self) -> None:
         from momentum_alpha.main import run_once_live
@@ -5094,7 +5292,16 @@ class MainTests(unittest.TestCase):
                 return [{"symbol": "BTCUSDT", "positionAmt": "0.010", "entryPrice": "61100", "updateTime": 1700000000000}]
 
             def fetch_open_orders(self, *, symbol=None, timestamp_ms=None):
-                return [{"symbol": "BTCUSDT", "type": "STOP_MARKET", "stopPrice": "60900"}]
+                return [
+                    {
+                        "symbol": "BTCUSDT",
+                        "type": "STOP_MARKET",
+                        "stopPrice": "60900",
+                        "clientOrderId": "ma_260415010000_BTCUSDT_b00s",
+                        "side": "SELL",
+                        "quantity": "0.010",
+                    }
+                ]
 
         class FakeBroker:
             def __init__(self) -> None:

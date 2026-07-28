@@ -26,8 +26,11 @@ def _save_status(*, runtime_db_path: Path, status_key: str, status: str, now: da
 def _current_status(health_output: str) -> str:
     for line in health_output.splitlines():
         if line.startswith("overall="):
-            return line.split("=", 1)[1].strip()
-    raise ValueError("health output missing overall= line")
+            status = line.split("=", 1)[1].strip().upper()
+            return status if status in {"OK", "FAIL"} else "FAIL"
+    # A broken health check must itself be treated as a failure so the
+    # notification path remains useful when the checker emits a traceback.
+    return "FAIL"
 
 
 def _notification_event(*, previous_status: str | None, current_status: str) -> str:

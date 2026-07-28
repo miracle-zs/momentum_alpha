@@ -15,11 +15,17 @@ class StrategyConfig:
 
     @classmethod
     def from_env(cls) -> "StrategyConfig":
-        raw_stop_budget = os.environ.get("STOP_BUDGET_USDT", "10")
+        raw_stop_budget = os.environ.get("STOP_BUDGET_USDT")
+        if raw_stop_budget is None:
+            return cls()
         try:
-            stop_budget = Decimal(raw_stop_budget)
+            stop_budget = Decimal(raw_stop_budget.strip())
         except (ArithmeticError, ValueError):
-            stop_budget = cls().stop_budget_usdt
+            raise ValueError(
+                f"STOP_BUDGET_USDT must be a positive finite decimal, got {raw_stop_budget!r}"
+            ) from None
         if not stop_budget.is_finite() or stop_budget <= 0:
-            stop_budget = cls().stop_budget_usdt
+            raise ValueError(
+                f"STOP_BUDGET_USDT must be a positive finite decimal, got {raw_stop_budget!r}"
+            )
         return cls(stop_budget_usdt=stop_budget)

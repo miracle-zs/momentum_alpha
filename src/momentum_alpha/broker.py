@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from time import sleep as default_sleep
 from typing import Callable
 from urllib.error import URLError
@@ -47,22 +47,84 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return isinstance(exc, BinanceHttpError) and exc.status_code in {418, 429}
 
 
+_ENTRY_ORDER_FOUND = "found"
+_ENTRY_ORDER_NOT_FOUND = "not_found"
+_ENTRY_ORDER_UNKNOWN = "unknown"
+_ENTRY_ORDER_UNSUPPORTED = "unsupported"
+_TERMINAL_ENTRY_ORDER_STATUSES_WITHOUT_FILL = {
+    "CANCELED",
+    "EXPIRED",
+    "EXPIRED_IN_MATCH",
+    "REJECTED",
+}
+
+
+@dataclass(frozen=True)
+class _EntryOrderLookup:
+    state: str
+    order: dict | None = None
+    reason: str | None = None
+
+
+def _executed_quantity(order: dict) -> Decimal | None:
+    for field_name in ("executedQty", "cumQty", "z", "filledQty"):
+        raw_value = order.get(field_name)
+        if raw_value in (None, ""):
+            continue
+        try:
+            value = Decimal(str(raw_value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return value if value.is_finite() else None
+    return Decimal("0")
+
+
+def _classify_existing_entry_order(order: object) -> _EntryOrderLookup:
+    if order is None:
+        return _EntryOrderLookup(state=_ENTRY_ORDER_NOT_FOUND)
+    if not isinstance(order, dict):
+        return _EntryOrderLookup(
+            state=_ENTRY_ORDER_UNKNOWN,
+            reason=f"unexpected order response type: {type(order).__name__}",
+        )
+    if not order:
+        return _EntryOrderLookup(state=_ENTRY_ORDER_UNKNOWN, reason="empty order response")
+    status = str(order.get("status") or "").upper()
+    executed_quantity = _executed_quantity(order)
+    if (
+        status in _TERMINAL_ENTRY_ORDER_STATUSES_WITHOUT_FILL
+        and executed_quantity is not None
+        and executed_quantity <= 0
+    ):
+        return _EntryOrderLookup(state=_ENTRY_ORDER_NOT_FOUND)
+    return _EntryOrderLookup(state=_ENTRY_ORDER_FOUND, order=order)
+
+
 @dataclass
 class BinanceBroker:
     client: object
     entry_retry_delays: tuple[float, ...] = (0.2, 0.5)
     sleep_fn: Callable[[float], None] = default_sleep
+    exchange_symbols_ttl_seconds: float = 3600.0
     last_stop_replacement_failures: list[dict[str, str]] = field(default_factory=list, init=False)
     last_entry_order_failures: list[dict[str, object]] = field(default_factory=list, init=False)
     last_stop_order_failures: list[dict[str, object]] = field(default_factory=list, init=False)
+    last_rate_limit_error: Exception | None = field(default=None, init=False, repr=False)
     _exchange_symbols: dict[str, ExchangeSymbol] | None = field(default=None, init=False, repr=False)
+    _exchange_symbols_loaded_at: datetime | None = field(default=None, init=False, repr=False)
 
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         submitted_entry_symbols: list[str | None] = []
         self.last_entry_order_failures = []
         self.last_stop_order_failures = []
+        self.last_rate_limit_error = None
         for order in plan.entry_orders:
+            if self.last_rate_limit_error is not None:
+                # Preserve entry/stop positional alignment while preventing any
+                # further REST calls during the current rate-limited tick.
+                submitted_entry_symbols.append(None)
+                continue
             response = self._submit_entry_order(order)
             if response is not None:
                 responses.append(response)
@@ -76,16 +138,51 @@ class BinanceBroker:
                 responses.append(self.client.send(self.client.new_algo_order(**order)))
             except Exception as exc:
                 if _is_rate_limit_error(exc):
-                    raise
+                    self.last_rate_limit_error = exc
+                    self.last_stop_order_failures.append(
+                        self._order_failure_payload(
+                            order,
+                            exc,
+                            "STOP_SUBMIT_RATE_LIMIT",
+                            retryable=True,
+                        )
+                    )
+                    logger.warning(f"stop order rate limited for {order.get('symbol')}: {exc}")
+                    break
                 logger.error(f"stop order failed for {order.get('symbol')}: {exc}")
                 self.last_stop_order_failures.append(self._order_failure_payload(order, exc, "STOP_SUBMIT_FAILED"))
         return responses
 
     def _submit_entry_order(self, order: dict[str, str]) -> dict | None:
-        existing = self._fetch_existing_entry_order(order)
-        if existing is not None:
-            existing.setdefault("recoveredBeforeSubmit", True)
-            return existing
+        try:
+            lookup = self._fetch_existing_entry_order(order)
+        except Exception as exc:
+            if not _is_rate_limit_error(exc):
+                raise
+            self.last_rate_limit_error = exc
+            self.last_entry_order_failures.append(
+                self._order_failure_payload(
+                    order,
+                    exc,
+                    "ENTRY_STATUS_RATE_LIMIT",
+                    retryable=True,
+                )
+            )
+            return None
+        if lookup.state == _ENTRY_ORDER_FOUND:
+            assert lookup.order is not None
+            lookup.order.setdefault("recoveredBeforeSubmit", True)
+            return lookup.order
+        if lookup.state == _ENTRY_ORDER_UNKNOWN:
+            self.last_entry_order_failures.append(
+                self._order_failure_payload(
+                    order,
+                    RuntimeError(lookup.reason or "entry order status is unknown"),
+                    "ENTRY_STATUS_UNKNOWN",
+                    retryable=True,
+                )
+            )
+            return None
         attempts = len(self.entry_retry_delays) + 1
         last_error: Exception | None = None
         for attempt in range(attempts):
@@ -94,7 +191,17 @@ class BinanceBroker:
             except Exception as exc:
                 last_error = exc
                 if _is_rate_limit_error(exc):
-                    raise
+                    self.last_rate_limit_error = exc
+                    self.last_entry_order_failures.append(
+                        self._order_failure_payload(
+                            order,
+                            exc,
+                            "ENTRY_SUBMIT_RATE_LIMIT",
+                            attempt + 1,
+                            retryable=True,
+                        )
+                    )
+                    return None
                 if not _is_transient_entry_error(exc):
                     logger.error(f"entry order failed for {order.get('symbol')}: {exc}")
                     self.last_entry_order_failures.append(
@@ -107,10 +214,39 @@ class BinanceBroker:
                         )
                     )
                     return None
-                recovered = self._fetch_existing_entry_order(order)
-                if recovered is not None:
-                    recovered.setdefault("recoveredAfterSubmitError", True)
-                    return recovered
+                try:
+                    recovered_lookup = self._fetch_existing_entry_order(order)
+                except Exception as recovery_exc:
+                    if not _is_rate_limit_error(recovery_exc):
+                        raise
+                    self.last_rate_limit_error = recovery_exc
+                    self.last_entry_order_failures.append(
+                        self._order_failure_payload(
+                            order,
+                            recovery_exc,
+                            "ENTRY_STATUS_RATE_LIMIT",
+                            attempt + 1,
+                            retryable=True,
+                        )
+                    )
+                    return None
+                if recovered_lookup.state == _ENTRY_ORDER_FOUND:
+                    assert recovered_lookup.order is not None
+                    recovered_lookup.order.setdefault("recoveredAfterSubmitError", True)
+                    return recovered_lookup.order
+                if recovered_lookup.state in {_ENTRY_ORDER_UNKNOWN, _ENTRY_ORDER_UNSUPPORTED}:
+                    message = recovered_lookup.reason or "entry order status is unknown after submit error"
+                    logger.error(f"entry order status is unknown for {order.get('symbol')}: {message}")
+                    self.last_entry_order_failures.append(
+                        self._order_failure_payload(
+                            order,
+                            RuntimeError(message),
+                            "SUBMIT_STATUS_UNKNOWN",
+                            attempt + 1,
+                            retryable=True,
+                        )
+                    )
+                    return None
                 if attempt < len(self.entry_retry_delays):
                     self.sleep_fn(self.entry_retry_delays[attempt])
                     continue
@@ -127,21 +263,26 @@ class BinanceBroker:
             )
         return None
 
-    def _fetch_existing_entry_order(self, order: dict[str, str]) -> dict | None:
+    def _fetch_existing_entry_order(self, order: dict[str, str]) -> _EntryOrderLookup:
         fetch_order = getattr(self.client, "fetch_order", None)
         client_order_id = order.get("newClientOrderId")
         symbol = order.get("symbol")
         if not callable(fetch_order) or client_order_id is None or symbol is None:
-            return None
+            return _EntryOrderLookup(
+                state=_ENTRY_ORDER_UNSUPPORTED,
+                reason="client does not support client-order-id lookup",
+            )
         try:
-            return fetch_order(symbol=symbol, orig_client_order_id=client_order_id)
+            return _classify_existing_entry_order(
+                fetch_order(symbol=symbol, orig_client_order_id=client_order_id)
+            )
         except Exception as exc:
             if _is_rate_limit_error(exc):
                 raise
             if _is_order_not_found_error(exc):
-                return None
+                return _EntryOrderLookup(state=_ENTRY_ORDER_NOT_FOUND)
             logger.warning(f"entry order status lookup failed for {symbol}: {exc}")
-            return None
+            return _EntryOrderLookup(state=_ENTRY_ORDER_UNKNOWN, reason=str(exc))
 
     @staticmethod
     def _order_failure_payload(
@@ -165,23 +306,46 @@ class BinanceBroker:
         }
 
     def _exchange_symbol_for_replacement(self, symbol: str) -> ExchangeSymbol | None:
-        if self._exchange_symbols is None:
+        now = datetime.now(timezone.utc)
+        cache_expired = (
+            self._exchange_symbols_loaded_at is None
+            or (now - self._exchange_symbols_loaded_at).total_seconds() >= self.exchange_symbols_ttl_seconds
+        )
+        if self._exchange_symbols is None or cache_expired:
             fetch_exchange_info = getattr(self.client, "fetch_exchange_info", None)
             if not callable(fetch_exchange_info):
                 return None
             self._exchange_symbols = parse_exchange_info(fetch_exchange_info())
+            self._exchange_symbols_loaded_at = now
         return self._exchange_symbols.get(symbol)
 
     def replace_stop_orders(self, *, replacements: list[tuple[str, str, str] | tuple[str, str, str, str | None]]) -> list[dict]:
         responses: list[dict] = []
         self.last_stop_replacement_failures = []
+        self.last_rate_limit_error = None
         for replacement in replacements:
             if len(replacement) == 3:
                 symbol, quantity, stop_price = replacement
                 position_side = None
             else:
                 symbol, quantity, stop_price, position_side = replacement
-            open_orders = self.client.fetch_open_algo_orders(symbol=symbol)
+            try:
+                open_orders = self.client.fetch_open_algo_orders(symbol=symbol)
+            except Exception as exc:
+                if _is_rate_limit_error(exc):
+                    self.last_rate_limit_error = exc
+                    self.last_stop_replacement_failures.append(
+                        {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "stop_price": stop_price,
+                            "message": str(exc),
+                            "status": "STOP_REPLACEMENT_RATE_LIMIT",
+                        }
+                    )
+                    logger.warning(f"replacement stop lookup rate limited for {symbol}: {exc}")
+                    break
+                raise
             strategy_stop_orders = []
             for order in open_orders:
                 order_type = order.get("type") or order.get("orderType")
@@ -189,7 +353,23 @@ class BinanceBroker:
                 if order_type == "STOP_MARKET" and is_strategy_client_order_id(client_algo_id):
                     strategy_stop_orders.append(order)
             client_order_id = _build_replacement_stop_client_order_id(symbol)
-            exchange_symbol = self._exchange_symbol_for_replacement(symbol)
+            try:
+                exchange_symbol = self._exchange_symbol_for_replacement(symbol)
+            except Exception as exc:
+                if _is_rate_limit_error(exc):
+                    self.last_rate_limit_error = exc
+                    self.last_stop_replacement_failures.append(
+                        {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "stop_price": stop_price,
+                            "message": str(exc),
+                            "status": "STOP_REPLACEMENT_RATE_LIMIT",
+                        }
+                    )
+                    logger.warning(f"exchange rules lookup rate limited for {symbol}: {exc}")
+                    break
+                raise
             if exchange_symbol is None:
                 order_params = {
                     "symbol": symbol,
@@ -230,7 +410,18 @@ class BinanceBroker:
                 )
             except Exception as exc:
                 if _is_rate_limit_error(exc):
-                    raise
+                    self.last_rate_limit_error = exc
+                    self.last_stop_replacement_failures.append(
+                        {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "stop_price": stop_price,
+                            "message": str(exc),
+                            "status": "STOP_REPLACEMENT_RATE_LIMIT",
+                        }
+                    )
+                    logger.warning(f"replacement stop order rate limited for {symbol}: {exc}")
+                    break
                 logger.error(f"replacement stop order failed for {symbol}: {exc}")
                 self.last_stop_replacement_failures.append(
                     {
@@ -249,5 +440,31 @@ class BinanceBroker:
                         client_algo_id=client_algo_id,
                     )
                 except Exception as exc:
+                    if _is_rate_limit_error(exc):
+                        self.last_rate_limit_error = exc
+                        self.last_stop_replacement_failures.append(
+                            {
+                                "symbol": symbol,
+                                "quantity": quantity,
+                                "stop_price": stop_price,
+                                "message": str(exc),
+                                "status": "STOP_CANCEL_RATE_LIMIT",
+                            }
+                        )
+                        logger.warning(f"old stop cancellation rate limited for {symbol}: {exc}")
+                        break
                     logger.error(f"old stop cancellation failed for {symbol}: {exc}")
+                    self.last_stop_replacement_failures.append(
+                        {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "stop_price": stop_price,
+                            "client_algo_id": client_algo_id,
+                            "algo_id": order.get("algoId"),
+                            "message": str(exc),
+                            "status": "STOP_CANCEL_FAILED",
+                        }
+                    )
+            if self.last_rate_limit_error is not None:
+                break
         return responses

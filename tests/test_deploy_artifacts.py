@@ -1,16 +1,60 @@
+import os
+import subprocess
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeployArtifactTests(unittest.TestCase):
+    def _run_script_with_fake_python(self, relative_path: str, **environment_updates: str) -> list[str]:
+        source_script = ROOT / relative_path
+        with TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            script = project_root / relative_path
+            script.parent.mkdir(parents=True)
+            script.write_text(source_script.read_text())
+            script.chmod(0o755)
+
+            fake_python = project_root / ".venv" / "bin" / "python"
+            fake_python.parent.mkdir(parents=True)
+            fake_python.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n')
+            fake_python.chmod(0o755)
+
+            environment = os.environ.copy()
+            environment.update(environment_updates)
+            result = subprocess.run(
+                [str(script)],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            return result.stdout.splitlines()
+
     def test_run_poll_script_prefers_project_venv_python(self) -> None:
         content = (ROOT / "scripts" / "run_poll.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"', content)
         self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
+
+    def test_run_poll_script_accepts_standard_truthy_submit_orders_values(self) -> None:
+        for value in ("true", "yes", "on", "TRUE", " true "):
+            with self.subTest(value=value):
+                arguments = self._run_script_with_fake_python("scripts/run_poll.sh", SUBMIT_ORDERS=value)
+                self.assertIn("--submit-orders", arguments)
+
+    def test_runtime_scripts_accept_standard_truthy_testnet_values(self) -> None:
+        for relative_path in ("scripts/run_poll.sh", "scripts/run_user_stream.sh"):
+            for value in ("true", "yes", "on", "TRUE", " true "):
+                with self.subTest(relative_path=relative_path, value=value):
+                    arguments = self._run_script_with_fake_python(
+                        relative_path,
+                        BINANCE_USE_TESTNET=value,
+                    )
+                    self.assertIn("--testnet", arguments)
 
     def test_run_user_stream_script_prefers_project_venv_python(self) -> None:
         content = (ROOT / "scripts" / "run_user_stream.sh").read_text()
@@ -174,7 +218,7 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertIn("ExecStart=%h/momentum_alpha/scripts/run_daily_review_report.sh", service)
         self.assertIn("daily-review-report", service)
         self.assertIn("OnCalendar=*-*-* 08:30:00", timer)
-        self.assertIn("Timezone=Asia/Shanghai", timer)
+        self.assertIn("OnCalendar=*-*-* 08:30:00 Asia/Shanghai", timer)
 
     def test_env_example_contains_serverchan_settings(self) -> None:
         content = (ROOT / "deploy" / "env.example").read_text()

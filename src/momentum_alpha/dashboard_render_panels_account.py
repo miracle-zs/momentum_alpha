@@ -11,7 +11,7 @@ def _build_account_metrics_panel(points: list[dict], *, account_range_key: str =
     stats = _compute_account_range_stats(points)
     discontinuity_note = _detect_account_discontinuity(points)
     note_html = f"<div class='account-panel-note'>{escape(discontinuity_note)}</div>" if discontinuity_note else ""
-    data_json = json.dumps(points, ensure_ascii=False)
+    data_json = json.dumps(points, ensure_ascii=False).replace("</", "<\\/")
     initial_chart = (
         "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>waiting for account history</span></div>"
         if not points

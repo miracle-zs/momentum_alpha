@@ -38,6 +38,15 @@ class RuntimeSchemaTests(unittest.TestCase):
             }.issubset(tables)
         )
 
+    def test_runtime_connections_wait_for_writers(self) -> None:
+        from momentum_alpha import runtime_schema
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            runtime_schema.bootstrap_runtime_db(path=db_path)
+            with runtime_schema._connect(db_path) as connection:
+                self.assertEqual(connection.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
+
     def test_runtime_schema_migrates_existing_runtime_database_columns(self) -> None:
         from momentum_alpha import runtime_schema
 

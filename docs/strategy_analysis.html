@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Momentum Alpha - 买入底仓后走势分析</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --card-hover: #222640;
+    --border: #2a2e42;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #4fc3f7;
+    --green: #66bb6a;
+    --red: #ef5350;
+    --orange: #ffa726;
+    --purple: #ab47bc;
+    --yellow: #ffee58;
+    --cyan: #26c6da;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 0 20px 80px;
+  }
+  h1 { text-align: center; font-size: 28px; padding: 40px 0 8px; color: var(--accent); }
+  .subtitle { text-align: center; color: var(--text-dim); font-size: 14px; margin-bottom: 40px; }
+  h2 { font-size: 20px; color: var(--accent); margin: 40px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 16px; color: var(--cyan); margin: 20px 0 10px; }
+
+  /* Overview cards */
+  .overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 30px; }
+  .ov-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; text-align: center;
+  }
+  .ov-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .ov-card .value { font-size: 28px; font-weight: 700; margin: 8px 0 4px; }
+  .ov-card .desc { font-size: 12px; color: var(--text-dim); }
+  .green { color: var(--green); }
+  .red { color: var(--red); }
+  .orange { color: var(--orange); }
+  .purple { color: var(--purple); }
+
+  /* Scenario table */
+  .scenario-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+  .scenario-table th, .scenario-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .scenario-table th { background: var(--card); color: var(--accent); font-weight: 600; position: sticky; top: 0; }
+  .scenario-table tr:hover { background: var(--card-hover); }
+  .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+  }
+  .tag-profit { background: rgba(102,187,106,.15); color: var(--green); }
+  .tag-loss { background: rgba(239,83,80,.15); color: var(--red); }
+  .tag-breakeven { background: rgba(255,167,38,.15); color: var(--orange); }
+
+  /* Scenario cards */
+  .scenario-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+  .scenario-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; position: relative; overflow: hidden;
+  }
+  .scenario-card::before {
+    content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%;
+  }
+  .scenario-card.profit::before { background: var(--green); }
+  .scenario-card.loss::before { background: var(--red); }
+  .scenario-card.mixed::before { background: var(--orange); }
+  .scenario-card.breakeven::before { background: var(--yellow); }
+
+  .scenario-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .scenario-icon { font-size: 32px; }
+  .scenario-title { font-size: 18px; font-weight: 700; }
+  .scenario-subtitle { font-size: 13px; color: var(--text-dim); }
+
+  .scenario-body { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) { .scenario-body { grid-template-columns: 1fr; } }
+
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before {
+    content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border);
+  }
+  .timeline-item { position: relative; margin-bottom: 14px; font-size: 13px; }
+  .timeline-item::before {
+    content: ''; position: absolute; left: -20px; top: 7px; width: 10px; height: 10px;
+    border-radius: 50%; border: 2px solid var(--accent); background: var(--bg);
+  }
+  .timeline-item.active::before { background: var(--accent); }
+  .timeline-item.stop::before { border-color: var(--red); background: var(--red); }
+  .timeline-item.add::before { border-color: var(--green); background: var(--green); }
+  .timeline-time { color: var(--text-dim); font-size: 11px; }
+  .timeline-action { font-weight: 600; }
+
+  .pnl-box {
+    background: rgba(255,255,255,.03); border-radius: 8px; padding: 16px;
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .pnl-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .pnl-value { font-size: 24px; font-weight: 700; }
+  .pnl-detail { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+
+  /* Chart containers */
+  .chart-container {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; margin: 20px 0;
+  }
+  canvas { width: 100% !important; max-height: 300px; }
+
+  /* Decision tree */
+  .tree { padding: 20px 0; }
+  .tree-node {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin: 8px 0; display: inline-block; font-size: 13px;
+  }
+  .tree-node.root { border-color: var(--accent); }
+  .tree-branch { margin-left: 32px; border-left: 2px solid var(--border); padding-left: 20px; }
+  .tree-label { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+
+  /* Summary formula */
+  .formula-box {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; margin: 16px 0; font-family: monospace; font-size: 14px;
+  }
+  .formula-box .line { margin: 6px 0; }
+  .formula-box .key { color: var(--accent); }
+  .formula-box .op { color: var(--text-dim); }
+
+  /* Key insight */
+  .insight-box {
+    background: linear-gradient(135deg, rgba(79,195,247,.08), rgba(171,71,188,.08));
+    border: 1px solid rgba(79,195,247,.3); border-radius: 10px;
+    padding: 20px; margin: 20px 0;
+  }
+  .insight-box h4 { color: var(--accent); margin-bottom: 8px; font-size: 15px; }
+  .insight-box p { font-size: 13px; color: var(--text); line-height: 1.8; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; margin-bottom: 0; }
+  .tab {
+    padding: 10px 20px; cursor: pointer; font-size: 14px; font-weight: 600;
+    background: var(--card); border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0; color: var(--text-dim); transition: all .2s;
+  }
+  .tab.active { background: var(--card-hover); color: var(--accent); border-color: var(--accent); }
+  .tab-content { display: none; background: var(--card-hover); border: 1px solid var(--border); border-radius: 0 8px 8px 8px; padding: 24px; }
+  .tab-content.active { display: block; }
+
+  .flow-chart { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 20px 0; }
+  .flow-box {
+    padding: 12px 24px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    text-align: center; min-width: 240px; position: relative;
+  }
+  .flow-box.entry { background: rgba(79,195,247,.15); border: 1px solid var(--accent); color: var(--accent); }
+  .flow-box.check { background: rgba(255,167,38,.1); border: 1px solid var(--orange); color: var(--orange); border-radius: 20px; }
+  .flow-box.action-green { background: rgba(102,187,106,.15); border: 1px solid var(--green); color: var(--green); }
+  .flow-box.action-red { background: rgba(239,83,80,.15); border: 1px solid var(--red); color: var(--red); }
+  .flow-arrow { font-size: 20px; color: var(--text-dim); line-height: 1; }
+  .flow-branch { display: flex; gap: 40px; align-items: flex-start; }
+  .flow-branch-item { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .flow-branch-label { font-size: 11px; color: var(--text-dim); margin: 4px 0; }
+
+  .risk-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .risk-table th, .risk-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .risk-table th { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Momentum Alpha 策略走势分析</h1>
+<p class="subtitle">买入底仓后 Symbol 的所有可能走势、操作及收益全景图</p>
+
+<!-- ==================== 概览 ==================== -->
+<h2>策略核心参数</h2>
+<div class="overview">
+  <div class="ov-card">
+    <div class="label">止损预算</div>
+    <div class="value" style="color:var(--accent)">10 USDT</div>
+    <div class="desc">每笔交易最大亏损</div>
+  </div>
+  <div class="ov-card">
+    <div class="label">入场窗口</div>
+    <div class="value" style="color:var(--accent)">01:00+</div>
+    <div class="desc">UTC 时间</div>
+  </div>
+  <div class="ov-card">
+    <div class="label">加仓周期</div>
+    <div class="value" style="color:var(--accent)">每小时</div>
+    <div class="desc">整点触发，仅限 leader</div>
+  </div>
+  <div class="ov-card">
+    <div class="label">止损冷却</div>
+    <div class="value" style="color:var(--accent)">60 分钟</div>
+    <div class="desc">止损后同币种冷却期</div>
+  </div>
+</div>
+
+<div class="formula-box">
+  <div class="line"><span class="key">仓位数量</span> <span class="op">=</span> stop_budget / (entry_price - stop_price)</div>
+  <div class="line"><span class="key">止损价</span> <span class="op">=</span> 前一小时 K 线最低价 (若价格已跌破则取当前小时最低价)</div>
+  <div class="line"><span class="key">每腿最大亏损</span> <span class="op">=</span> quantity × (entry_price - stop_price) <span class="op">=</span> stop_budget = 10 USDT</div>
+  <div class="line"><span class="key">止盈</span> <span class="op">=</span> 无显式止盈，通过逐小时上移止损跟踪盈利</div>
+</div>
+
+<!-- ==================== 总览表 ==================== -->
+<h2>走势场景总览</h2>
+<table class="scenario-table">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>场景名称</th>
+      <th>价格走势</th>
+      <th>Leader 状态</th>
+      <th>操作</th>
+      <th>收益特征</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>持续上涨 + 保持 Leader</td>
+      <td>持续上涨</td>
+      <td>保持</td>
+      <td>每小时加仓 + 止损上移</td>
+      <td><span class="tag tag-profit">盈利</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>上涨后回落至跟踪止损</td>
+      <td>先涨后跌</td>
+      <td>保持/失去</td>
+      <td>加仓 + 止损上移 → 触发止损</td>
+      <td><span class="tag tag-profit">大概率盈利</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>横盘震荡</td>
+      <td>窄幅震荡</td>
+      <td>保持/失去</td>
+      <td>止损维持 / 少量加仓</td>
+      <td><span class="tag tag-breakeven">持平/微亏</span></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>快速下跌触发止损</td>
+      <td>持续下跌</td>
+      <td>N/A</td>
+      <td>触发止损，60 分钟冷却</td>
+      <td><span class="tag tag-loss">亏损 -10 USDT</span></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Leader 切换，新旧并存</td>
+      <td>原 symbol 回调</td>
+      <td>失去 → 新 leader</td>
+      <td>新开新 leader 仓位，原仓位靠止损保护</td>
+      <td><span class="tag tag-profit">混合</span></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>止损后 Leader 恢复 (冷却期)</td>
+      <td>V 型反转</td>
+      <td>失去 → 恢复</td>
+      <td>止损 → 冷却 60min → 可能重新入场</td>
+      <td><span class="tag tag-loss">先亏后盈/再亏</span></td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>跨日持仓 (UTC 午夜)</td>
+      <td>任意</td>
+      <td>可能变化</td>
+      <td>仓位保留，日切后 leader 可能切换</td>
+      <td><span class="tag tag-profit">取决于新日走势</span></td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>加仓时止损价 >= 当前价</td>
+      <td>急跌后反弹</td>
+      <td>保持</td>
+      <td>加仓被跳过 (size=None)，stop 仍更新</td>
+      <td><span class="tag tag-loss">无法加仓，仓位维持</span></td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>Leader 快速连续切换</td>
+      <td>多币种轮动</td>
+      <td>频繁切换</td>
+      <td>每个 leader 各开一仓，并行持仓</td>
+      <td><span class="tag tag-loss">总风险叠加</span></td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>多腿叠加后复合止损</td>
+      <td>上涨后急跌</td>
+      <td>保持</td>
+      <td>多腿共享一个 stop，整体平仓</td>
+      <td><span class="tag tag-profit">可能盈利 (前期腿赚 > 后期腿亏)</span></td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>价格在止损线反复试探</td>
+      <td>锯齿形波动</td>
+      <td>保持/失去</td>
+      <td>stop 不变 (只上移)，反复触及又弹回</td>
+      <td><span class="tag tag-loss">一旦跌破即止损</span></td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>外部平仓 / 强制平仓</td>
+      <td>极端行情</td>
+      <td>N/A</td>
+      <td>ACCOUNT_UPDATE 检测到仓位归零，移除</td>
+      <td><span class="tag tag-loss">可能超过 10 USDT</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ==================== 详细场景 ==================== -->
+<h2>十二大场景详细分析</h2>
+
+<div class="scenario-grid">
+
+  <!-- 场景 1 -->
+  <div class="scenario-card profit" id="s1">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 1</div>
+      <div>
+        <div class="scenario-title green">持续上涨 + 保持 Leader</div>
+        <div class="scenario-subtitle">最理想情况：趋势延续，逐小时加仓，止损跟踪上移</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0 (整点)</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=前一小时低点 S0, 仓位=10/(P0-S0)</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+1h</div>
+          <div class="timeline-action">小时收盘 - 第 1 次加仓</div>
+          <div>stop 上移至前一小时低点 S1 (S1>S0)<br>新增 add_on 腿: 仓位=10/(P1-S1)</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+2h</div>
+          <div class="timeline-action">小时收盘 - 第 2 次加仓</div>
+          <div>stop 上移至 S2 (S2>S1)<br>新增 add_on 腿: 仓位=10/(P2-S2)</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+3h ~ T+nh</div>
+          <div class="timeline-action">持续加仓</div>
+          <div>价格持续创新高，每小时加仓并上移止损</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+nh</div>
+          <div class="timeline-action">最终触发跟踪止损</div>
+          <div>价格回落至 Sn，全部仓位平仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value green">盈利</div>
+          <div class="pnl-detail">
+            <strong>总盈利 = Σ(每腿 quantity_i × (Sn - entry_price_i))</strong><br><br>
+            因为所有腿的 stop_price 都在 Sn，且每腿的 entry_price 都低于 Sn（因为是上涨过程中逐步建仓），所以每腿都盈利。<br><br>
+            <strong>关键变量：</strong><br>
+            &bull; 上涨持续时间 → 决定加仓次数 (腿数)<br>
+            &bull; 每小时涨幅 → 决定每腿利润率<br>
+            &bull; 总涨幅 → 决定最终盈利绝对值<br><br>
+            <strong>示例（假设每小时涨 1%，持续 5 小时）：</strong><br>
+            底仓: 10/(P0-S0) × (S5-P0)<br>
+            加仓 1: 10/(P1-S1) × (S5-P1)<br>
+            ...每腿利润率递减但绝对盈利递增
+          </div>
+        </div>
+        <canvas id="chart1" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 2 -->
+  <div class="scenario-card profit" id="s2">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 2</div>
+      <div>
+        <div class="scenario-title green">上涨后回落至跟踪止损</div>
+        <div class="scenario-subtitle">价格上涨积累利润，然后回落至已上移的止损位</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+1h ~ T+2h</div>
+          <div class="timeline-action">价格上涨，加仓 1~2 次</div>
+          <div>stop 上移至 S2，积累了 3 条腿</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+3h</div>
+          <div class="timeline-action">价格回落触及 S2</div>
+          <div>全部仓位以 stop_price=S2 平仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value green">大概率盈利</div>
+          <div class="pnl-detail">
+            <strong>每腿 PnL = quantity × (S2 - entry_price)</strong><br><br>
+            因为 stop 只会上移不会下移，S2 > S0。如果底仓 entry_price=P0 < S2，则底仓盈利。<br>
+            但最后 1~2 条加仓腿的 entry_price 可能 > S2（在价格高点附近加仓），这些腿会亏损。<br><br>
+            <strong>典型结果：</strong>底仓大盈利 + 末期加仓小亏损 = 净盈利<br><br>
+            <strong>风险场景：</strong>如果只加了 1 仓就急速回落，可能最后一条腿的 entry_price 接近 S2，净盈利很小甚至持平
+          </div>
+        </div>
+        <canvas id="chart2" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 3 -->
+  <div class="scenario-card breakeven" id="s3">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 3</div>
+      <div>
+        <div class="scenario-title" style="color:var(--yellow)">横盘震荡</div>
+        <div class="scenario-subtitle">价格在 entry_price 附近窄幅波动</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+1h ~ T+nh</div>
+          <div class="timeline-action">价格横盘</div>
+          <div>stop 可能小幅上移（每小时低点微升）<br>若仍是 leader → 少量加仓<br>若不再是 leader → 仅更新 stop，不加仓</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">最终</div>
+          <div class="timeline-action">触发止损 或 日切重置</div>
+          <div>价格跌破 stop 平仓 / 日切后状态重置</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value orange">持平 或 微亏</div>
+          <div class="pnl-detail">
+            <strong>每腿 PnL = quantity × (stop - entry_price)</strong><br><br>
+            横盘情况下 stop 变化很小，entry_price 和 stop 接近。<br><br>
+            <strong>最可能的结果：</strong><br>
+            &bull; 微亏：stop 略低于 entry_price，损失 = 接近但小于 10 USDT/腿<br>
+            &bull; 持平：如果 stop 恰好等于 entry_price<br>
+            &bull; 小时低点可能波动，导致 stop 微调<br><br>
+            <strong>隐性成本：</strong>资金被占用，机会成本高
+          </div>
+        </div>
+        <canvas id="chart3" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 4 -->
+  <div class="scenario-card loss" id="s4">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 4</div>
+      <div>
+        <div class="scenario-title red">快速下跌触发止损</div>
+        <div class="scenario-subtitle">最差情况：入场后价格立即反向运动</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+0 ~ T+1h</div>
+          <div class="timeline-action">价格快速跌破 S0</div>
+          <div>stop_market 订单触发，以 S0 价格平仓<br>亏损 = 10 USDT（固定止损预算）</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+1h ~ T+2h</div>
+          <div class="timeline-action">60 分钟冷却期</div>
+          <div>该 symbol 不可重新入场<br>即使它重新成为 leader</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value red">固定亏损 -10 USDT</div>
+          <div class="pnl-detail">
+            <strong>亏损 = stop_budget = 10 USDT</strong><br><br>
+            这是策略设计的最大单腿亏损。无论跌幅多大（-1% 或 -10%），亏损都固定为 10 USDT。<br><br>
+            <strong>止损机制保障：</strong><br>
+            &bull; quantity = 10 / (P0 - S0)<br>
+            &bull; loss = quantity × (P0 - S0) = 10 USDT<br><br>
+            <strong>滑点风险：</strong>实际亏损可能略大于 10 USDT<br>
+            &bull; stop_market 是市价单，在极端行情下有滑点<br>
+            &bull; 但永续合约流动性好，滑点通常很小<br><br>
+            <strong>冷却期后：</strong>60 分钟内不可重新入场同一 symbol，防止连续止损
+          </div>
+        </div>
+        <canvas id="chart4" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 5 -->
+  <div class="scenario-card mixed" id="s5">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 5</div>
+      <div>
+        <div class="scenario-title" style="color:var(--orange)">Leader 切换，新旧仓位并存</div>
+        <div class="scenario-subtitle">原 symbol 失去领先地位，新 leader 出现</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓 A</div>
+          <div>symbol A 作为 leader 入场</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+1h</div>
+          <div class="timeline-action">A 加仓 + stop 上移</div>
+          <div>A 仍是 leader，正常加仓</div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-time">T+2h</div>
+          <div class="timeline-action">Leader 切换至 B</div>
+          <div>新 leader B 出现，买入底仓 B<br>A 的仓位保留，stop 不再更新<br>A 不再加仓（非 leader）</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">后续</div>
+          <div class="timeline-action">A 触发止损 / B 正常运作</div>
+          <div>A 最终跌破旧 stop 被平仓<br>B 按正常流程运作</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value" style="color:var(--orange)">混合结果</div>
+          <div class="pnl-detail">
+            <strong>A 仓位（旧 leader）：</strong><br>
+            &bull; stop 在切换时已上移至某个值 S_n<br>
+            &bull; 如果 P > S_n → A 盈利（即使不再加仓）<br>
+            &bull; 如果 P < S_n → A 亏损（最大 10 USDT/腿）<br><br>
+            <strong>B 仓位（新 leader）：</strong><br>
+            &bull; 全新底仓，独立运作<br>
+            &bull; 后续走势取决于 B 的价格表现<br><br>
+            <strong>关键点：</strong>策略允许多个 symbol 并行持仓<br>
+            每个 symbol 有独立的止损和加仓逻辑<br>
+            总风险 = 各 symbol 止损预算之和
+          </div>
+        </div>
+        <canvas id="chart5" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 6 -->
+  <div class="scenario-card loss" id="s6">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 6</div>
+      <div>
+        <div class="scenario-title red">止损后 Leader 恢复 (冷却期)</div>
+        <div class="scenario-subtitle">V 型反转：止损后价格回升，但受冷却期限制</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+30min</div>
+          <div class="timeline-action">触发止损</div>
+          <div>亏损 -10 USDT，进入 60 分钟冷却期</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+30min ~ T+90min</div>
+          <div class="timeline-action">冷却期内</div>
+          <div>价格反弹，重新成为 leader<br>但无法入场（冷却期限制）<br><strong style="color:var(--red)">错失反弹利润</strong></div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-time">T+90min+</div>
+          <div class="timeline-action">冷却期结束</div>
+          <div>如果仍是 leader 且满足条件 → 可重新入场<br>但价格可能已经涨高，入场点变差</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value red">先亏 + 可能错失机会</div>
+          <div class="pnl-detail">
+            <strong>阶段 1（止损）：</strong>固定亏损 -10 USDT<br><br>
+            <strong>阶段 2（冷却期）：</strong><br>
+            &bull; 如果价格 V 型反转 → 错失利润<br>
+            &bull; 如果价格继续下跌 → 冷却期保护避免二次止损<br><br>
+            <strong>阶段 3（重新入场）：</strong><br>
+            &bull; 如果价格已涨高 → entry_price 更高 → 同样止损距离下仓位更小<br>
+            &bull; 或者可能不再是 leader → 不入场<br><br>
+            <strong>冷却期的作用：</strong>防止在剧烈波动中连续止损，但也可能错过快速反弹
+          </div>
+        </div>
+        <canvas id="chart6" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <!-- 场景 7 -->
+  <div class="scenario-card mixed" id="s7">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 7</div>
+      <div>
+        <div class="scenario-title" style="color:var(--cyan)">跨日持仓 (UTC 午夜边界)</div>
+        <div class="scenario-subtitle">仓位不会在 UTC 午夜自动平仓，日切后 leader 排名基于新日 open 价重算</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">Day1 UTC 15:00</div>
+          <div class="timeline-action">买入底仓 A</div>
+          <div>symbol A 当日 leader，正常入场</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">Day1 16:00~23:00</div>
+          <div class="timeline-action">A 持续加仓</div>
+          <div>积累了多腿，stop 逐步上移至 S_n</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">Day2 UTC 00:00</div>
+          <div class="timeline-action">日切：daily_open_price 重置</div>
+          <div>所有 symbol 的 daily_change_pct 重新计算<br>leader 排名可能完全改变<br><strong>A 的仓位保留，stop 不变</strong></div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">Day2 UTC 00:00~01:00</div>
+          <div class="timeline-action">入场窗口关闭</div>
+          <div>即使出现新 leader，也无法入场（hour < 1）</div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-time">Day2 UTC 01:00+</div>
+          <div class="timeline-action">新日入场窗口开启</div>
+          <div>可能新 leader B 出现 → 开 B 仓位<br>A 若仍是 leader → 继续加仓<br>A 若非 leader → 仅更新 stop，不加仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value" style="color:var(--cyan)">取决于新日走势</div>
+          <div class="pnl-detail">
+            <strong>关键变化：</strong><br>
+            &bull; daily_open_price 在 UTC 00:00 重置<br>
+            &bull; daily_change_pct = (price - new_open) / new_open<br>
+            &bull; 昨日涨幅最大的币 ≠ 今日涨幅最大的币<br><br>
+            <strong>A 仓位的命运：</strong><br>
+            &bull; 如果 A 在新日仍是 leader → 继续加仓 + stop 上移<br>
+            &bull; 如果 A 不再是 leader → stop 冻结在 S_n，等止损或价格回升<br>
+            &bull; A 的 stop 不受日切影响，继续保护仓位<br><br>
+            <strong>风险：</strong>如果新日开盘价比昨收高很多，旧仓位的 entry_price 可能远低于新日 open，但 stop 仍然有效
+          </div>
+        </div>
+        <canvas id="chart7" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 8 -->
+  <div class="scenario-card loss" id="s8">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 8</div>
+      <div>
+        <div class="scenario-title red">加仓时止损价 >= 当前价 (加仓跳过)</div>
+        <div class="scenario-subtitle">小时收盘时 stop 被设为 previous_hour_low，但当前价已低于该值</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+1h</div>
+          <div class="timeline-action">第 1 次加仓</div>
+          <div>stop 上移至 S1，正常加仓</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+2h 之前</div>
+          <div class="timeline-action">价格急跌</div>
+          <div>价格跌破 S1 但未触发止损（S1 是上一小时低点，stop 还是 S1）</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+2h 整点</div>
+          <div class="timeline-action">小时收盘评估</div>
+          <div>新 stop = previous_hour_low = S2<br>但 current_price < S2<br><strong>加仓被跳过</strong>（size_from_stop_budget 返回 None）<br>stop 仍然更新为 S2</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+2h 之后</div>
+          <div class="timeline-action">触发止损</div>
+          <div>价格跌破 S2，止损平仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value red">无法加仓，维持原仓位</div>
+          <div class="pnl-detail">
+            <strong>机制：</strong><br>
+            &bull; evaluate_hour_close 设置 stop = previous_hour_low<br>
+            &bull; execution 中 size_from_stop_budget 检查: entry_price - stop_price <= 0 → return None<br>
+            &bull; 加仓订单不生成，但 stop 仍然更新到新值<br><br>
+            <strong>后果：</strong><br>
+            &bull; 错过了在低价加仓的机会<br>
+            &bull; 但 stop 被推高了（S2 > S1），可能加速止损触发<br>
+            &bull; 如果价格随后反弹，缺少加仓腿的利润<br><br>
+            <strong>这是策略的安全机制：</strong>防止在 stop >= price 时开仓（会导致无限仓位或负距离）
+          </div>
+        </div>
+        <canvas id="chart8" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 9 -->
+  <div class="scenario-card loss" id="s9">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 9</div>
+      <div>
+        <div class="scenario-title red">Leader 快速连续切换</div>
+        <div class="scenario-subtitle">多个币种轮流成为 leader，每个都开新仓，风险叠加</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">Leader = A，买入底仓 A</div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-time">T+1min</div>
+          <div class="timeline-action">Leader 切换为 B</div>
+          <div>买入底仓 B（A 仓位保留）</div>
+        </div>
+        <div class="timeline-item active">
+          <div class="timeline-time">T+2min</div>
+          <div class="timeline-action">Leader 切换为 C</div>
+          <div>买入底仓 C（A、B 仓位保留）</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+3min</div>
+          <div class="timeline-action">Leader 切换回 A</div>
+          <div>已持有 A → blocked_reason="already_holding"<br>不新开仓</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">后续</div>
+          <div class="timeline-action">三个仓位并行运作</div>
+          <div>A、B、C 各自独立止损和加仓逻辑</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value red">总风险 = N × 10 USDT</div>
+          <div class="pnl-detail">
+            <strong>风险叠加：</strong><br>
+            &bull; 每个新 leader 都会开一个新仓位<br>
+            &bull; 每个仓位有独立的 stop，最大亏损各 10 USDT<br>
+            &bull; 如果 3 个 symbol 同时止损 → 亏损 30 USDT<br><br>
+            <strong>保护机制：</strong><br>
+            &bull; already_holding 阻止同一 symbol 重复开仓<br>
+            &bull; 60 分钟冷却期阻止止损后立即重开<br>
+            &bull; 但如果 leader 在不同 symbol 间快速切换，每个都会被开仓<br><br>
+            <strong>实际风险：</strong>取决于同时持仓的 symbol 数量和它们的相关性
+          </div>
+        </div>
+        <canvas id="chart9" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 10 -->
+  <div class="scenario-card profit" id="s10">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 10</div>
+      <div>
+        <div class="scenario-title green">多腿叠加后复合止损</div>
+        <div class="scenario-subtitle">多条腿以不同 entry_price 入场，共享一个 stop_price，整体平仓</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0h</div>
+          <div class="timeline-action">底仓入场</div>
+          <div>entry=P0=100, stop=S0=98<br>qty=10/(100-98)=5.0, 仓位价值=500</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+1h</div>
+          <div class="timeline-action">第 1 次加仓</div>
+          <div>entry=P1=102, stop=S1=100<br>qty=10/(102-100)=5.0, 仓位价值=510<br>总仓位: 10.0 units</div>
+        </div>
+        <div class="timeline-item add">
+          <div class="timeline-time">T+2h</div>
+          <div class="timeline-action">第 2 次加仓</div>
+          <div>entry=P2=105, stop=S2=103<br>qty=10/(105-103)=5.0, 仓位价值=525<br>总仓位: 15.0 units</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+3h</div>
+          <div class="timeline-action">触发止损 at S2=103</div>
+          <div>全部 15 units 以 103 平仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value green">可能盈利 (前期腿赚 > 后期腿亏)</div>
+          <div class="pnl-detail">
+            <strong>复合 PnL 计算：</strong><br>
+            &bull; 底仓: 5.0 × (103-100) = <span class="green">+15 USDT</span><br>
+            &bull; 腿 1: 5.0 × (103-102) = <span class="green">+5 USDT</span><br>
+            &bull; 腿 2: 5.0 × (103-105) = <span class="red">-10 USDT</span><br>
+            &bull; <strong>净 PnL = +10 USDT</strong><br><br>
+            <strong>关键洞察：</strong><br>
+            &bull; 每条腿的最大亏损 = 10 USDT (固定)<br>
+            &bull; 但早期腿在 stop 上移后可能盈利<br>
+            &bull; 只有最后一条腿 (entry 最高) 会亏损<br>
+            &bull; 趋势越强、持续越久 → 早期腿盈利越大 → 净 PnL 越好<br><br>
+            <strong>最差情况：</strong>只加了 1 仓就急跌，底仓微赚 + 末腿亏 10 = 几乎持平
+          </div>
+        </div>
+        <canvas id="chart10" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 11 -->
+  <div class="scenario-card mixed" id="s11">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 11</div>
+      <div>
+        <div class="scenario-title" style="color:var(--orange)">价格在止损线反复试探</div>
+        <div class="scenario-subtitle">锯齿形价格在 stop 附近波动，反复触及又弹回</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">买入底仓</div>
+          <div>entry_price=P0, stop=S0</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+1h</div>
+          <div class="timeline-action">价格接近 S0 但未跌破</div>
+          <div>stop 可能微调（小时低点更新）<br>如果价格 > stop → 不触发</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+2h</div>
+          <div class="timeline-action">价格反弹远离 S0</div>
+          <div>stop 上移至新的小时低点<br>价格再次远离止损线</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">T+3h</div>
+          <div class="timeline-action">价格再次回落试探</div>
+          <div>stop 只上不下，新的 stop 可能更接近当前价</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+nh</div>
+          <div class="timeline-action">最终跌破 stop</div>
+          <div>止损触发，平仓</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value" style="color:var(--orange)">止损一旦触发即平仓</div>
+          <div class="pnl-detail">
+            <strong>止损特性：</strong><br>
+            &bull; stop 是 stop_market 订单，一旦价格 ≤ stop 就触发<br>
+            &bull; 没有"缓冲区"或"确认期"<br>
+            &bull; 即使价格只是瞬间刺穿 stop 也会触发<br><br>
+            <strong>锯齿行情的影响：</strong><br>
+            &bull; 每次小时收盘都可能调整 stop<br>
+            &bull; 如果 stop 被推高到接近 entry_price → 普通回调就会触发<br>
+            &bull; 如果价格反复在 stop 上方弹回 → 不断积累小时低点 → stop 缓慢上移<br><br>
+            <strong>最终结果：</strong>取决于哪一方先"赢"——价格突破向上 vs 跌破 stop
+          </div>
+        </div>
+        <canvas id="chart11" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 场景 12 -->
+  <div class="scenario-card loss" id="s12">
+    <div class="scenario-header">
+      <div class="scenario-icon">Scenario 12</div>
+      <div>
+        <div class="scenario-title red">外部平仓 / 强制平仓</div>
+        <div class="scenario-subtitle">仓位被外部因素关闭：手动操作、交易所强平、或系统异常</div>
+      </div>
+    </div>
+    <div class="scenario-body">
+      <div class="timeline">
+        <div class="timeline-item active">
+          <div class="timeline-time">T+0</div>
+          <div class="timeline-action">持有仓位</div>
+          <div>symbol A 有多腿仓位，stop 已设置</div>
+        </div>
+        <div class="timeline-item stop">
+          <div class="timeline-time">T+任意</div>
+          <div class="timeline-action">外部平仓事件</div>
+          <div>可能原因：<br>&bull; 用户在交易所手动平仓<br>&bull; 保证金不足被强平<br>&bull; 交易所系统维护<br>&bull; API 连接断开导致 stop 未更新</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">后续</div>
+          <div class="timeline-action">ACCOUNT_UPDATE 检测</div>
+          <div>positionAmt=0 → 移除仓位<br>如果有 strategy stop 记录 → 加入 recent_stop_loss_exits<br>触发 60 分钟冷却期</div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl-box">
+          <div class="pnl-label">收益特征</div>
+          <div class="pnl-value red">可能超过 10 USDT</div>
+          <div class="pnl-detail">
+            <strong>与正常止损的区别：</strong><br>
+            &bull; 正常止损: loss = quantity × (entry-stop) = 10 USDT (固定)<br>
+            &bull; 强平: loss 取决于强平价格，可能远大于 10 USDT<br>
+            &bull; 手动平仓: loss 取决于手动操作时的市价<br><br>
+            <strong>系统的应对：</strong><br>
+            &bull; ACCOUNT_UPDATE 事件检测 positionAmt=0<br>
+            &bull; 如果有关联的 strategy stop → 记录为 stop_loss_exit<br>
+            &bull; 如果没有 → 仓位静默移除（无冷却期）<br><br>
+            <strong>风险：</strong>这是策略设计之外的退出路径，PnL 不可控
+          </div>
+        </div>
+        <canvas id="chart12" height="200"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 操作流程图 ==================== -->
+<h2>策略决策流程图</h2>
+<div class="chart-container">
+  <div class="flow-chart">
+    <div class="flow-box entry">每分钟评估: process_clock_tick()</div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-box check">当前时间 >= UTC 01:00 ?</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box check">Leader 发生变化 ? (leader != previous_leader)</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box check">不在冷却期内 ? (止损后 60 分钟)</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box check">未持有该 symbol ?</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box check">有前一小时 K 线 ?</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box check">止损价 < 当前价 ?</div>
+    <div class="flow-arrow">↓ Yes</div>
+    <div class="flow-box action-green">买入底仓 + 设置止损</div>
+  </div>
+  <div style="margin-top:40px; padding-top:20px; border-top: 1px solid var(--border);">
+    <div class="flow-chart">
+      <div class="flow-box entry">每小时整点: evaluate_hour_close()</div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-box check">持有该 symbol 的仓位 ?</div>
+      <div class="flow-arrow">↓ Yes</div>
+      <div class="flow-branch">
+        <div class="flow-branch-item">
+          <div class="flow-branch-label">是 current leader</div>
+          <div class="flow-box action-green">更新 stop + 加仓 (add_on)</div>
+        </div>
+        <div class="flow-branch-item">
+          <div class="flow-branch-label">不是 current leader</div>
+          <div class="flow-box check">仅更新 stop，不加仓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 止损机制详解 ==================== -->
+<h2>止损跟踪机制详解</h2>
+<div class="insight-box">
+  <h4>核心设计：单向上移的跟踪止损</h4>
+  <p>
+    策略的止损价 <strong>只会向上移动，永远不会向下移动</strong>。每小时整点时，止损价更新为前一小时 K 线的最低价。<br><br>
+    <strong>这意味着：</strong><br>
+    &bull; 如果价格持续上涨 → 止损价跟随上涨 → 锁定越来越多的利润<br>
+    &bull; 如果价格横盘 → 止损价可能小幅上移或不变<br>
+    &bull; 如果价格下跌 → 止损价不变（不会下移）→ 保护已有利润或限制亏损<br><br>
+    <strong>效果：</strong>策略天然具有"截断亏损，让利润奔跑"的特性。每条腿的最大亏损被锁定在 10 USDT，而盈利空间理论上无上限（取决于趋势持续时间和幅度）。
+  </p>
+</div>
+
+<!-- ==================== 收益风险矩阵 ==================== -->
+<h2>收益风险矩阵</h2>
+<div class="chart-container">
+  <canvas id="chartMatrix" height="300"></canvas>
+</div>
+
+<table class="risk-table">
+  <thead>
+    <tr>
+      <th>场景</th>
+      <th>单腿最大亏损</th>
+      <th>单腿最大盈利</th>
+      <th>概率评估</th>
+      <th>盈亏比</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>持续上涨 + 保持 Leader</td>
+      <td class="red">-10 USDT (止损失效)</td>
+      <td class="green">理论无上限</td>
+      <td>低（需持续趋势）</td>
+      <td>优秀</td>
+    </tr>
+    <tr>
+      <td>上涨后回落至跟踪止损</td>
+      <td class="red">-10 USDT</td>
+      <td class="green">取决于涨幅和腿数</td>
+      <td>中等</td>
+      <td>良好</td>
+    </tr>
+    <tr>
+      <td>横盘震荡</td>
+      <td class="red">-10 USDT</td>
+      <td class="green">接近 0</td>
+      <td>中等</td>
+      <td>差（资金占用）</td>
+    </tr>
+    <tr>
+      <td>快速下跌触发止损</td>
+      <td class="red">-10 USDT (固定)</td>
+      <td class="green">N/A</td>
+      <td>中等</td>
+      <td>固定亏损</td>
+    </tr>
+    <tr>
+      <td>Leader 切换</td>
+      <td class="red">各 symbol 各 -10 USDT</td>
+      <td class="green">取决于后续走势</td>
+      <td>高（频繁发生）</td>
+      <td>视组合而定</td>
+    </tr>
+    <tr>
+      <td>V 型反转 (止损后)</td>
+      <td class="red">-10 USDT + 机会成本</td>
+      <td class="green">取决于重新入场</td>
+      <td>低</td>
+      <td>差</td>
+    </tr>
+    <tr>
+      <td>跨日持仓</td>
+      <td class="red">-10 USDT/腿</td>
+      <td class="green">取决于新日走势</td>
+      <td>高（每天发生）</td>
+      <td>视新日趋势而定</td>
+    </tr>
+    <tr>
+      <td>加仓止损失效</td>
+      <td class="red">-10 USDT (原仓位)</td>
+      <td class="green">N/A (无法加仓)</td>
+      <td>低（急跌时）</td>
+      <td>固定亏损</td>
+    </tr>
+    <tr>
+      <td>Leader 快速切换</td>
+      <td class="red">N × 10 USDT (总风险)</td>
+      <td class="green">各 symbol 独立</td>
+      <td>中等（震荡市）</td>
+      <td>视组合而定</td>
+    </tr>
+    <tr>
+      <td>多腿复合止损</td>
+      <td class="red">最后一条腿 -10 USDT</td>
+      <td class="green">早期腿可能盈利</td>
+      <td>中等</td>
+      <td>良好 (盈利腿抵消)</td>
+    </tr>
+    <tr>
+      <td>止损线反复试探</td>
+      <td class="red">-10 USDT (跌破即触发)</td>
+      <td class="green">接近 0</td>
+      <td>中等（震荡市）</td>
+      <td>差</td>
+    </tr>
+    <tr>
+      <td>外部平仓 / 强平</td>
+      <td class="red">可能 >> 10 USDT</td>
+      <td class="green">N/A</td>
+      <td>极低</td>
+      <td>不可控</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ==================== 综合分析 ==================== -->
+<h2>综合分析</h2>
+
+<div class="insight-box">
+  <h4>策略优势</h4>
+  <p>
+    <strong>1. 风险可控：</strong>每笔交易的最大亏损固定为 10 USDT，不依赖于仓位大小或市场波动幅度。<br>
+    <strong>2. 趋势捕获：</strong>通过逐小时加仓 + 止损上移，能够在趋势行情中积累大量仓位并锁定利润。<br>
+    <strong>3. 自适应：</strong>leader 选择机制确保始终持有当日最强的币种。<br>
+    <strong>4. 冷却保护：</strong>止损后 60 分钟冷却期避免在剧烈波动中连续亏损。
+  </p>
+</div>
+
+<div class="insight-box">
+  <h4>策略风险</h4>
+  <p>
+    <strong>1. 震荡市损耗：</strong>横盘行情中频繁止损会持续消耗资金（每次 10 USDT）。<br>
+    <strong>2. 无主动止盈：</strong>完全依赖跟踪止损离场，可能回吐大量浮盈。<br>
+    <strong>3. Leader 切换频繁：</strong>如果 leader 频繁变化，会产生多个并行仓位，总风险 = N × 10 USDT。<br>
+    <strong>4. 入场时间限制：</strong>UTC 01:00 前无法入场，可能错过凌晨的大幅行情。<br>
+    <strong>5. 滑点风险：</strong>stop_market 订单在极端行情下可能有滑点，实际亏损略大于 10 USDT。<br>
+    <strong>6. 跨日仓位：</strong>仓位不会在 UTC 午夜自动平仓，日切后 leader 可能切换，旧仓位 stop 冻结。<br>
+    <strong>7. 加仓失效：</strong>价格急跌时 stop >= price，加仓被跳过，错失低位建仓机会。<br>
+    <strong>8. 止损试探：</strong>价格在 stop 附近反复波动时，stop_market 一旦触发即平仓，没有缓冲。<br>
+    <strong>9. 强平风险：</strong>极端行情下可能触发交易所强平，亏损远超 10 USDT 设计上限。
+  </p>
+</div>
+
+<div class="insight-box">
+  <h4>每腿 PnL 公式</h4>
+  <p>
+    <strong>单腿盈亏 = quantity × (exit_price - entry_price)</strong><br><br>
+    其中：<br>
+    &bull; quantity = 10 / (entry_price - stop_price)<br>
+    &bull; exit_price = 触发止损时的 stop_price<br><br>
+    <strong>盈利时：</strong>PnL = 10 × (exit_price - entry_price) / (entry_price - original_stop)<br>
+    <strong>亏损时：</strong>PnL = -10 USDT（固定）<br><br>
+    <strong>关键洞察：</strong>策略的盈亏比取决于止损距离和最终退出价格。趋势越强、持续越久，盈亏比越高。震荡市中盈亏比接近 1:1。
+  </p>
+</div>
+
+<!-- ==================== Chart.js ==================== -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const gridColor = 'rgba(255,255,255,0.06)';
+  const tickColor = '#888';
+
+  // Helper: generate price path
+  function pricePath(type, points) {
+    const data = [];
+    if (type === 'uptrend') {
+      let p = 100;
+      for (let i = 0; i < points; i++) { p += (Math.random() - 0.3) * 2; data.push(p); }
+    } else if (type === 'uptrend_then_fall') {
+      let p = 100;
+      for (let i = 0; i < points; i++) {
+        if (i < points * 0.6) p += (Math.random() - 0.25) * 2;
+        else p += (Math.random() - 0.65) * 2;
+        data.push(p);
+      }
+    } else if (type === 'sideways') {
+      let p = 100;
+      for (let i = 0; i < points; i++) { p += (Math.random() - 0.5) * 1.2; data.push(p); }
+    } else if (type === 'downtrend') {
+      let p = 100;
+      for (let i = 0; i < points; i++) { p += (Math.random() - 0.7) * 2; data.push(p); }
+    } else if (type === 'leader_switch') {
+      let p = 100;
+      for (let i = 0; i < points; i++) {
+        if (i < points * 0.4) p += (Math.random() - 0.3) * 2;
+        else if (i < points * 0.7) p += (Math.random() - 0.6) * 1.5;
+        else p += (Math.random() - 0.4) * 1;
+        data.push(p);
+      }
+    } else if (type === 'v_reversal') {
+      let p = 100;
+      for (let i = 0; i < points; i++) {
+        if (i < points * 0.3) p += (Math.random() - 0.65) * 2;
+        else p += (Math.random() - 0.25) * 2.5;
+        data.push(p);
+      }
+    }
+    return data;
+  }
+
+  // Helper: stop trail
+  function stopTrail(prices, entryIdx, initialStop) {
+    const stops = new Array(prices.length).fill(null);
+    stops[entryIdx] = initialStop;
+    let currentStop = initialStop;
+    for (let i = entryIdx + 1; i < prices.length; i++) {
+      if (i % 6 === 0 && i > entryIdx) {
+        // hourly update: new stop = recent low
+        const hourStart = Math.max(0, i - 6);
+        let hourLow = prices[i];
+        for (let j = hourStart; j < i; j++) if (prices[j] < hourLow) hourLow = prices[j];
+        if (hourLow > currentStop) currentStop = hourLow;
+      }
+      stops[i] = currentStop;
+    }
+    return stops;
+  }
+
+  function makeChart(canvasId, type, title, entryIdx) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return;
+    const prices = pricePath(type, 60);
+    const entry = prices[entryIdx];
+    const initialStop = entry * 0.98;
+    const stops = stopTrail(prices, entryIdx, initialStop);
+
+    const labels = prices.map((_, i) => i === entryIdx ? '入场' : i === 0 ? '开始' : `+${i-entryIdx}min`);
+    new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '价格',
+            data: prices,
+            borderColor: '#4fc3f7',
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.3,
+          },
+          {
+            label: '止损价',
+            data: stops,
+            borderColor: '#ef5350',
+            borderWidth: 1.5,
+            borderDash: [6, 3],
+            pointRadius: 0,
+            tension: 0,
+          },
+          {
+            label: '入场价',
+            data: prices.map((_, i) => i >= entryIdx ? entry : null),
+            borderColor: '#66bb6a',
+            borderWidth: 1,
+            borderDash: [3, 3],
+            pointRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: { display: true, text: title, color: tickColor, font: { size: 13 } },
+          legend: { labels: { color: tickColor, boxWidth: 12, font: { size: 11 } } },
+        },
+        scales: {
+          x: { display: true, ticks: { color: tickColor, maxTicksLimit: 8, font: { size: 10 } }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor, font: { size: 10 } }, grid: { color: gridColor } },
+        },
+      },
+    });
+  }
+
+  makeChart('chart1', 'uptrend', '场景1: 持续上涨', 5);
+  makeChart('chart2', 'uptrend_then_fall', '场景2: 上涨后回落', 5);
+  makeChart('chart3', 'sideways', '场景3: 横盘震荡', 5);
+  makeChart('chart4', 'downtrend', '场景4: 快速下跌', 5);
+  makeChart('chart5', 'leader_switch', '场景5: Leader 切换', 5);
+  makeChart('chart6', 'v_reversal', '场景6: V 型反转', 5);
+  makeChart('chart7', 'uptrend_then_fall', '场景7: 跨日持仓', 5);
+  makeChart('chart8', 'downtrend', '场景8: 加仓止损失效', 5);
+  makeChart('chart9', 'sideways', '场景9: Leader 快速切换', 5);
+  makeChart('chart10', 'uptrend_then_fall', '场景10: 多腿复合止损', 5);
+  makeChart('chart11', 'sideways', '场景11: 止损线反复试探', 5);
+  makeChart('chart12', 'downtrend', '场景12: 外部平仓', 5);
+
+  // Matrix chart
+  const matrixCtx = document.getElementById('chartMatrix');
+  if (matrixCtx) {
+    new Chart(matrixCtx, {
+      type: 'bar',
+      data: {
+        labels: ['持续上涨', '上涨后回落', '横盘震荡', '快速下跌', 'Leader切换', 'V型反转', '跨日持仓', '加仓失效', '快速切换', '复合止损', '反复试探', '外部平仓'],
+        datasets: [
+          {
+            label: '最大单腿盈利 (USDT)',
+            data: [200, 50, 5, 0, 80, 30, 100, 0, 60, 40, 5, 0],
+            backgroundColor: 'rgba(102,187,106,0.7)',
+            borderColor: '#66bb6a',
+            borderWidth: 1,
+          },
+          {
+            label: '最大单腿亏损 (USDT)',
+            data: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 50],
+            backgroundColor: 'rgba(239,83,80,0.7)',
+            borderColor: '#ef5350',
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: { display: true, text: '各场景收益风险对比 (示例数据)', color: tickColor },
+          legend: { labels: { color: tickColor } },
+        },
+        scales: {
+          x: { ticks: { color: tickColor, font: { size: 11 } }, grid: { color: gridColor } },
+          y: { ticks: { color: tickColor }, grid: { color: gridColor }, title: { display: true, text: 'USDT', color: tickColor } },
+        },
+      },
+    });
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 
-def run_loop(*, run_once, now_provider, sleep_fn, max_ticks: int | None = None, error_handler=None) -> None:
+def run_loop(
+    *,
+    run_once,
+    now_provider,
+    sleep_fn,
+    max_ticks: int | None = None,
+    error_handler=None,
+    stop_requested=None,
+) -> None:
     last_seen_minute = None
     ticks = 0
     while max_ticks is None or ticks < max_ticks:
+        if stop_requested is not None and stop_requested():
+            break
         now = now_provider()
         minute_key = (now.year, now.month, now.day, now.hour, now.minute)
         if now.second <= 2 and minute_key != last_seen_minute:
@@ -17,4 +27,6 @@ def run_loop(*, run_once, now_provider, sleep_fn, max_ticks: int | None = None, 
                     raise
             last_seen_minute = minute_key
             ticks += 1
+        if stop_requested is not None and stop_requested():
+            break
         sleep_fn(1)

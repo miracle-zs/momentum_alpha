@@ -61,6 +61,53 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(summary["counts"]["poll_error"], 1)
             self.assertEqual(summary["recent_events"][0]["event_type"], "poll_error")
 
+    def test_summarize_recent_events_counts_entire_time_window(self) -> None:
+        from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+        from momentum_alpha.runtime_store import summarize_audit_events
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            base_time = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            recent_rows = [
+                (
+                    (base_time + timedelta(seconds=index)).isoformat(),
+                    "tick_result" if index % 2 == 0 else "user_stream_event",
+                    "{}",
+                    "test",
+                    None,
+                    None,
+                )
+                for index in range(520)
+            ]
+            old_row = (
+                (base_time - timedelta(hours=2)).isoformat(),
+                "old_event",
+                "{}",
+                "test",
+                None,
+                None,
+            )
+            with _connect(db_path) as connection:
+                connection.executemany(
+                    """
+                    INSERT INTO audit_events(timestamp, event_type, payload_json, source, decision_id, intent_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [old_row, *recent_rows],
+                )
+
+            summary = summarize_audit_events(
+                path=db_path,
+                now=base_time + timedelta(minutes=10),
+                since_minutes=20,
+                limit=5,
+            )
+
+            self.assertEqual(summary["total_events"], 520)
+            self.assertEqual(summary["counts"], {"tick_result": 260, "user_stream_event": 260})
+            self.assertEqual(len(summary["recent_events"]), 5)
+
     def test_audit_recorder_coerces_payload_values_for_runtime_db(self) -> None:
         from momentum_alpha.audit import AuditRecorder
         from momentum_alpha.runtime_store import fetch_recent_audit_events

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect
 
-from .runtime_reads_events import fetch_recent_audit_events
+from .runtime_reads_common import _json_loads
 
 
 def fetch_leader_history(*, path: Path, limit: int = 10) -> list[dict]:
@@ -92,14 +91,45 @@ def summarize_audit_events(
     limit: int,
 ) -> dict:
     cutoff = now.astimezone(timezone.utc) - timedelta(minutes=since_minutes)
+    if not path.exists():
+        return {"total_events": 0, "counts": {}, "recent_events": []}
+
+    with _connect(path) as connection:
+        count_rows = connection.execute(
+            """
+            SELECT event_type, COUNT(*)
+            FROM audit_events
+            WHERE timestamp >= ?
+            GROUP BY event_type
+            ORDER BY event_type
+            """,
+            (cutoff.isoformat(),),
+        ).fetchall()
+        event_rows = connection.execute(
+            """
+            SELECT timestamp, event_type, payload_json, source, decision_id, intent_id
+            FROM audit_events
+            WHERE timestamp >= ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ?
+            """,
+            (cutoff.isoformat(), max(limit, 0)),
+        ).fetchall()
+
+    counts = {event_type: count for event_type, count in count_rows}
     recent_events = [
-        event
-        for event in fetch_recent_audit_events(path=path, limit=max(limit, 500))
-        if datetime.fromisoformat(event["timestamp"]) >= cutoff
+        {
+            "timestamp": row[0],
+            "event_type": row[1],
+            "payload": _json_loads(row[2]),
+            "source": row[3],
+            "decision_id": row[4],
+            "intent_id": row[5],
+        }
+        for row in event_rows
     ]
-    counts = Counter(event["event_type"] for event in recent_events)
     return {
-        "total_events": len(recent_events),
-        "counts": dict(sorted(counts.items())),
-        "recent_events": recent_events[:limit],
+        "total_events": sum(counts.values()),
+        "counts": counts,
+        "recent_events": recent_events,
     }

@@ -75,6 +75,57 @@ class ExecutionPlanTests(unittest.TestCase):
         self.assertIn("newClientOrderId", plan.stop_orders[0])
         self.assertEqual(plan.stop_orders[0]["positionSide"], "LONG")
 
+    def test_sizes_entry_from_normalized_stop_price(self) -> None:
+        from momentum_alpha.binance_filters import SymbolFilters
+        from momentum_alpha.execution import build_execution_plan
+        from momentum_alpha.exchange_info import ExchangeSymbol
+        from momentum_alpha.models import EntryIntent, MarketSnapshot, TickDecision
+
+        symbols = {
+            "BTCUSDT": ExchangeSymbol(
+                symbol="BTCUSDT",
+                status="TRADING",
+                filters=SymbolFilters(
+                    step_size=Decimal("1"),
+                    min_qty=Decimal("1"),
+                    tick_size=Decimal("0.1"),
+                ),
+                min_notional=Decimal("0"),
+            )
+        }
+        market = {
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("90"),
+                latest_price=Decimal("100"),
+                previous_hour_low=Decimal("99.99"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            )
+        }
+        decision = TickDecision(
+            base_entries=[EntryIntent(symbol="BTCUSDT", stop_price=Decimal("99.99"), leg_type="base")],
+            add_on_entries=[],
+            updated_stop_prices={},
+            new_previous_leader_symbol="BTCUSDT",
+        )
+
+        plan = build_execution_plan(
+            symbols=symbols,
+            market=market,
+            decision=decision,
+            stop_budget=Decimal("10"),
+            now=datetime(2026, 4, 15, 2, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(plan.entry_orders[0]["quantity"], "100")
+        self.assertEqual(plan.stop_orders[0]["quantity"], "100")
+        self.assertEqual(plan.stop_orders[0]["stopPrice"], "99.9")
+        actual_risk = Decimal(plan.entry_orders[0]["quantity"]) * (
+            market["BTCUSDT"].latest_price - Decimal(plan.stop_orders[0]["stopPrice"])
+        )
+        self.assertLessEqual(actual_risk, Decimal("10"))
+
     def test_builds_stop_replacements_for_hourly_updates(self) -> None:
         from momentum_alpha.execution import build_stop_replacements
         from momentum_alpha.models import TickDecision

@@ -37,7 +37,13 @@ class LiveMarketDataCache:
             self.exchange_symbols = parse_exchange_info(client.fetch_exchange_info())
         return self.exchange_symbols
 
-    def latest_prices(self, *, symbols: list[str], client) -> dict[str, Decimal]:
+    def latest_prices(
+        self,
+        *,
+        symbols: list[str],
+        client,
+        fallback_symbols: set[str] | None = None,
+    ) -> dict[str, Decimal]:
         try:
             tickers = client.fetch_ticker_prices()
             prices: dict[str, Decimal] = {}
@@ -49,12 +55,21 @@ class LiveMarketDataCache:
                     prices[symbol] = Decimal(ticker["price"])
                 except (KeyError, InvalidOperation, TypeError):
                     continue
+            fetch_ticker_price = getattr(client, "fetch_ticker_price", None)
+            if callable(fetch_ticker_price):
+                symbols_to_fallback = set(fallback_symbols or ()) & (set(symbols) - set(prices))
+                for symbol in sorted(symbols_to_fallback):
+                    try:
+                        ticker = fetch_ticker_price(symbol=symbol)
+                        prices[symbol] = Decimal(ticker["price"])
+                    except (KeyError, InvalidOperation, TypeError):
+                        continue
             return prices
         except AttributeError:
             prices = {}
             for symbol in symbols:
-                ticker = client.fetch_ticker_price(symbol=symbol)
                 try:
+                    ticker = client.fetch_ticker_price(symbol=symbol)
                     prices[symbol] = Decimal(ticker["price"])
                 except (KeyError, InvalidOperation, TypeError):
                     continue

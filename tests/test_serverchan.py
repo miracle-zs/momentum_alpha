@@ -13,6 +13,42 @@ if str(SRC) not in sys.path:
 
 
 class ServerChanTests(unittest.TestCase):
+    def test_malformed_health_output_is_notified_as_failure(self) -> None:
+        from momentum_alpha.runtime_store import fetch_notification_status
+        from momentum_alpha.serverchan import process_health_notification
+
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_opener(request, timeout=10):
+            requests.append(request)
+            return FakeResponse()
+
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "runtime.db"
+            result = process_health_notification(
+                sendkey="SCT123456",
+                runtime_db_path=path,
+                health_output="Traceback: health command failed",
+                now=datetime(2026, 4, 15, 7, 0, tzinfo=timezone.utc),
+                hostname="vm-1",
+                opener=fake_opener,
+            )
+
+            self.assertEqual(result["current_status"], "FAIL")
+            self.assertTrue(result["notified"])
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(fetch_notification_status(path=path, status_key="serverchan")["status"], "FAIL")
+
     def test_notify_on_fail_transition_and_persist_status(self) -> None:
         from momentum_alpha.runtime_store import fetch_notification_status
         from momentum_alpha.serverchan import process_health_notification

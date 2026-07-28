@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,6 +17,29 @@ from momentum_alpha.strategy_state_codec import (
     serialize_strategy_state,
 )
 from momentum_alpha.trace_ids import build_intent_id_from_client_order_id
+
+
+_SQLITE_LOCK_RETRY_DELAYS = (0.05, 0.2, 0.5)
+_SQLITE_RETRY_BUSY_TIMEOUT_MS = 1000
+
+
+def _is_sqlite_lock_error(error: sqlite3.OperationalError) -> bool:
+    message = str(error).lower()
+    return "database is locked" in message or "database table is locked" in message or "database is busy" in message
+
+
+def _begin_immediate_with_retry(connection: sqlite3.Connection) -> None:
+    """Acquire the write lock with bounded retries before running user code."""
+
+    connection.execute(f"PRAGMA busy_timeout={_SQLITE_RETRY_BUSY_TIMEOUT_MS}")
+    for attempt in range(len(_SQLITE_LOCK_RETRY_DELAYS) + 1):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            return
+        except sqlite3.OperationalError as error:
+            if not _is_sqlite_lock_error(error) or attempt == len(_SQLITE_LOCK_RETRY_DELAYS):
+                raise
+            time.sleep(_SQLITE_LOCK_RETRY_DELAYS[attempt])
 
 
 @dataclass(frozen=True)
@@ -33,6 +58,7 @@ class RuntimeStateStore:
     def save(self, state: StoredStrategyState) -> None:
         bootstrap_runtime_db(path=self.path)
         with _connect(self.path) as connection:
+            _begin_immediate_with_retry(connection)
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
                 (_json_dumps(serialize_strategy_state(state)),),
@@ -41,7 +67,7 @@ class RuntimeStateStore:
     def merge_save(self, state: StoredStrategyState) -> None:
         bootstrap_runtime_db(path=self.path)
         with _connect(self.path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            _begin_immediate_with_retry(connection)
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
             existing = deserialize_strategy_state(json.loads(row[0])) if row else None
             merged = StoredStrategyState(
@@ -73,6 +99,16 @@ class RuntimeStateStore:
                     if state.recent_stop_loss_exits is not None
                     else (existing.recent_stop_loss_exits if existing is not None else None)
                 ),
+                position_removal_timestamps=(
+                    state.position_removal_timestamps
+                    if state.position_removal_timestamps is not None
+                    else (existing.position_removal_timestamps if existing is not None else None)
+                ),
+                last_add_on_hour=(
+                    state.last_add_on_hour
+                    if state.last_add_on_hour is not None
+                    else (existing.last_add_on_hour if existing is not None else None)
+                ),
             )
             connection.execute(
                 "INSERT OR REPLACE INTO strategy_state(id, payload_json) VALUES (1, ?)",
@@ -97,7 +133,7 @@ class RuntimeStateStore:
         """
         bootstrap_runtime_db(path=self.path)
         with _connect(self.path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            _begin_immediate_with_retry(connection)
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
             existing = deserialize_strategy_state(json.loads(row[0])) if row else None
             new_state = updater(existing)
@@ -117,7 +153,7 @@ class RuntimeStateStore:
 
         bootstrap_runtime_db(path=self.path)
         with _connect(self.path) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+            _begin_immediate_with_retry(connection)
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
             existing = deserialize_strategy_state(json.loads(row[0])) if row else None
             new_state = updater(existing)

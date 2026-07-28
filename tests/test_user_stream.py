@@ -123,6 +123,7 @@ class UserStreamTests(unittest.TestCase):
                 "o": {
                     "s": "ETHUSDT",
                     "i": 123,
+                    "t": 0,
                     "X": "NEW",
                     "x": "NEW",
                 },
@@ -135,11 +136,14 @@ class UserStreamTests(unittest.TestCase):
                 "o": {
                     "s": "ETHUSDT",
                     "i": 123,
+                    "t": 0,
                     "X": "CANCELED",
                     "x": "CANCELED",
                 },
             }
         )
+        self.assertEqual(new_event.trade_id, 0)
+        self.assertEqual(canceled_event.trade_id, 0)
         self.assertNotEqual(user_stream_event_id(new_event), user_stream_event_id(canceled_event))
 
     def test_run_once_creates_listen_key_and_emits_event(self) -> None:
@@ -346,7 +350,7 @@ class UserStreamTests(unittest.TestCase):
 
         self.assertEqual(rest_client.closed, ["abc"])
 
-    def test_default_websocket_runner_logs_lifecycle_and_disables_client_ping(self) -> None:
+    def test_default_websocket_runner_logs_lifecycle_and_enables_client_ping(self) -> None:
         from momentum_alpha.user_stream import _default_websocket_runner
 
         calls: dict[str, object] = {}
@@ -375,7 +379,7 @@ class UserStreamTests(unittest.TestCase):
             )
 
         self.assertEqual(calls["url"], "wss://example.test/ws/listen")
-        self.assertEqual(calls["run_forever_kwargs"], {"ping_interval": 0})
+        self.assertEqual(calls["run_forever_kwargs"], {"ping_interval": 30, "ping_timeout": 10})
         self.assertTrue(any("websocket-open" in message for message in logs))
         self.assertTrue(any("websocket-error error=socket closed" in message for message in logs))
         self.assertTrue(any("websocket-close status=1006 reason=abnormal closure" in message for message in logs))
@@ -586,7 +590,7 @@ class UserStreamTests(unittest.TestCase):
                     "ap": "110",
                     "z": "1",
                     "l": "1",
-                    "sp": "106",
+                    "sp": "0",
                 },
             }
         )
@@ -595,6 +599,7 @@ class UserStreamTests(unittest.TestCase):
 
         self.assertEqual(updated.positions["ETHUSDT"].legs[1].leg_type, "add_on")
         self.assertEqual(updated.positions["ETHUSDT"].legs[1].leg_source, "user_stream")
+        self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("106"))
 
     def test_apply_stop_market_sell_fill_removes_position(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
@@ -665,7 +670,7 @@ class UserStreamTests(unittest.TestCase):
                     "ot": "MARKET",
                     "ap": "106",
                     "z": "2",
-                    "sp": "0",
+                    "sp": "106",
                 },
             }
         )
@@ -710,6 +715,81 @@ class UserStreamTests(unittest.TestCase):
         )
         updated = apply_user_stream_event_to_state(state=state, event=event)
         self.assertNotIn("ETHUSDT", updated.positions)
+
+    def test_apply_account_update_negative_one_way_position_removes_stale_long(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={
+                "ETHUSDT": Position(
+                    symbol="ETHUSDT",
+                    stop_price=Decimal("106"),
+                    legs=(PositionLeg("ETHUSDT", Decimal("2"), Decimal("108"), Decimal("106"), opened_at, "base"),),
+                )
+            },
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776215220000,
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "ETHUSDT",
+                            "ps": "BOTH",
+                            "pa": "-1",
+                            "ep": "109",
+                        }
+                    ],
+                },
+            }
+        )
+
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+
+        self.assertNotIn("ETHUSDT", updated.positions)
+
+    def test_apply_account_update_ignores_flat_short_leg_when_long_position_exists(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.user_stream import apply_user_stream_event_to_state, parse_user_stream_event
+
+        opened_at = datetime(2026, 4, 15, 1, 0, tzinfo=timezone.utc)
+        existing_position = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("106"),
+            legs=(PositionLeg("ETHUSDT", Decimal("2"), Decimal("108"), Decimal("106"), opened_at, "base"),),
+        )
+        state = StrategyState(
+            current_day=date(2026, 4, 15),
+            previous_leader_symbol="ETHUSDT",
+            positions={"ETHUSDT": existing_position},
+        )
+        event = parse_user_stream_event(
+            {
+                "e": "ACCOUNT_UPDATE",
+                "E": 1776215220000,
+                "a": {
+                    "m": "ORDER",
+                    "P": [
+                        {
+                            "s": "ETHUSDT",
+                            "ps": "SHORT",
+                            "pa": "0",
+                            "ep": "0",
+                        }
+                    ],
+                },
+            }
+        )
+
+        updated = apply_user_stream_event_to_state(state=state, event=event)
+
+        self.assertEqual(updated.positions["ETHUSDT"], existing_position)
 
     def test_apply_account_update_positive_position_restores_missing_position(self) -> None:
         from momentum_alpha.models import StrategyState
@@ -981,6 +1061,33 @@ class UserStreamTests(unittest.TestCase):
         )
         self.assertEqual(updated.positions["ETHUSDT"].stop_price, Decimal("107"))
 
+    def test_resolve_stop_price_uses_highest_active_strategy_stop(self) -> None:
+        from momentum_alpha.user_stream import resolve_stop_price_from_order_statuses
+
+        stop_price = resolve_stop_price_from_order_statuses(
+            symbol="ETHUSDT",
+            order_statuses={
+                "old": {
+                    "symbol": "ETHUSDT",
+                    "status": "NEW",
+                    "side": "SELL",
+                    "client_order_id": "ma_260415010000_ETHUSDT_b00s",
+                    "original_order_type": "STOP_MARKET",
+                    "stop_price": "106",
+                },
+                "new": {
+                    "symbol": "ETHUSDT",
+                    "status": "NEW",
+                    "side": "SELL",
+                    "client_order_id": "ma_260415020000_ETHUSDT_r00s",
+                    "original_order_type": "STOP_MARKET",
+                    "stop_price": "107",
+                },
+            },
+        )
+
+        self.assertEqual(stop_price, Decimal("107"))
+
     def test_extract_order_status_update_returns_delete_signal_for_filled_stop_market_sell(self) -> None:
         from momentum_alpha.user_stream import extract_order_status_update, parse_user_stream_event
 
@@ -1000,6 +1107,31 @@ class UserStreamTests(unittest.TestCase):
             }
         )
         self.assertEqual(extract_order_status_update(event), ("123", None))
+
+    def test_extract_order_status_update_deletes_all_terminal_regular_orders(self) -> None:
+        from momentum_alpha.user_stream import extract_order_status_update, parse_user_stream_event
+
+        for index, status in enumerate(
+            ("FILLED", "CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"),
+            start=1,
+        ):
+            with self.subTest(status=status):
+                event = parse_user_stream_event(
+                    {
+                        "e": "ORDER_TRADE_UPDATE",
+                        "T": 1776215160000 + index,
+                        "o": {
+                            "s": "ETHUSDT",
+                            "i": index,
+                            "S": "BUY",
+                            "X": status,
+                            "x": "TRADE" if status == "FILLED" else status,
+                            "ot": "MARKET",
+                        },
+                    }
+                )
+
+                self.assertEqual(extract_order_status_update(event), (str(index), None))
 
     def test_parse_algo_update_event(self) -> None:
         from momentum_alpha.user_stream import parse_user_stream_event

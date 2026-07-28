@@ -85,7 +85,19 @@ def apply_user_stream_event_to_state(
         and fill_quantity is not None
         and fill_quantity > 0
     ):
-        stop_price = event.stop_price if event.stop_price is not None else Decimal("0")
+        existing_position = state.positions.get(event.symbol)
+        resolved_stop_price = resolve_stop_price_from_order_statuses(
+            symbol=event.symbol,
+            order_statuses=order_statuses,
+        )
+        if event.stop_price is not None and event.stop_price > Decimal("0"):
+            stop_price = event.stop_price
+        elif resolved_stop_price is not None and resolved_stop_price > Decimal("0"):
+            stop_price = resolved_stop_price
+        elif existing_position is not None and existing_position.stop_price > Decimal("0"):
+            stop_price = existing_position.stop_price
+        else:
+            stop_price = Decimal("0")
         filled_at = event.event_time or datetime.now(timezone.utc)
         return apply_fill(
             state=state,

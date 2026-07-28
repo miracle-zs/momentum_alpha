@@ -18,6 +18,10 @@ class RunOnceResult:
     stop_replacements: list[tuple[str, Decimal]]
     entry_order_failures: list[dict] = field(default_factory=list)
     stop_order_failures: list[dict] = field(default_factory=list)
+    rate_limit_error: Exception | None = None
+    stop_protection_status: str = "not_applicable"
+    unprotected_position_symbols: list[str] = field(default_factory=list)
+    stop_protection_check_error: str | None = None
 
     @property
     def execution_plan(self):
@@ -71,4 +75,5 @@ def run_once(
         stop_replacements=[],
         entry_order_failures=entry_order_failures,
         stop_order_failures=stop_order_failures,
+        rate_limit_error=(getattr(broker, "last_rate_limit_error", None) if submit_orders else None),
     )

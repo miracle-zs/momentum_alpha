@@ -23,10 +23,19 @@ class ConfigTests(unittest.TestCase):
     def test_strategy_config_rejects_invalid_or_non_positive_stop_budget(self) -> None:
         from momentum_alpha.config import StrategyConfig
 
-        with patch.dict("os.environ", {"STOP_BUDGET_USDT": "invalid"}):
-            self.assertEqual(StrategyConfig.from_env().stop_budget_usdt, Decimal("10"))
-        with patch.dict("os.environ", {"STOP_BUDGET_USDT": "0"}):
-            self.assertEqual(StrategyConfig.from_env().stop_budget_usdt, Decimal("10"))
+        for value in ("invalid", "0", "-1", "NaN", "Infinity", ""):
+            with self.subTest(value=value), patch.dict("os.environ", {"STOP_BUDGET_USDT": value}):
+                with self.assertRaisesRegex(ValueError, "STOP_BUDGET_USDT"):
+                    StrategyConfig.from_env()
+
+    def test_strategy_config_uses_default_stop_budget_when_environment_is_absent(self) -> None:
+        from momentum_alpha.config import StrategyConfig
+
+        with patch.dict("os.environ", {}, clear=True):
+            config = StrategyConfig.from_env()
+
+        self.assertEqual(config.stop_budget_usdt, Decimal("10"))
+
     def test_default_strategy_config_matches_spec(self) -> None:
         from momentum_alpha.config import StrategyConfig
 

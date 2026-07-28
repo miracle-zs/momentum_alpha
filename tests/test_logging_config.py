@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 import sys
 import unittest
 from io import StringIO
@@ -30,3 +32,38 @@ class LoggingConfigTests(unittest.TestCase):
             root.handlers = old_handlers
             root.setLevel(old_level)
 
+    def test_json_logging_includes_utc_timestamp(self) -> None:
+        from momentum_alpha.logging_config import configure_logging
+
+        stream = StringIO()
+        root = logging.getLogger()
+        old_handlers = root.handlers[:]
+        old_level = root.level
+        try:
+            configure_logging(level="INFO", log_format="json", stream=stream)
+            logging.getLogger("momentum_alpha.test").info("hello")
+            payload = json.loads(stream.getvalue())
+
+            self.assertEqual(payload["message"], "hello")
+            self.assertRegex(payload["timestamp"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+        finally:
+            root.handlers = old_handlers
+            root.setLevel(old_level)
+
+    def test_kv_logging_prefixes_utc_timestamp(self) -> None:
+        from momentum_alpha.logging_config import configure_logging
+
+        stream = StringIO()
+        root = logging.getLogger()
+        old_handlers = root.handlers[:]
+        old_level = root.level
+        try:
+            configure_logging(level="INFO", log_format="kv", stream=stream)
+            logging.getLogger("momentum_alpha.test").info("hello")
+
+            self.assertIsNotNone(
+                re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z hello\n$", stream.getvalue())
+            )
+        finally:
+            root.handlers = old_handlers
+            root.setLevel(old_level)

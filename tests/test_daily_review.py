@@ -388,3 +388,37 @@ class DailyReviewTests(unittest.TestCase):
             )
 
         self.assertTrue(report.warnings)
+
+    def test_daily_review_does_not_replay_when_actual_exit_price_is_missing(self) -> None:
+        from momentum_alpha.daily_review import _build_daily_review_row
+
+        row, warnings = _build_daily_review_row(
+            trade_round_trip={
+                "round_trip_id": "BTCUSDT:missing-exit",
+                "symbol": "BTCUSDT",
+                "opened_at": "2026-04-20T09:00:00+00:00",
+                "closed_at": "2026-04-20T12:00:00+00:00",
+                "net_pnl": "-10.00",
+                "total_entry_quantity": "1",
+                "commission": "0",
+                "payload": {"legs": [{"leg_type": "base"}]},
+            },
+            skipped_add_on_signals=[
+                {
+                    "symbol": "BTCUSDT",
+                    "timestamp": "2026-04-20T10:00:00+00:00",
+                    "payload": {
+                        "latest_price": "105",
+                        "stop_price": "95",
+                        "step_size": "0.001",
+                        "min_qty": "0.001",
+                        "tick_size": "0.1",
+                    },
+                }
+            ],
+            stop_budget_usdt=Decimal("10"),
+        )
+
+        self.assertEqual(row.counterfactual_net_pnl, "-10.00")
+        self.assertEqual(row.replayed_add_on_count, 0)
+        self.assertTrue(any("missing_actual_exit_price" in item for item in warnings))

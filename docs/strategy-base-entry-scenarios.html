@@ -1,0 +1,1170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>底仓买入后的走势分支与收益分析</title>
+  <style>
+    :root {
+      --paper: #f7f5ef;
+      --paper-2: #ebe7dc;
+      --ink: #20211f;
+      --muted: #6f6a60;
+      --line: #d6d0c2;
+      --green: #138a5e;
+      --green-soft: #dceee6;
+      --red: #b94a48;
+      --red-soft: #f1dedd;
+      --amber: #b77819;
+      --amber-soft: #f2e4c8;
+      --blue: #2d6f9f;
+      --blue-soft: #dceaf0;
+      --violet: #6a5a98;
+      --violet-soft: #e8e2f0;
+      --black: #121412;
+      --shadow: 0 24px 60px rgba(32, 33, 31, 0.12);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(120deg, rgba(19, 138, 94, 0.08), transparent 28%),
+        linear-gradient(280deg, rgba(45, 111, 159, 0.08), transparent 32%),
+        var(--paper);
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      line-height: 1.65;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.32;
+      background-image:
+        linear-gradient(rgba(32, 33, 31, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(32, 33, 31, 0.045) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.18));
+    }
+
+    a { color: inherit; }
+
+    .page {
+      position: relative;
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .report-head {
+      min-height: 92vh;
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+      gap: 28px;
+      align-items: center;
+      padding: 28px 0 44px;
+    }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--green);
+      font-weight: 800;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      font-size: 13px;
+    }
+
+    .kicker::before {
+      content: "";
+      display: inline-block;
+      width: 32px;
+      height: 2px;
+      background: var(--green);
+    }
+
+    h1 {
+      margin: 18px 0 18px;
+      font-family: "Songti SC", "Noto Serif CJK SC", "STSong", Georgia, serif;
+      font-size: clamp(42px, 7vw, 92px);
+      line-height: 0.96;
+      letter-spacing: 0;
+      max-width: 820px;
+    }
+
+    .lead {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .head-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .btn {
+      border: 1px solid var(--black);
+      background: var(--black);
+      color: var(--paper);
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 160ms ease, background 160ms ease, color 160ms ease, border-color 160ms ease;
+    }
+
+    .btn:hover { transform: translateY(-2px); }
+
+    .btn.secondary {
+      background: transparent;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    .hero-board {
+      background: rgba(255, 255, 255, 0.58);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .mini-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px;
+      background: rgba(247, 245, 239, 0.72);
+    }
+
+    .metric strong {
+      display: block;
+      font-family: "Songti SC", "Noto Serif CJK SC", "STSong", Georgia, serif;
+      font-size: 30px;
+      line-height: 1;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    section {
+      padding: 56px 0;
+      border-top: 1px solid rgba(32, 33, 31, 0.12);
+    }
+
+    .section-title {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.42fr) minmax(0, 0.58fr);
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin: 0;
+      font-family: "Songti SC", "Noto Serif CJK SC", "STSong", Georgia, serif;
+      font-size: clamp(30px, 4vw, 52px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .section-title p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .summary {
+      border-left: 4px solid var(--green);
+      background: rgba(255, 255, 255, 0.52);
+      border-radius: var(--radius);
+      padding: 18px;
+      min-height: 150px;
+    }
+
+    .summary:nth-child(2) { border-color: var(--amber); }
+    .summary:nth-child(3) { border-color: var(--red); }
+
+    .summary h3,
+    .scenario h3,
+    .formula h3,
+    .source h3,
+    .note h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .summary p,
+    .scenario p,
+    .formula p,
+    .source p,
+    .note p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .diagram-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+
+    .hero-board {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    svg.strategy-map {
+      display: block;
+      min-width: 920px;
+      width: 100%;
+      height: auto;
+      font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    .node rect {
+      fill: #fffdf7;
+      stroke: #282923;
+      stroke-width: 1.4;
+      rx: 8;
+    }
+
+    .node text {
+      fill: var(--ink);
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .node .sub {
+      fill: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .edge {
+      fill: none;
+      stroke: #3a3933;
+      stroke-width: 1.5;
+      marker-end: url(#arrow);
+    }
+
+    .edge-label {
+      font-size: 12px;
+      fill: var(--muted);
+      font-weight: 700;
+    }
+
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 18px;
+    }
+
+    .filter {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.5);
+      color: var(--ink);
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .filter.active {
+      background: var(--ink);
+      color: var(--paper);
+      border-color: var(--ink);
+    }
+
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .scenario {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.6);
+      min-height: 290px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .scenario::before {
+      content: attr(data-number);
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      font-family: "Songti SC", "Noto Serif CJK SC", "STSong", Georgia, serif;
+      color: rgba(32, 33, 31, 0.18);
+      font-size: 42px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .scenario[data-kind*="stop"] { border-top: 5px solid var(--red); }
+    .scenario[data-kind*="leader"] { border-top: 5px solid var(--green); }
+    .scenario[data-kind*="rank"] { border-top: 5px solid var(--blue); }
+    .scenario[data-kind*="life"] { border-top: 5px solid var(--violet); }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--paper-2);
+      color: var(--ink);
+    }
+
+    .tag.green { background: var(--green-soft); color: var(--green); }
+    .tag.red { background: var(--red-soft); color: var(--red); }
+    .tag.amber { background: var(--amber-soft); color: #83540c; }
+    .tag.blue { background: var(--blue-soft); color: var(--blue); }
+    .tag.violet { background: var(--violet-soft); color: var(--violet); }
+
+    .formula-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(380px, 1.1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .formula,
+    .calculator,
+    .source,
+    .note {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.62);
+      padding: 18px;
+    }
+
+    code, .mono {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+      background: rgba(32, 33, 31, 0.08);
+      padding: 2px 5px;
+      border-radius: 5px;
+    }
+
+    .equation {
+      margin: 12px 0;
+      padding: 12px;
+      border: 1px dashed rgba(32, 33, 31, 0.22);
+      border-radius: var(--radius);
+      background: rgba(247, 245, 239, 0.68);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .example-table,
+    .calc-table,
+    .edge-table,
+    .source-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      border-bottom: 1px solid rgba(32, 33, 31, 0.12);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .calc-row input,
+    .control input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fffdf7;
+      color: var(--ink);
+      font: inherit;
+    }
+
+    .calc-controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .control label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 5px;
+    }
+
+    .calc-output {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .output {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      background: rgba(247, 245, 239, 0.8);
+    }
+
+    .output strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .output span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+
+    .edge-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .sources {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .footer {
+      padding: 40px 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .report-head,
+      .section-title,
+      .formula-grid,
+      .edge-grid,
+      .sources {
+        grid-template-columns: 1fr;
+      }
+
+      .scenario-grid,
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .calc-output,
+      .calc-controls,
+      .mini-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page { padding: 18px; }
+      .report-head { min-height: auto; padding-top: 24px; }
+      .scenario-grid,
+      .summary-grid,
+      .calc-output,
+      .calc-controls,
+      .mini-metrics {
+        grid-template-columns: 1fr;
+      }
+      th, td { padding: 9px 6px; }
+      .calc-table { font-size: 13px; }
+      .btn { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="report-head">
+      <div>
+        <div class="kicker">Momentum Alpha / strategy state machine</div>
+        <h1>底仓买入后的 9 类走势分支</h1>
+        <p class="lead">
+          这份报告按当前代码行为反推：买入底仓后，symbol 的连续价格走势会被策略压缩成“止损、小时线、leader 排名、冷却/再入场”几类离散操作。收益没有固定上限，也没有主动止盈；最终取决于退出成交价、加仓腿数、止损上移速度、手续费和滑点。
+        </p>
+        <div class="head-actions">
+          <a class="btn" href="#scenarios">查看 9 类分支</a>
+          <a class="btn secondary" href="#calculator">收益计算器</a>
+          <a class="btn secondary" href="#sources">代码依据</a>
+        </div>
+      </div>
+
+      <aside class="hero-board" aria-label="策略摘要">
+        <svg class="strategy-map" viewBox="0 0 900 560" role="img" aria-label="底仓后的策略状态机">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L8,3 z" fill="#3a3933"></path>
+            </marker>
+          </defs>
+
+          <g class="node" transform="translate(320 20)">
+            <rect width="260" height="72"></rect>
+            <text x="130" y="29" text-anchor="middle">底仓已成交</text>
+            <text class="sub" x="130" y="51" text-anchor="middle">MARKET BUY + STOP_MARKET</text>
+          </g>
+
+          <path class="edge" d="M450 92 C450 116 450 124 450 148"></path>
+          <text class="edge-label" x="463" y="126">进入持仓管理</text>
+
+          <g class="node" transform="translate(320 148)">
+            <rect width="260" height="72"></rect>
+            <text x="130" y="29" text-anchor="middle">持仓存活</text>
+            <text class="sub" x="130" y="51" text-anchor="middle">价格 > 当前有效止损</text>
+          </g>
+
+          <path class="edge" d="M320 180 C220 180 170 151 134 116"></path>
+          <text class="edge-label" x="150" y="160">触发止损</text>
+          <g class="node" transform="translate(20 58)">
+            <rect width="190" height="76"></rect>
+            <text x="95" y="31" text-anchor="middle">退出</text>
+            <text class="sub" x="95" y="53" text-anchor="middle">记录 60 分钟冷却</text>
+          </g>
+
+          <path class="edge" d="M450 220 C450 250 450 260 450 284"></path>
+          <text class="edge-label" x="463" y="254">小时切换</text>
+
+          <g class="node" transform="translate(180 296)">
+            <rect width="230" height="92"></rect>
+            <text x="115" y="31" text-anchor="middle">不是当前 leader</text>
+            <text class="sub" x="115" y="54" text-anchor="middle">更新/替换止损</text>
+            <text class="sub" x="115" y="74" text-anchor="middle">跳过该 symbol 加仓</text>
+          </g>
+
+          <g class="node" transform="translate(490 296)">
+            <rect width="230" height="92"></rect>
+            <text x="115" y="31" text-anchor="middle">仍是当前 leader</text>
+            <text class="sub" x="115" y="54" text-anchor="middle">更新/替换止损</text>
+            <text class="sub" x="115" y="74" text-anchor="middle">提交 add-on 腿</text>
+          </g>
+
+          <path class="edge" d="M436 220 C352 248 308 270 294 296"></path>
+          <text class="edge-label" x="300" y="260">rank 落后</text>
+          <path class="edge" d="M464 220 C545 248 592 270 605 296"></path>
+          <text class="edge-label" x="545" y="260">rank 第一</text>
+
+          <path class="edge" d="M295 388 C290 444 370 468 445 426 C500 394 536 392 605 388"></path>
+          <text class="edge-label" x="404" y="474">下一小时继续循环</text>
+
+          <g class="node" transform="translate(625 134)">
+            <rect width="230" height="78"></rect>
+            <text x="115" y="31" text-anchor="middle">leader 变为其他 symbol</text>
+            <text class="sub" x="115" y="54" text-anchor="middle">可开别的底仓；本仓不平</text>
+          </g>
+          <path class="edge" d="M580 184 C600 180 610 178 625 174"></path>
+
+          <g class="node" transform="translate(20 400)">
+            <rect width="230" height="78"></rect>
+            <text x="115" y="31" text-anchor="middle">冷却后重新成为 leader</text>
+            <text class="sub" x="115" y="54" text-anchor="middle">可重新开新生命周期</text>
+          </g>
+          <path class="edge" d="M104 134 C80 214 86 330 135 400"></path>
+        </svg>
+        <div class="mini-metrics">
+          <div class="metric"><strong>9</strong><span>核心走势/操作分支</span></div>
+          <div class="metric"><strong>10 USDT</strong><span>默认每腿止损预算</span></div>
+          <div class="metric"><strong>0</strong><span>主动止盈规则</span></div>
+          <div class="metric"><strong>60m</strong><span>止损后的再入场冷却</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <section id="answer">
+      <div class="section-title">
+        <h2>先给结论</h2>
+        <p>买入底仓后，策略不是按“上涨/横盘/下跌”直接操作，而是按价格是否触发止损、symbol 是否仍是当分钟 leader、是否到小时边界来决策。</p>
+      </div>
+      <div class="summary-grid">
+        <article class="summary">
+          <h3>退出只有一条主线</h3>
+          <p>没有止盈、没有时间止损、没有跌出 leader 平仓。只要价格触发当前有效止损，STOP_MARKET 卖出，仓位移除，并记录该 symbol 的 60 分钟止损冷却。</p>
+        </article>
+        <article class="summary">
+          <h3>加仓只看当前 leader</h3>
+          <p>当前实现中，小时边界会给所有持仓更新止损；但只有当前 leader 且已经持有的 symbol 会生成 add-on。非 leader 持仓只更新止损并记录跳过加仓。</p>
+        </article>
+        <article class="summary">
+          <h3>收益是路径函数</h3>
+          <p>单腿初始止损亏损约等于 stop budget。多腿后，最终收益等于每条腿在退出价上的 PnL 求和，再扣手续费、滑点、资金费；上涨不主动兑现。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="scenarios">
+      <div class="section-title">
+        <h2>9 类核心分支</h2>
+        <p>以下按“底仓已经买入且本地/交易所已存在保护止损”为起点。每张卡都写明触发条件、策略操作和收益口径。</p>
+      </div>
+
+      <div class="filter-bar" aria-label="筛选走势分支">
+        <button class="filter active" data-filter="all">全部</button>
+        <button class="filter" data-filter="stop">止损/冷却</button>
+        <button class="filter" data-filter="leader">leader 加仓</button>
+        <button class="filter" data-filter="rank">排名变化</button>
+        <button class="filter" data-filter="life">长期持有</button>
+      </div>
+
+      <div class="scenario-grid">
+        <article class="scenario" data-kind="stop" data-number="01">
+          <h3>先跌破当前止损</h3>
+          <p><strong>条件：</strong>最新成交价触发当前 STOP_MARKET，发生在下一次小时处理前或任意后续时刻。</p>
+          <p><strong>操作：</strong>市价止损卖出，移除 position，记录 <code>recent_stop_loss_exits[symbol]</code>。</p>
+          <p><strong>收益：</strong>若底仓入场 <code>E0</code>、初始止损 <code>S0</code>、预算 <code>B</code>，且按 <code>S0</code> 成交，毛收益约 <code>-B</code>。实际净收益还要扣手续费、资金费和止损滑点。</p>
+          <div class="tag-row"><span class="tag red">亏损约 -1R</span><span class="tag violet">60m 冷却</span></div>
+        </article>
+
+        <article class="scenario" data-kind="leader" data-number="02">
+          <h3>不破止损，下一小时仍是 leader</h3>
+          <p><strong>条件：</strong>持仓存活，到小时边界时该 symbol 仍是当前 leader。</p>
+          <p><strong>操作：</strong>把目标止损更新为上一根完整 1h K 线低点；若开启止损替换，会先替换旧止损，再提交 add-on 的 MARKET BUY 和对应 STOP_MARKET。</p>
+          <p><strong>收益：</strong>新增腿的初始风险约 <code>-B</code>；旧底仓在新止损处可能仍亏、持平或锁盈。组合收益看 <code>Σ qi × (退出价 - Ei)</code>。</p>
+          <div class="tag-row"><span class="tag green">加仓</span><span class="tag amber">风险增加</span></div>
+        </article>
+
+        <article class="scenario" data-kind="rank" data-number="03">
+          <h3>不破止损，下一小时不再是 leader</h3>
+          <p><strong>条件：</strong>持仓存活，但小时边界的 current leader 是其他 symbol。</p>
+          <p><strong>操作：</strong>该 symbol 更新目标止损；不提交 add-on，并记录 <code>add_on_skipped</code>，原因是 <code>not_current_leader</code>。</p>
+          <p><strong>收益：</strong>没有新增风险。若随后按新止损 <code>S1</code> 退出，底仓毛收益为 <code>q0 × (S1 - E0)</code>。</p>
+          <div class="tag-row"><span class="tag blue">只跟踪止损</span><span class="tag amber">不加仓</span></div>
+        </article>
+
+        <article class="scenario" data-kind="rank leader" data-number="04">
+          <h3>跌出 leader 后又回到 leader，仓位仍在</h3>
+          <p><strong>条件：</strong>symbol 曾经不是 leader，后续分钟又重新成为 leader，但仓位没有被止损。</p>
+          <p><strong>操作：</strong>分钟层不会开第二个底仓，因为已经持有，返回 <code>already_holding</code>。到下一次小时边界且仍是 leader 时，才会触发 add-on。</p>
+          <p><strong>收益：</strong>回到 leader 本身不兑现收益；收益变化来自后续止损上移和可能的新 add-on。</p>
+          <div class="tag-row"><span class="tag green">可恢复加仓资格</span><span class="tag blue">不重复底仓</span></div>
+        </article>
+
+        <article class="scenario" data-kind="rank" data-number="05">
+          <h3>其他 symbol 成为新 leader</h3>
+          <p><strong>条件：</strong>当前 symbol 持仓存活，但市场 leader 变成另一个未持有 symbol。</p>
+          <p><strong>操作：</strong>另一个 symbol 可能开新底仓；当前 symbol 不平仓。它只在小时边界继续更新止损，且非 leader 时跳过加仓。</p>
+          <p><strong>收益：</strong>当前 symbol 的收益仍按自身退出价计算；组合层面会增加另一个 symbol 的独立底仓风险。</p>
+          <div class="tag-row"><span class="tag blue">多 symbol 并存</span><span class="tag amber">组合风险扩大</span></div>
+        </article>
+
+        <article class="scenario" data-kind="leader life" data-number="06">
+          <h3>连续多个小时保持 leader 并上涨</h3>
+          <p><strong>条件：</strong>价格不断高于有效止损，且每个小时边界仍是 leader。</p>
+          <p><strong>操作：</strong>每小时更新止损并尝试新增一条 add-on 腿。当前版本没有每 symbol 加仓上限，也没有账户级总风险上限。</p>
+          <p><strong>收益：</strong>上涨趋势越长，潜在利润越大；但每个 add-on 都把最新一腿的止损风险重置到约 <code>B</code>，早期锁盈要足够覆盖后续腿亏损，组合才会在止损退出时盈利。</p>
+          <div class="tag-row"><span class="tag green">金字塔</span><span class="tag red">无加仓上限</span></div>
+        </article>
+
+        <article class="scenario" data-kind="rank life" data-number="07">
+          <h3>长期不再是 leader，但价格不触发止损</h3>
+          <p><strong>条件：</strong>symbol 失去排名第一后仍维持在止损上方。</p>
+          <p><strong>操作：</strong>每个有可用小时低点的小时边界更新止损；持续跳过 add-on。</p>
+          <p><strong>收益：</strong>若止损逐步上移，亏损会收窄并可能转为锁盈；若有效止损一直低于入场均价，则只是降低亏损，不会主动卖出。</p>
+          <div class="tag-row"><span class="tag blue">等待止损兑现</span><span class="tag amber">无主动止盈</span></div>
+        </article>
+
+        <article class="scenario" data-kind="life" data-number="08">
+          <h3>长期不触发止损，跨 UTC 日期</h3>
+          <p><strong>条件：</strong>价格始终没有触发有效止损，持仓跨过 UTC 00:00。</p>
+          <p><strong>操作：</strong>不强制平仓。00:00-00:59 UTC 禁止新底仓，但已有持仓继续被小时逻辑管理；新一天 leader 排名会用新日开盘价。</p>
+          <p><strong>收益：</strong>此时只有浮盈/浮亏：<code>Σ qi × (最新价 - Ei)</code>。没有退出成交就没有最终已实现收益。</p>
+          <div class="tag-row"><span class="tag violet">跨日持仓</span><span class="tag green">浮盈可扩大</span></div>
+        </article>
+
+        <article class="scenario" data-kind="stop life" data-number="09">
+          <h3>止损后冷却，再次满足条件重新开底仓</h3>
+          <p><strong>条件：</strong>该 symbol 已被止损移除，后续又成为 leader。</p>
+          <p><strong>操作：</strong>止损后 60 分钟内阻止新底仓；冷却结束后，若 leader 发生变化、未持仓、数据有效、止损价低于现价，则开启新的底仓生命周期。</p>
+          <p><strong>收益：</strong>旧交易已经结算；新底仓重新按 <code>B</code> 预算定仓，不与旧仓收益自动抵消。</p>
+          <div class="tag-row"><span class="tag red">冷却</span><span class="tag green">可再入场</span></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="pnl">
+      <div class="section-title">
+        <h2>收益计算口径</h2>
+        <p>策略本身只决定入场、加仓、止损价和订单方向；收益由成交价和成交数量决定。这里先给公式，再给默认示例。</p>
+      </div>
+
+      <div class="formula-grid">
+        <article class="formula">
+          <h3>单腿</h3>
+          <p>每腿用固定止损预算定仓。忽略交易所过滤器时：</p>
+          <div class="equation">q = B / (E - S)</div>
+          <div class="equation">退出价 X 的毛收益 = q × (X - E)</div>
+          <p>所以底仓如果正好在初始止损价 <code>S0</code> 成交，毛收益就是 <code>-B</code>。若止损上移到入场价，毛收益约为 0；若止损上移到入场价上方，才锁定毛利润。</p>
+
+          <h3 style="margin-top:18px;">多腿</h3>
+          <div class="equation">组合毛收益 = Σ qi × (X - Ei)</div>
+          <div class="equation">盈亏平衡退出价 = Σ(qi × Ei) / Σqi</div>
+          <p>多腿时，最新 add-on 腿在自己的止损处通常亏约 <code>B</code>；早期腿是否已经锁盈，决定最终止损退出时是净亏、接近持平还是净赚。</p>
+        </article>
+
+        <article class="formula">
+          <h3>默认 10 USDT 预算示例</h3>
+          <table class="example-table">
+            <thead>
+              <tr>
+                <th>路径</th>
+                <th>设置</th>
+                <th>退出时毛收益</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>底仓直接止损</td>
+                <td>E0=120, S0=110, B=10, q0=1</td>
+                <td class="negative">X=110 → -10</td>
+              </tr>
+              <tr>
+                <td>非 leader，仅止损上移</td>
+                <td>E0=120, q0=1, 新止损 S1=115</td>
+                <td class="negative">X=115 → -5</td>
+              </tr>
+              <tr>
+                <td>非 leader，止损上移到入场</td>
+                <td>E0=120, q0=1, 新止损 S1=120</td>
+                <td>X=120 → 0</td>
+              </tr>
+              <tr>
+                <td>leader，一次加仓后立即止损</td>
+                <td>E0=120 q0=1；E1=130 S1=121 q1=1.111</td>
+                <td class="negative">X=121 → +1 -10 = -9</td>
+              </tr>
+              <tr>
+                <td>leader，两次加仓后止损</td>
+                <td>E0=120 q0=1；E1=130 q1=1.111；E2=145 S2=132 q2=0.769</td>
+                <td class="positive">X=132 → 约 +4.22</td>
+              </tr>
+              <tr>
+                <td>长期持有未退出</td>
+                <td>最新价 P=140，只有底仓 q0=1</td>
+                <td class="positive">浮盈 +20；未实现</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="small">表内均为毛收益，不含手续费、资金费、滑点和交易所过滤器导致的数量取整。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="calculator">
+      <div class="section-title">
+        <h2>交互收益计算器</h2>
+        <p>默认填入上面示例。可以直接修改每腿入场价、止损价、退出成交价和手续费，观察总仓位的盈亏平衡点与毛/净收益。</p>
+      </div>
+
+      <div class="calculator">
+        <div class="calc-controls">
+          <div class="control">
+            <label for="budget">每腿 stop budget / USDT</label>
+            <input id="budget" type="number" value="10" step="0.01" min="0" />
+          </div>
+          <div class="control">
+            <label for="exitPrice">最终退出成交价 X</label>
+            <input id="exitPrice" type="number" value="132" step="0.01" />
+          </div>
+          <div class="control">
+            <label for="feeBps">单边手续费 bps</label>
+            <input id="feeBps" type="number" value="4" step="0.1" min="0" />
+          </div>
+        </div>
+
+        <table class="calc-table">
+          <thead>
+            <tr>
+              <th>腿</th>
+              <th>类型</th>
+              <th>入场价 E</th>
+              <th>保护止损 S</th>
+              <th>数量 q</th>
+              <th>毛收益</th>
+            </tr>
+          </thead>
+          <tbody id="legsBody">
+            <tr class="calc-row">
+              <td>1</td>
+              <td>base</td>
+              <td><input type="number" value="120" step="0.01" /></td>
+              <td><input type="number" value="110" step="0.01" /></td>
+              <td class="mono" data-field="qty">-</td>
+              <td class="mono" data-field="pnl">-</td>
+            </tr>
+            <tr class="calc-row">
+              <td>2</td>
+              <td>add_on</td>
+              <td><input type="number" value="130" step="0.01" /></td>
+              <td><input type="number" value="121" step="0.01" /></td>
+              <td class="mono" data-field="qty">-</td>
+              <td class="mono" data-field="pnl">-</td>
+            </tr>
+            <tr class="calc-row">
+              <td>3</td>
+              <td>add_on</td>
+              <td><input type="number" value="145" step="0.01" /></td>
+              <td><input type="number" value="132" step="0.01" /></td>
+              <td class="mono" data-field="qty">-</td>
+              <td class="mono" data-field="pnl">-</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="head-actions" style="margin-top:12px;">
+          <button class="btn secondary" id="addLeg" type="button">新增 add-on 腿</button>
+          <button class="btn secondary" id="resetLegs" type="button">恢复默认示例</button>
+        </div>
+
+        <div class="calc-output" aria-live="polite">
+          <div class="output"><strong id="totalQty">-</strong><span>总数量</span></div>
+          <div class="output"><strong id="avgEntry">-</strong><span>加权入场价</span></div>
+          <div class="output"><strong id="grossPnl">-</strong><span>毛收益</span></div>
+          <div class="output"><strong id="netPnl">-</strong><span>估算净收益</span></div>
+          <div class="output"><strong id="breakeven">-</strong><span>盈亏平衡退出价</span></div>
+          <div class="output"><strong id="riskBudget">-</strong><span>累计初始风险预算</span></div>
+          <div class="output"><strong id="rMultiple">-</strong><span>R multiple / 预算口径</span></div>
+          <div class="output"><strong id="validLegs">-</strong><span>有效腿数</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="edges">
+      <div class="section-title">
+        <h2>执行与数据边界</h2>
+        <p>这些不是价格走势本身，但会改变“策略有信号”到“交易所真实持仓”的结果。</p>
+      </div>
+      <div class="edge-grid">
+        <article class="note">
+          <h3>信号生成了，但订单可能不生成</h3>
+          <table class="edge-table">
+            <tbody>
+              <tr>
+                <td>止损价不低于现价</td>
+                <td>仓位大小无法计算，入场或加仓会被跳过。</td>
+              </tr>
+              <tr>
+                <td>交易所 symbol 信息缺失</td>
+                <td>无法按过滤器归一化价格/数量，不生成订单。</td>
+              </tr>
+              <tr>
+                <td>数量小于最小数量或取整为 0</td>
+                <td>该腿不会提交，实际风险低于策略信号假设。</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="note">
+          <h3>止损更新依赖运行参数和状态收敛</h3>
+          <table class="edge-table">
+            <tbody>
+              <tr>
+                <td><code>--execute-stop-replacements</code></td>
+                <td>开启后才会执行旧止损替换；否则报告里有目标止损，但交易所旧止损可能还没变。</td>
+              </tr>
+              <tr>
+                <td>user-stream 成交回报</td>
+                <td>BUY fill 写入/合并腿；STOP fill 移除仓位并记录冷却。</td>
+              </tr>
+              <tr>
+                <td>小时低点数据缺失</td>
+                <td>该持仓不会更新止损，也不会生成 add-on 或 skipped add-on 记录。</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="section-title">
+        <h2>代码依据</h2>
+        <p>本报告按当前实现和测试，而不是仅按早期设计文档。早期文档写过“所有存活仓位每小时加仓”，但当前代码是“只有当前 leader 加仓，非 leader 只更新止损并记录跳过”。</p>
+      </div>
+
+      <div class="sources">
+        <article class="source">
+          <h3>核心策略状态机</h3>
+          <table class="source-table">
+            <tbody>
+              <tr>
+                <td><code>strategy.py:17-22</code></td>
+                <td>leader 选择：按日内涨幅降序，symbol 字典序做平局裁决。</td>
+              </tr>
+              <tr>
+                <td><code>strategy.py:51-66</code></td>
+                <td>底仓条件：入场窗口、leader 变化、未冷却、未持仓、有小时 K、止损价有效。</td>
+              </tr>
+              <tr>
+                <td><code>strategy.py:73-99</code></td>
+                <td>小时逻辑：所有持仓更新目标止损；只有 current leader 生成 add-on。</td>
+              </tr>
+              <tr>
+                <td><code>strategy.py:145</code></td>
+                <td>止损后冷却时间：60 分钟。</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="source">
+          <h3>收益与订单</h3>
+          <table class="source-table">
+            <tbody>
+              <tr>
+                <td><code>sizing.py:8-21</code></td>
+                <td>数量公式：<code>stop_budget / (entry - stop)</code>，再经过交易所过滤器。</td>
+              </tr>
+              <tr>
+                <td><code>execution.py:34-41</code></td>
+                <td>数量不可计算时，订单构建返回空。</td>
+              </tr>
+              <tr>
+                <td><code>execution.py:43-69</code></td>
+                <td>每个 base/add-on intent 都生成 MARKET 入场和 STOP_MARKET 保护单。</td>
+              </tr>
+              <tr>
+                <td><code>user_stream_state.py:91-96</code></td>
+                <td>策略止损成交后移除仓位并写入冷却时间。</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Generated from the local repository on 2026-05-03. All monetary examples are gross USDT estimates unless explicitly marked net.
+    </footer>
+  </main>
+
+  <script>
+    const filters = [...document.querySelectorAll(".filter")];
+    const scenarios = [...document.querySelectorAll(".scenario")];
+
+    filters.forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.dataset.filter;
+        filters.forEach((item) => item.classList.toggle("active", item === button));
+        scenarios.forEach((card) => {
+          const visible = filter === "all" || card.dataset.kind.split(" ").includes(filter);
+          card.style.display = visible ? "" : "none";
+        });
+      });
+    });
+
+    const defaultLegs = [
+      { type: "base", entry: 120, stop: 110 },
+      { type: "add_on", entry: 130, stop: 121 },
+      { type: "add_on", entry: 145, stop: 132 },
+    ];
+
+    const legsBody = document.getElementById("legsBody");
+    const budgetInput = document.getElementById("budget");
+    const exitInput = document.getElementById("exitPrice");
+    const feeInput = document.getElementById("feeBps");
+    const addLegButton = document.getElementById("addLeg");
+    const resetButton = document.getElementById("resetLegs");
+
+    function numberValue(input) {
+      const value = Number.parseFloat(input.value);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function fmt(value, digits = 4) {
+      if (!Number.isFinite(value)) return "-";
+      const abs = Math.abs(value);
+      const fixed = abs >= 100 ? 2 : digits;
+      return value.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: fixed,
+      });
+    }
+
+    function signClass(element, value) {
+      element.classList.remove("positive", "negative");
+      if (value > 0) element.classList.add("positive");
+      if (value < 0) element.classList.add("negative");
+    }
+
+    function buildLegRow(index, leg) {
+      const row = document.createElement("tr");
+      row.className = "calc-row";
+      row.innerHTML = `
+        <td>${index + 1}</td>
+        <td>${index === 0 ? "base" : "add_on"}</td>
+        <td><input type="number" value="${leg.entry}" step="0.01" /></td>
+        <td><input type="number" value="${leg.stop}" step="0.01" /></td>
+        <td class="mono" data-field="qty">-</td>
+        <td class="mono" data-field="pnl">-</td>
+      `;
+      row.querySelectorAll("input").forEach((input) => input.addEventListener("input", calculate));
+      return row;
+    }
+
+    function renderLegs(legs) {
+      legsBody.innerHTML = "";
+      legs.forEach((leg, index) => legsBody.appendChild(buildLegRow(index, leg)));
+      calculate();
+    }
+
+    function calculate() {
+      const budget = numberValue(budgetInput);
+      const exitPrice = numberValue(exitInput);
+      const feeBps = numberValue(feeInput);
+      const rows = [...legsBody.querySelectorAll(".calc-row")];
+
+      let totalQty = 0;
+      let entryValue = 0;
+      let grossPnl = 0;
+      let fees = 0;
+      let validLegCount = 0;
+
+      rows.forEach((row) => {
+        const inputs = row.querySelectorAll("input");
+        const entry = numberValue(inputs[0]);
+        const stop = numberValue(inputs[1]);
+        const distance = entry - stop;
+        const qtyCell = row.querySelector('[data-field="qty"]');
+        const pnlCell = row.querySelector('[data-field="pnl"]');
+
+        if (budget <= 0 || distance <= 0 || entry <= 0) {
+          qtyCell.textContent = "invalid";
+          pnlCell.textContent = "-";
+          pnlCell.classList.remove("positive", "negative");
+          return;
+        }
+
+        const qty = budget / distance;
+        const legPnl = qty * (exitPrice - entry);
+        const legFees = (feeBps / 10000) * qty * (entry + exitPrice);
+        totalQty += qty;
+        entryValue += qty * entry;
+        grossPnl += legPnl;
+        fees += legFees;
+        validLegCount += 1;
+
+        qtyCell.textContent = fmt(qty, 6);
+        pnlCell.textContent = fmt(legPnl, 4);
+        signClass(pnlCell, legPnl);
+      });
+
+      const avgEntry = totalQty > 0 ? entryValue / totalQty : NaN;
+      const netPnl = grossPnl - fees;
+      const cumulativeBudget = validLegCount * budget;
+      const rMultiple = cumulativeBudget > 0 ? netPnl / cumulativeBudget : NaN;
+
+      const outputs = {
+        totalQty: totalQty,
+        avgEntry: avgEntry,
+        grossPnl: grossPnl,
+        netPnl: netPnl,
+        breakeven: avgEntry,
+        riskBudget: cumulativeBudget,
+        rMultiple: rMultiple,
+        validLegs: validLegCount,
+      };
+
+      for (const [id, value] of Object.entries(outputs)) {
+        const element = document.getElementById(id);
+        element.textContent = id === "validLegs" ? String(value) : fmt(value, id === "rMultiple" ? 3 : 4);
+        element.classList.remove("positive", "negative");
+        if (["grossPnl", "netPnl", "rMultiple"].includes(id)) signClass(element, value);
+      }
+    }
+
+    [budgetInput, exitInput, feeInput].forEach((input) => input.addEventListener("input", calculate));
+
+    addLegButton.addEventListener("click", () => {
+      const rows = [...legsBody.querySelectorAll(".calc-row")];
+      const previous = rows.at(-1);
+      let entry = 150;
+      let stop = 138;
+      if (previous) {
+        const inputs = previous.querySelectorAll("input");
+        entry = numberValue(inputs[0]) + 12;
+        stop = entry * 0.92;
+      }
+      if (stop >= entry) stop = entry - 1;
+      legsBody.appendChild(buildLegRow(rows.length, { entry: Math.round(entry * 100) / 100, stop: Math.round(stop * 100) / 100 }));
+      calculate();
+    });
+
+    resetButton.addEventListener("click", () => {
+      budgetInput.value = "10";
+      exitInput.value = "132";
+      feeInput.value = "4";
+      renderLegs(defaultLegs);
+    });
+
+    renderLegs(defaultLegs);
+  </script>
+</body>
+</html>

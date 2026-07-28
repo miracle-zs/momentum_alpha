@@ -205,6 +205,55 @@ class BrokerTests(unittest.TestCase):
             ],
         )
 
+    def test_broker_reports_old_stop_cancellation_failure(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+
+        class FakeClient:
+            def fetch_open_algo_orders(self, **params):
+                return [
+                    {
+                        "symbol": params["symbol"],
+                        "orderType": "STOP_MARKET",
+                        "algoId": 11,
+                        "clientAlgoId": "ma_240101120000_BTCUSDT_b01s",
+                    }
+                ]
+
+            def cancel_algo_order(self, **params):
+                raise RuntimeError("cancel unavailable")
+
+            def new_algo_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                return {"status": "NEW", "symbol": "BTCUSDT"}
+
+        broker = BinanceBroker(client=FakeClient())
+
+        responses = broker.replace_stop_orders(replacements=[("BTCUSDT", "0.010", "61000.0")])
+
+        self.assertEqual(responses, [{"status": "NEW", "symbol": "BTCUSDT"}])
+        self.assertEqual(
+            broker.last_stop_replacement_failures,
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "quantity": "0.010",
+                    "stop_price": "61000.0",
+                    "client_algo_id": "ma_240101120000_BTCUSDT_b01s",
+                    "algo_id": 11,
+                    "message": "cancel unavailable",
+                    "status": "STOP_CANCEL_FAILED",
+                }
+            ],
+        )
+
     def test_broker_keeps_old_stop_and_continues_when_replacement_creation_fails(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker
@@ -349,6 +398,147 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(len(broker.last_stop_order_failures), 1)
         self.assertEqual(broker.last_stop_order_failures[0]["status"], "STOP_SUBMIT_FAILED")
 
+    def test_broker_turns_stop_rate_limit_into_retryable_tick_result(self) -> None:
+        from urllib.error import HTTPError
+
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                if "/fapi/v1/algoOrder" in request.url:
+                    raise BinanceHttpError(
+                        HTTPError(
+                            url=request.url,
+                            code=429,
+                            msg="Too Many Requests",
+                            hdrs=None,
+                            fp=None,
+                        ),
+                        '{"code":-1003,"msg":"Too many requests"}',
+                    )
+                return {"status": "NEW", "symbol": "BTCUSDT", "type": "MARKET"}
+
+        broker = BinanceBroker(client=FakeClient())
+        responses = broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[{"symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "quantity": "1"}],
+                stop_orders=[{"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "quantity": "1", "stopPrice": "90"}],
+            )
+        )
+
+        self.assertEqual(len(responses), 1)
+        self.assertIsNotNone(broker.last_rate_limit_error)
+        self.assertEqual(broker.last_stop_order_failures[0]["status"], "STOP_SUBMIT_RATE_LIMIT")
+        self.assertTrue(broker.last_stop_order_failures[0]["retryable"])
+
+    def test_broker_turns_entry_rate_limit_into_retryable_tick_result(self) -> None:
+        from urllib.error import HTTPError
+
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.fetch_order_calls = 0
+                self.new_order_calls = 0
+                self.new_algo_order_calls = 0
+
+            def fetch_order(self, **params):
+                self.fetch_order_calls += 1
+                raise BinanceHttpError(
+                    HTTPError(
+                        url="https://example.test/fapi/v1/order",
+                        code=400,
+                        msg="Bad Request",
+                        hdrs=None,
+                        fp=None,
+                    ),
+                    '{"code":-2013,"msg":"Order does not exist."}',
+                )
+
+            def new_order(self, **params):
+                self.new_order_calls += 1
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                self.new_algo_order_calls += 1
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                raise BinanceHttpError(
+                    HTTPError(
+                        url=request.url,
+                        code=429,
+                        msg="Too Many Requests",
+                        hdrs=None,
+                        fp=None,
+                    ),
+                    '{"code":-1003,"msg":"Too many requests"}',
+                )
+
+        client = FakeClient()
+        broker = BinanceBroker(client=client)
+        responses = broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "quantity": "1",
+                        "newClientOrderId": "ma_260510100000_BTCUSDT_b00e",
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "quantity": "1",
+                        "newClientOrderId": "ma_260510100000_ETHUSDT_b00e",
+                    },
+                ],
+                stop_orders=[
+                    {"symbol": "BTCUSDT", "side": "SELL", "type": "STOP_MARKET", "quantity": "1", "stopPrice": "90"},
+                    {"symbol": "ETHUSDT", "side": "SELL", "type": "STOP_MARKET", "quantity": "1", "stopPrice": "90"},
+                ],
+            )
+        )
+
+        self.assertEqual(responses, [])
+        self.assertEqual(client.new_order_calls, 1)
+        self.assertEqual(client.new_algo_order_calls, 0)
+        self.assertIsNotNone(broker.last_rate_limit_error)
+        self.assertEqual(broker.last_entry_order_failures[0]["status"], "ENTRY_SUBMIT_RATE_LIMIT")
+        self.assertTrue(broker.last_entry_order_failures[0]["retryable"])
+
     def test_broker_skips_stop_order_when_entry_order_fails(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest
         from momentum_alpha.broker import BinanceBroker
@@ -489,6 +679,160 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(broker.client.fetch_order_calls[0]["orig_client_order_id"], "ma_260510100000_BTCUSDT_a00e")
         self.assertEqual(broker.last_entry_order_failures, [])
         self.assertEqual(len(broker.client.new_algo_order_calls), 1)
+
+    def test_broker_does_not_submit_when_preflight_order_lookup_is_unknown(self) -> None:
+        from urllib.error import URLError
+
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.new_order_calls = []
+
+            def fetch_order(self, **params):
+                raise URLError("status endpoint unavailable")
+
+            def new_order(self, **params):
+                self.new_order_calls.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={},
+                    body="symbol=BTCUSDT",
+                )
+
+            def send(self, request):
+                return {"status": "NEW"}
+
+        broker = BinanceBroker(client=FakeClient())
+        responses = broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "quantity": "0.010",
+                        "newClientOrderId": "ma_260510100000_BTCUSDT_b00e",
+                    }
+                ],
+                stop_orders=[],
+            )
+        )
+
+        self.assertEqual(responses, [])
+        self.assertEqual(broker.client.new_order_calls, [])
+        self.assertEqual(broker.last_entry_order_failures[0]["status"], "ENTRY_STATUS_UNKNOWN")
+        self.assertTrue(broker.last_entry_order_failures[0]["retryable"])
+
+    def test_broker_does_not_resend_after_submit_error_when_follow_up_lookup_is_unknown(self) -> None:
+        from urllib.error import URLError
+
+        from momentum_alpha.binance_client import BinanceHttpError, BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.fetch_order_calls = 0
+                self.new_order_calls = 0
+
+            def fetch_order(self, **params):
+                self.fetch_order_calls += 1
+                if self.fetch_order_calls == 1:
+                    raise BinanceHttpError(
+                        __import__("urllib.error").error.HTTPError(
+                            url="https://example.test/fapi/v1/order",
+                            code=400,
+                            msg="Bad Request",
+                            hdrs=None,
+                            fp=None,
+                        ),
+                        '{"code":-2013,"msg":"Order does not exist."}',
+                    )
+                raise URLError("status endpoint unavailable")
+
+            def new_order(self, **params):
+                self.new_order_calls += 1
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={},
+                    body="symbol=BTCUSDT",
+                )
+
+            def send(self, request):
+                raise URLError("submit response lost")
+
+        broker = BinanceBroker(client=FakeClient(), entry_retry_delays=(0,), sleep_fn=lambda seconds: None)
+        responses = broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "quantity": "0.010",
+                        "newClientOrderId": "ma_260510100000_BTCUSDT_b00e",
+                    }
+                ],
+                stop_orders=[],
+            )
+        )
+
+        self.assertEqual(responses, [])
+        self.assertEqual(broker.client.new_order_calls, 1)
+        self.assertEqual(broker.last_entry_order_failures[0]["status"], "SUBMIT_STATUS_UNKNOWN")
+        self.assertTrue(broker.last_entry_order_failures[0]["retryable"])
+
+    def test_broker_does_not_recover_zero_fill_terminal_order(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.new_order_calls = 0
+
+            def fetch_order(self, **params):
+                return {
+                    "status": "CANCELED",
+                    "executedQty": "0",
+                    "symbol": params["symbol"],
+                }
+
+            def new_order(self, **params):
+                self.new_order_calls += 1
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={},
+                    body="symbol=BTCUSDT",
+                )
+
+            def send(self, request):
+                return {"status": "NEW", "symbol": "BTCUSDT"}
+
+        broker = BinanceBroker(client=FakeClient())
+        responses = broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[
+                    {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "MARKET",
+                        "quantity": "0.010",
+                        "newClientOrderId": "ma_260510100000_BTCUSDT_b00e",
+                    }
+                ],
+                stop_orders=[],
+            )
+        )
+
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(broker.client.new_order_calls, 1)
 
     def test_broker_retries_entry_with_same_client_order_id_when_order_was_not_created(self) -> None:
         from urllib.error import URLError

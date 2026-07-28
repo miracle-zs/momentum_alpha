@@ -4,6 +4,16 @@ from .user_stream_event_model import UserStreamEvent
 from .user_stream_event_parser import _parse_decimal
 
 
+_TERMINAL_REGULAR_ORDER_STATUSES = {
+    "FILLED",
+    "CANCELED",
+    "CANCELLED",
+    "EXPIRED",
+    "EXPIRED_IN_MATCH",
+    "REJECTED",
+}
+
+
 def extract_trade_fill(event: UserStreamEvent) -> dict | None:
     if event.event_type != "ORDER_TRADE_UPDATE":
         return None
@@ -67,11 +77,7 @@ def extract_algo_order_event(event: UserStreamEvent) -> dict | None:
 def extract_order_status_update(event: UserStreamEvent) -> tuple[str, dict | None] | None:
     if event.event_type != "ORDER_TRADE_UPDATE" or event.order_id is None:
         return None
-    if (
-        event.order_status == "FILLED"
-        and event.side == "SELL"
-        and event.original_order_type == "STOP_MARKET"
-    ):
+    if str(event.order_status or "").upper() in _TERMINAL_REGULAR_ORDER_STATUSES:
         return (str(event.order_id), None)
     return (
         str(event.order_id),

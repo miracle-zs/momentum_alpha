@@ -142,6 +142,37 @@ class BinanceClientTests(unittest.TestCase):
         self.assertEqual(opener.calls, 2)
         self.assertEqual(sleeps, [0.5])
 
+    def test_default_read_retry_budget_does_not_apply_to_post(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
+
+        class AlwaysFailOpener:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def __call__(self, request):
+                self.calls += 1
+                raise URLError("temporary")
+
+        opener = AlwaysFailOpener()
+        client = BinanceRestClient(
+            api_key="key",
+            api_secret="secret",
+            opener=opener,
+            retry_delays=(0,),
+        )
+
+        with self.assertRaises(URLError):
+            client.send(
+                BinanceRequest(
+                    method="POST",
+                    url="https://fapi.binance.com/fapi/v1/order",
+                    headers={},
+                    body="symbol=BTCUSDT",
+                )
+            )
+
+        self.assertEqual(opener.calls, 1)
+
     def test_send_retries_after_http_error_429(self) -> None:
         from momentum_alpha.binance_client import BinanceRequest, BinanceRestClient
 
@@ -232,6 +263,7 @@ class BinanceClientTests(unittest.TestCase):
             api_secret="secret",
             opener=opener,
             retry_delays=(0,),
+            allow_non_idempotent_retries=True,
             sleep_fn=lambda seconds: None,
         )
         with patch("momentum_alpha.binance_client.time.time", side_effect=[1700000000.0, 1700000001.0, 1700000001.0]):

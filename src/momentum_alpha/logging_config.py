@@ -4,11 +4,16 @@ import json
 import logging
 import os
 import sys
+import time
+from datetime import datetime, timezone
 
 
 class _JsonMessageFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -27,7 +32,11 @@ def configure_logging(*, level: str | None = None, log_format: str | None = None
     if resolved_format == "json":
         handler.setFormatter(_JsonMessageFormatter())
     else:
-        handler.setFormatter(logging.Formatter("%(message)s"))
+        formatter = logging.Formatter(
+            "%(asctime)sZ %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
 
     logging.basicConfig(level=resolved_level, handlers=[handler], force=True)
-

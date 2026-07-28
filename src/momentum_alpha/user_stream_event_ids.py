@@ -12,7 +12,7 @@ def user_stream_event_id(event: UserStreamEvent) -> str | None:
         return None
     if event.order_id is None:
         return None
-    if event.trade_id is not None:
+    if event.trade_id is not None and event.trade_id > 0:
         return f"{event.event_type}:{event.order_id}:trade:{event.trade_id}"
     event_time = "" if event.event_time is None else event.event_time.isoformat()
     execution_type = "" if event.execution_type is None else event.execution_type

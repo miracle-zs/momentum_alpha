@@ -32,13 +32,29 @@ def run_once_live_command(
         command=args.command,
         explicit_path=args.runtime_db_file,
     )
-    runtime_state_store = _build_runtime_state_store(runtime_db_path=runtime_db_path)
+    runtime_state_store = (
+        _build_runtime_state_store(runtime_db_path=runtime_db_path)
+        if args.submit_orders
+        else None
+    )
     audit_recorder = _build_audit_recorder(
         runtime_db_path=runtime_db_path,
         source="run-once-live",
         error_logger=print,
     )
     mode = "LIVE" if args.submit_orders else "DRY_RUN"
+    restore_positions = args.submit_orders
+    if args.submit_orders:
+        missing_restore_methods = [
+            method_name
+            for method_name in ("fetch_open_orders", "fetch_position_risk")
+            if not callable(getattr(client, method_name, None))
+        ]
+        if missing_restore_methods:
+            parser.error(
+                "run-once-live --submit-orders requires client methods: "
+                + ", ".join(missing_restore_methods)
+            )
 
     result = _default_run_once_live(
         symbols=args.symbols,
@@ -48,6 +64,8 @@ def run_once_live_command(
         broker=broker,
         submit_orders=args.submit_orders,
         runtime_state_store=runtime_state_store,
+        restore_positions=restore_positions,
+        execute_stop_replacements=restore_positions,
         audit_recorder=audit_recorder,
     )
     entry_symbols = [order["symbol"] for order in result.execution_plan.entry_orders]
@@ -64,6 +82,10 @@ def poll_command(
     now_provider,
     run_forever_fn=_default_run_forever,
 ) -> int:
+    if args.submit_orders and not args.restore_positions:
+        parser.error("poll --submit-orders requires --restore-positions")
+    if args.submit_orders and not args.execute_stop_replacements:
+        parser.error("poll --submit-orders requires --execute-stop-replacements")
     runtime_settings = load_runtime_settings_from_env()
     use_testnet = args.testnet or runtime_settings["use_testnet"]
     runtime_db_path = _require_runtime_db_path(

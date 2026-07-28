@@ -204,12 +204,29 @@ def _build_daily_review_row(
     closed_at = _parse_datetime(trade_round_trip["closed_at"])
     symbol = str(trade_round_trip["symbol"])
     actual_net_pnl = _parse_decimal(trade_round_trip.get("net_pnl") or trade_round_trip.get("realized_pnl") or "0")
-    actual_exit_price = _parse_decimal(
-        trade_round_trip.get("weighted_avg_exit_price")
-        or trade_round_trip.get("payload", {}).get("weighted_avg_exit_price")
-        or trade_round_trip.get("payload", {}).get("actual_exit_price")
-        or "0"
-    )
+    trade_payload = trade_round_trip.get("payload") or {}
+    actual_exit_price_raw = trade_round_trip.get("weighted_avg_exit_price")
+    if actual_exit_price_raw in (None, ""):
+        actual_exit_price_raw = trade_payload.get("weighted_avg_exit_price")
+    if actual_exit_price_raw in (None, ""):
+        actual_exit_price_raw = trade_payload.get("actual_exit_price")
+    invalid_exit_price = False
+    try:
+        actual_exit_price = _parse_optional_decimal(actual_exit_price_raw)
+    except (InvalidOperation, TypeError, ValueError):
+        actual_exit_price = None
+        invalid_exit_price = True
+    if actual_exit_price is not None and actual_exit_price <= Decimal("0"):
+        actual_exit_price = None
+        invalid_exit_price = True
+    if invalid_exit_price:
+        warnings.append(
+            f"invalid_actual_exit_price symbol={symbol} round_trip_id={trade_round_trip['round_trip_id']}"
+        )
+    if actual_exit_price is None:
+        warnings.append(
+            f"missing_actual_exit_price symbol={symbol} round_trip_id={trade_round_trip['round_trip_id']}"
+        )
     total_entry_quantity = _parse_decimal(trade_round_trip.get("total_entry_quantity") or "0")
     actual_commission = _parse_decimal(trade_round_trip.get("commission") or "0")
     fee_per_quantity = (
@@ -219,7 +236,7 @@ def _build_daily_review_row(
     counterfactual_net_pnl = actual_net_pnl
     replayed_add_on_count = 0
     replayed_hour_keys: set[tuple[str, datetime]] = set()
-    for signal in skipped_add_on_signals:
+    for signal in (skipped_add_on_signals if actual_exit_price is not None else ()):
         if str(signal.get("symbol")) != symbol:
             continue
         signal_timestamp = _parse_datetime(signal["timestamp"])
@@ -261,7 +278,7 @@ def _build_daily_review_row(
         actual_net_pnl=str(actual_net_pnl),
         counterfactual_net_pnl=str(counterfactual_net_pnl),
         pnl_delta=str(counterfactual_net_pnl - actual_net_pnl),
-        leg_count=len(trade_round_trip.get("payload", {}).get("legs") or []),
+        leg_count=len(trade_payload.get("legs") or []),
         replayed_add_on_count=replayed_add_on_count,
         warnings=tuple(warnings),
     )

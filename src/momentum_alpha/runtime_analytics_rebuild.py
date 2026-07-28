@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
+import fcntl
+from functools import wraps
 from pathlib import Path
 
 from momentum_alpha.orders import is_strategy_client_order_id
@@ -15,6 +17,40 @@ from .runtime_analytics_stops import (
     _extract_stop_trigger_price_from_signal_decision,
     _resolve_stop_trigger_price_for_exit,
 )
+
+
+class _DeferredAnalyticsConnection:
+    """Buffer rebuild writes until all expensive analytics computation is done."""
+
+    def __init__(self) -> None:
+        self.statements: list[tuple[str, tuple]] = []
+
+    def execute(self, sql: str, parameters: tuple = ()):
+        normalized_sql = sql.lstrip().upper()
+        if normalized_sql.startswith("INSERT INTO"):
+            self.statements.append((sql, parameters))
+        elif not normalized_sql.startswith("DELETE FROM"):
+            raise RuntimeError(f"unexpected analytics rebuild statement: {sql}")
+        return self
+
+
+def _serialize_analytics_rebuilds(function):
+    """Serialize rebuild readers and writers across poll/stream/timer processes."""
+
+    @wraps(function)
+    def _wrapped(*args, **kwargs):
+        path = Path(kwargs["path"])
+        if not path.exists():
+            return function(*args, **kwargs)
+        lock_path = path.with_name(f"{path.name}.analytics.lock")
+        with lock_path.open("a+") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    return _wrapped
 
 
 def _snapshot_position_risk(position: object) -> Decimal | None:
@@ -218,6 +254,7 @@ def _snapshot_peak_cumulative_risk(
     return peak_risk
 
 
+@_serialize_analytics_rebuilds
 def rebuild_trade_analytics(*, path: Path) -> None:
     if not path.exists():
         return
@@ -271,6 +308,11 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             ORDER BY timestamp ASC, id ASC
             """
         ).fetchall()
+        # Release the read transaction before rebuilding rows. The final delete/insert
+        # is performed in one short write transaction after all risk calculations finish.
+        connection.commit()
+        deferred_writes = _DeferredAnalyticsConnection()
+        connection = deferred_writes
         connection.execute("DELETE FROM trade_round_trips")
         connection.execute("DELETE FROM stop_exit_summaries")
 
@@ -562,3 +604,10 @@ def rebuild_trade_analytics(*, path: Path) -> None:
                     ),
                 )
             active_round_trips.pop(symbol, None)
+
+        with _connect(path) as write_connection:
+            write_connection.execute("BEGIN IMMEDIATE")
+            write_connection.execute("DELETE FROM trade_round_trips")
+            write_connection.execute("DELETE FROM stop_exit_summaries")
+            for sql, parameters in deferred_writes.statements:
+                write_connection.execute(sql, parameters)

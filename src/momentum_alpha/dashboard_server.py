@@ -39,6 +39,18 @@ def run_dashboard_server(
     class DashboardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             parsed_url = urlparse(self.path)
+            supported_paths = {
+                "/",
+                "/api/dashboard",
+                "/api/dashboard/summary",
+                "/api/dashboard/timeseries",
+                "/api/dashboard/tables",
+            }
+            if parsed_url.path not in supported_paths:
+                self.send_response(404)
+                self.end_headers()
+                return
+
             query_params = parse_qs(parsed_url.query)
             active_room = normalize_dashboard_room(query_params.get("room", [query_params.get("tab", [None])[0]])[0])
             review_view = normalize_review_view(query_params.get("review_view", [None])[0])
@@ -84,9 +96,6 @@ def run_dashboard_server(
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            self.send_response(404)
-            self.end_headers()
-
         def log_message(self, format, *args):  # noqa: A003
             return
 

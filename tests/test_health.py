@@ -1,3 +1,4 @@
+import sqlite3
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -12,6 +13,32 @@ if str(SRC) not in sys.path:
 
 
 class HealthTests(unittest.TestCase):
+    def test_strategy_state_audit_query_failure_is_not_reported_healthy(self) -> None:
+        from momentum_alpha.health import _check_strategy_state_freshness
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+            connection = sqlite3.connect(runtime_db_file)
+            try:
+                connection.execute("DROP TABLE audit_events")
+                connection.commit()
+            finally:
+                connection.close()
+
+            item = _check_strategy_state_freshness(
+                path=runtime_db_file,
+                now=now,
+                max_age_seconds=180,
+            )
+
+        self.assertEqual(item.status, "FAIL")
+        self.assertIn("audit check failed", item.message)
+
     def test_build_health_report_marks_recent_db_activity_ok(self) -> None:
         from momentum_alpha.health import build_runtime_health_report
         from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState, insert_audit_event
@@ -83,6 +110,29 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.overall_status, "FAIL")
             self.assertEqual(report.items[1].name, "poll_events")
             self.assertEqual(report.items[1].status, "FAIL")
+
+    def test_build_health_report_marks_malformed_audit_timestamp_fail(self) -> None:
+        from momentum_alpha.health import build_runtime_health_report
+        from momentum_alpha.runtime_store import RuntimeStateStore, StoredStrategyState
+
+        with TemporaryDirectory() as tmpdir:
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            RuntimeStateStore(path=runtime_db_file).save(
+                StoredStrategyState(current_day="2026-04-15", previous_leader_symbol="BTCUSDT")
+            )
+            from momentum_alpha.runtime_schema import _connect
+
+            with _connect(runtime_db_file) as connection:
+                connection.execute(
+                    "INSERT INTO audit_events(timestamp, event_type, payload_json) VALUES (?, ?, ?)",
+                    ("not-a-timestamp", "poll_tick", "{}"),
+                )
+
+            report = build_runtime_health_report(now=now, runtime_db_file=runtime_db_file)
+
+        self.assertEqual(report.overall_status, "FAIL")
+        self.assertTrue(any("invalid audit timestamp" in item.message for item in report.items))
 
     def test_build_health_report_marks_stale_user_stream_events_fail(self) -> None:
         from momentum_alpha.health import build_runtime_health_report

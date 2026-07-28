@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from momentum_alpha.audit import AuditRecorder
-from momentum_alpha.models import StrategyState
+from momentum_alpha.models import Position, StrategyState
 from momentum_alpha.reconciliation import merge_position_history
+from momentum_alpha.runtime_state_merge import (
+    position_has_leg_opened_after,
+    position_has_newer_version,
+)
 from momentum_alpha.runtime_store import (
     MAX_PROCESSED_EVENT_ID_AGE_HOURS,
     RuntimeStateStore,
@@ -57,6 +61,60 @@ def _prune_processed_event_ids(
     return pruned
 
 
+def _parse_state_timestamp(value: object) -> datetime | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _merge_latest_timestamp_map(
+    existing: dict[str, str] | None,
+    candidate: dict[str, str] | None,
+) -> dict[str, str]:
+    merged = dict(existing or {})
+    for key, candidate_value in (candidate or {}).items():
+        if key not in merged:
+            merged[key] = candidate_value
+            continue
+        existing_timestamp = _parse_state_timestamp(merged[key])
+        candidate_timestamp = _parse_state_timestamp(candidate_value)
+        if existing_timestamp is None and candidate_timestamp is not None:
+            merged[key] = candidate_value
+        elif (
+            existing_timestamp is not None
+            and candidate_timestamp is not None
+            and candidate_timestamp >= existing_timestamp
+        ):
+            merged[key] = candidate_value
+    return merged
+
+
+def _merge_order_statuses(
+    existing: dict[str, dict] | None,
+    candidate: dict[str, dict] | None,
+    removed_keys: set[str] | None = None,
+) -> dict[str, dict]:
+    """Merge stream snapshots without overwriting newer REST snapshots."""
+
+    merged = dict(existing or {})
+    for key in removed_keys or set():
+        merged.pop(key, None)
+    for key, candidate_snapshot in (candidate or {}).items():
+        existing_snapshot = merged.get(key)
+        if existing_snapshot is None:
+            merged[key] = candidate_snapshot
+            continue
+        existing_timestamp = _parse_state_timestamp(existing_snapshot.get("event_time"))
+        candidate_timestamp = _parse_state_timestamp(candidate_snapshot.get("event_time"))
+        if existing_timestamp is None or candidate_timestamp is None or candidate_timestamp >= existing_timestamp:
+            merged[key] = candidate_snapshot
+    return merged
+
+
 def _save_user_stream_strategy_state(
     *,
     runtime_state_store: RuntimeStateStore,
@@ -64,6 +122,8 @@ def _save_user_stream_strategy_state(
     now: datetime,
     trade_fill: dict[str, Any] | None = None,
     removed_position_symbols: set[str] | None = None,
+    removed_positions: dict[str, Position] | None = None,
+    removed_order_status_keys: set[str] | None = None,
     prune_processed_event_ids_fn: Callable[
         [dict[str, str] | None, datetime],
         dict[str, str],
@@ -79,10 +139,33 @@ def _save_user_stream_strategy_state(
         )
         pruned_event_ids = prune_processed_event_ids_fn(state.processed_event_ids, now)
         positions = dict(existing.positions or {}) if existing is not None else {}
+        position_removal_timestamps = (
+            {}
+            if existing is None or existing.position_removal_timestamps is None
+            else dict(existing.position_removal_timestamps)
+        )
         for symbol, position in (state.positions or {}).items():
+            removal_timestamp = position_removal_timestamps.get(symbol)
+            if removal_timestamp is not None:
+                if not position_has_leg_opened_after(position, removal_timestamp):
+                    continue
+                position_removal_timestamps.pop(symbol, None)
             positions[symbol] = merge_position_history(positions.get(symbol), position)
         for symbol in removed_position_symbols or set():
+            expected_position = (removed_positions or {}).get(symbol)
+            current_position = positions.get(symbol)
+            if (
+                expected_position is not None
+                and current_position is not None
+                and position_has_newer_version(current_position, expected_position)
+            ):
+                continue
             positions.pop(symbol, None)
+            position_removal_timestamps[symbol] = now.astimezone(timezone.utc).isoformat()
+        recent_stop_loss_exits = _merge_latest_timestamp_map(
+            existing.recent_stop_loss_exits if existing is not None else {},
+            state.recent_stop_loss_exits,
+        )
         return StoredStrategyState(
             current_day=existing.current_day if existing is not None else state.current_day,
             previous_leader_symbol=previous_leader_symbol,
@@ -98,8 +181,18 @@ def _save_user_stream_strategy_state(
             ),
             positions=positions,
             processed_event_ids=pruned_event_ids,
-            order_statuses=state.order_statuses,
-            recent_stop_loss_exits=state.recent_stop_loss_exits,
+            order_statuses=_merge_order_statuses(
+                existing.order_statuses if existing is not None else {},
+                state.order_statuses,
+                removed_order_status_keys,
+            ),
+            recent_stop_loss_exits=recent_stop_loss_exits,
+            position_removal_timestamps=position_removal_timestamps,
+            last_add_on_hour=(
+                existing.last_add_on_hour
+                if existing is not None and existing.last_add_on_hour is not None
+                else state.last_add_on_hour
+            ),
         )
 
     if trade_fill is None:
@@ -135,6 +228,9 @@ def build_user_stream_event_handler(
     ] = _prune_processed_event_ids,
 ) -> Callable[[UserStreamEvent], None]:
     def _on_event(event: UserStreamEvent) -> None:
+        event_id = user_stream_event_id_fn(event)
+        if event_id is not None and event_id in context.processed_event_ids:
+            return
         emit_log_line(logger, f"event={event.event_type} symbol={event.symbol}")
         timestamp = event.event_time or now_provider()
         linkage = None
@@ -185,9 +281,6 @@ def build_user_stream_event_handler(
                 action_type="stream_order_update",
                 decision_id=decision_id,
             )
-        event_id = user_stream_event_id_fn(event)
-        if event_id is not None and event_id in context.processed_event_ids:
-            return
         trade_fill = extract_trade_fill_fn(event)
         use_atomic_trade_fill = trade_fill is not None and runtime_state_store is not None
         durable_projection_succeeded = True
@@ -293,11 +386,13 @@ def build_user_stream_event_handler(
                             },
                         )
         candidate_order_statuses = dict(context.order_statuses)
+        removed_order_status_keys: set[str] = set()
         order_status_update = extract_order_status_update_fn(event)
         if order_status_update is not None:
             order_id, order_snapshot = order_status_update
             if order_snapshot is None:
                 candidate_order_statuses.pop(order_id, None)
+                removed_order_status_keys.add(order_id)
             else:
                 if decision_id is not None or intent_id is not None:
                     order_snapshot = {**order_snapshot, "decision_id": decision_id, "intent_id": intent_id}
@@ -307,6 +402,7 @@ def build_user_stream_event_handler(
             algo_key, algo_snapshot = algo_order_status_update
             if algo_snapshot is None:
                 candidate_order_statuses.pop(algo_key, None)
+                removed_order_status_keys.add(algo_key)
             else:
                 if decision_id is not None or intent_id is not None:
                     algo_snapshot = {**algo_snapshot, "decision_id": decision_id, "intent_id": intent_id}
@@ -341,6 +437,12 @@ def build_user_stream_event_handler(
                 ),
                 now=timestamp,
                 removed_position_symbols=removed_position_symbols,
+                removed_positions={
+                    symbol: context.state.positions[symbol]
+                    for symbol in removed_position_symbols
+                    if symbol in context.state.positions
+                },
+                removed_order_status_keys=removed_order_status_keys,
                 trade_fill=(
                     None
                     if not use_atomic_trade_fill

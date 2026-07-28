@@ -216,6 +216,29 @@ class SkippedBaseReplayDataTests(unittest.TestCase):
 
         self.assertIn("AAAUSDT:2026-06-12", persisted)
 
+    def test_current_day_is_refetched_instead_of_reusing_partial_cache(self) -> None:
+        from momentum_alpha.skipped_base_replay_data import BinanceKlineCache
+
+        calls = []
+
+        def fake_request_json(**kwargs):
+            calls.append(kwargs)
+            return [[1781222400000, "10", "11", "9", "10.5", "1", 1781222459999]]
+
+        now = datetime(2026, 6, 12, 12, 0, tzinfo=timezone.utc)
+        with TemporaryDirectory() as tmpdir:
+            cache = BinanceKlineCache(
+                cache_path=Path(tmpdir) / "klines.json",
+                request_json=fake_request_json,
+                now_provider=lambda: now,
+            )
+            start = datetime(2026, 6, 12, 0, 0, tzinfo=timezone.utc)
+            end = datetime(2026, 6, 12, 0, 1, tzinfo=timezone.utc)
+            cache.load_range(symbol="AAAUSDT", start_time=start, end_time=end)
+            cache.load_range(symbol="AAAUSDT", start_time=start, end_time=end)
+
+        self.assertEqual(len(calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
