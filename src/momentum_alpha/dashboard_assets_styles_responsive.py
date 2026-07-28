@@ -36,15 +36,16 @@ def _render_dashboard_responsive_styles() -> str:
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 768px) {
-      .app { padding: 0 14px 28px; }
-      .header { flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px 0 12px; }
-      .header-status { justify-content: flex-start; }
+      .app { padding: 12px; }
+      .app-shell { padding: 18px; border-radius: 18px; }
       .cosmic-identity-panel { padding: 16px; }
       .cosmic-identity-title { font-size: 2rem; letter-spacing: 0.14em; }
       .cosmic-visual-tiles { grid-template-columns: 1fr; }
       .metrics-grid { grid-template-columns: 1fr; }
-      .dashboard-tabs { gap: 0; }
-      .dashboard-tab { flex: 1 1 auto; min-width: 0; padding: 9px 10px 11px; }
+      .header { flex-direction: column; align-items: flex-start; gap: 16px; }
+      .header-status { justify-content: flex-start; }
+      .dashboard-tabs { padding: 8px; gap: 8px; }
+      .dashboard-tab { flex: 1 1 calc(50% - 8px); min-width: 0; }
       .decision-grid { grid-template-columns: 1fr; }
       .positions-table { min-width: 1040px; font-size: 0.68rem; }
       .positions-table th, .positions-table td { padding: 8px; }

@@ -47,7 +47,7 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn(".live-decision-grid .execution-flow-panel { margin-bottom: 0; }", styles)
         self.assertIn(".execution-flow-grid { display: flex; flex-direction: column; gap: 12px; }", styles)
         self.assertIn(".execution-flow-group { display: flex; flex-direction: column; gap: 8px; }", styles)
-        self.assertIn(".execution-flow-group + .execution-flow-group { padding-top: 10px; border-top: 1px solid var(--line); }", styles)
+        self.assertIn(".execution-flow-group + .execution-flow-group { padding-top: 10px; border-top: 1px solid rgba(184,160,120,0.12); }", styles)
         self.assertIn(".execution-flow-group-label { font-size: 0.62rem; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 2px; }", styles)
         self.assertIn(
             ".execution-flow-row {",

@@ -112,8 +112,8 @@ def render_dashboard_scripts() -> str:
       }});
       const polyline = coords.map(([x, y]) => `${{x.toFixed(2)}},${{y.toFixed(2)}}`).join(' ');
       const area = `${{coords[0][0].toFixed(2)}},${{(height - padY).toFixed(2)}} ` + polyline + ` ${{coords[coords.length - 1][0].toFixed(2)}},${{(height - padY).toFixed(2)}}`;
-      const palette = {{ equity: '#58a6ff', adjusted_equity: '#f0b429', wallet_balance: '#0ecb81', unrealized_pnl: '#a78bfa', margin_usage_pct: '#f97316' }};
-      const stroke = palette[metric] || '#58a6ff';
+      const palette = {{ equity: '#4cc9f0', adjusted_equity: '#ffbc42', wallet_balance: '#36d98a', unrealized_pnl: '#a855f7', margin_usage_pct: '#ff8c42' }};
+      const stroke = palette[metric] || '#4cc9f0';
       let grid = '';
       let labels = '';
       for (let i = 0; i < 5; i++) {{

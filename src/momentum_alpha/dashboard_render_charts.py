@@ -152,7 +152,7 @@ def _render_line_chart_svg(
 def _render_pie_chart_svg(*, data: dict[str, int], colors: list[str] | None = None) -> str:
     if not data:
         return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>no data</span></div>"
-    default_colors = ["#58a6ff", "#0ecb81", "#f0b429", "#f6465d", "#a78bfa", "#ec4899", "#f97316", "#14b8a6"]
+    default_colors = ["#4cc9f0", "#36d98a", "#ffbc42", "#ff5d73", "#a855f7", "#ec4899", "#f97316", "#14b8a6"]
     colors = colors or default_colors
     total = sum(data.values())
     size = 160
@@ -185,7 +185,7 @@ def _sin_deg(angle: float) -> float:
 
     return math.sin(math.radians(angle))
 
-def _render_bar_chart_svg(*, data: dict[str, int], color: str = "#58a6ff") -> str:
+def _render_bar_chart_svg(*, data: dict[str, int], color: str = "#4cc9f0") -> str:
     if not data:
         return "<div class='chart-empty'><span class='chart-empty-icon'>◎</span><span>no data</span></div>"
     width = 400
@@ -220,7 +220,7 @@ def _render_timeline_svg(*, events: list[dict]) -> str:
         symbol = event.get("symbol", "?")
         timestamp = event.get("timestamp", "")
         is_current = i == len(events[:10]) - 1
-        color = "#f0b429" if is_current else "#58a6ff" if i % 2 == 0 else "#5f6b80"
+        color = "#4cc9f0" if is_current else "#36d98a" if i % 2 == 0 else "#ffbc42"
         radius = 12 if is_current else 8
         timeline += f"<circle cx='{x:.2f}' cy='{line_y:.2f}' r='{radius}' fill='{color}' class='timeline-dot{' current' if is_current else ''}'/>"
         timeline += f"<text x='{x:.2f}' y='{line_y - 22:.2f}' class='timeline-label' text-anchor='middle'>{escape(str(symbol))}</text>"
