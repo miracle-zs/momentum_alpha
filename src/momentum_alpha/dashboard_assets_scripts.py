@@ -316,6 +316,18 @@ def render_dashboard_scripts() -> str:
         current.replaceWith(replacement);
       }}
     }}
+    function getOpenLiveSupportKeys() {{
+      return new Set(
+        Array.from(document.querySelectorAll('[data-live-support-card][open]'))
+          .map((node) => node.dataset.liveSupportCard)
+          .filter(Boolean)
+      );
+    }}
+    function restoreOpenLiveSupportCards(openKeys) {{
+      document.querySelectorAll('[data-live-support-card]').forEach((node) => {{
+        node.open = openKeys.has(node.dataset.liveSupportCard);
+      }});
+    }}
     function setRefreshIndicatorState(state, label) {{
       const indicator = document.getElementById('refresh-indicator');
       const indicatorText = document.getElementById('refresh-indicator-text');
@@ -338,12 +350,12 @@ def render_dashboard_scripts() -> str:
         const html = await res.text();
         const nextDocument = new DOMParser().parseFromString(html, 'text/html');
         replaceSectionFromDocument(nextDocument, '[data-dashboard-section="status"]');
-        replaceSectionFromDocument(nextDocument, '[data-dashboard-section="toolbar"]');
         replaceSectionFromDocument(nextDocument, '[data-dashboard-section="room-nav"]');
         if (activeRoom === 'live') {{
+          const openLiveSupportKeys = getOpenLiveSupportKeys();
           replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-risk-band');
-          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-signal-band');
-          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-decision-grid');
+          replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-support-grid');
+          restoreOpenLiveSupportCards(openLiveSupportKeys);
           syncCoreLiveChartsFromDocument(nextDocument);
         }} else {{
           replaceSectionFromDocument(nextDocument, '[data-dashboard-active-room]');

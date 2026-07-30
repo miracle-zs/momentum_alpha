@@ -204,16 +204,17 @@ def render_dashboard_shell(
         "</div>"
         "</div>"
         "<div class='header-status' data-dashboard-section='status'>"
+        "<div class='header-runtime' data-dashboard-section='toolbar'>"
+        f"<div class='status-line'>Last update <strong id='last-updated-text'>{escape(format_timestamp_for_display(latest_update_display))}</strong></div>"
+        "<div class='status-line'>Auto refresh 5s</div>"
+        "<button type='button' class='action-button header-refresh-button' id='manual-refresh-button' title='Refresh dashboard'>"
+        "<span aria-hidden='true'>&#8635;</span><span class='action-button-label'>Refresh</span>"
+        "</button>"
+        "</div>"
         f"<div class='mode-badge {escape(execution_mode_state)}'>{escape(execution_mode_label)}</div>"
         f"<div class='status-badge {'ok' if health_status == 'OK' else 'fail'}'>{escape(health_status)}</div>"
         "</div>"
         "</header>"
-        "<div class='toolbar' data-dashboard-section='toolbar'>"
-        f"<div class='status-line'>Last update <strong id='last-updated-text'>{escape(format_timestamp_for_display(latest_update_display))}</strong></div>"
-        "<div class='status-line'>Auto refresh 5s</div>"
-        "<div class='toolbar-spacer'></div>"
-        "<button type='button' class='action-button' id='manual-refresh-button'>MANUAL REFRESH</button>"
-        "</div>"
         f"{room_nav_html}"
         f"<div class='dashboard-tab-shell' data-dashboard-active-room='{active_room}'>{room_content_html}</div>"
         "</div>"
@@ -270,6 +271,18 @@ def render_dashboard_body(
     recent_events = snapshot.get("recent_events") or []
     equity_value = latest_account_snapshot.get("equity")
     position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
+    position_count = len(position_details)
+    protected_position_count = sum(
+        1
+        for position in position_details
+        if position.get("stop_price") not in (None, "", "n/a")
+    )
+    if position_count == 0:
+        stop_coverage_tone = "neutral"
+    elif protected_position_count == position_count:
+        stop_coverage_tone = "success"
+    else:
+        stop_coverage_tone = "danger"
     trader_metrics = build_trader_summary_metrics(
         snapshot,
         position_details=position_details,
@@ -284,9 +297,25 @@ def render_dashboard_body(
         trader_metrics=trader_metrics,
         account_range_stats=account_range_stats,
     )
+    live_context = (
+        {"label": "Current Leader", "value": str(latest_signal_symbol), "tone": "accent"},
+        {"label": "Decision", "value": str(decision_status), "tone": "neutral"},
+        {
+            "label": "Stops Covered",
+            "value": f"{protected_position_count} / {position_count}",
+            "tone": stop_coverage_tone,
+        },
+        {"label": "Last Evaluation", "value": latest_signal_time, "tone": "neutral"},
+        {
+            "label": "System State",
+            "value": str(health_status),
+            "tone": "success" if health_status == "OK" else "danger",
+        },
+    )
     core_lines_html = _build_live_core_lines_panel(
         timeseries["core_live_timeline"],
         account_range_key=account_range_key,
+        live_context=live_context,
     )
     trade_fills = snapshot.get("recent_trade_fills") or []
     recent_signal_decisions = snapshot.get("recent_signal_decisions") or []
@@ -422,12 +451,8 @@ def render_dashboard_body(
         )
         for label, value in performance_summary_items
     )
-    hero_html = (
-        "<section class='hero-grid'>"
-        "<div class='hero-card hero-card-wide'>"
-        "<div class='hero-eyebrow'>LIVE OVERVIEW</div>"
-        "<div class='hero-title'>ACTIVE SIGNAL</div>"
-        "<div class='hero-copy'>Keep the current decision, rotation context, and blocked reasons in one glance before drilling into execution details.</div>"
+    active_signal_html = (
+        "<div class='live-support-detail live-signal-detail'>"
         "<div class='decision-grid'>"
         "<div class='decision-item'>"
         "<div class='decision-label'>Decision Type</div>"
@@ -456,16 +481,26 @@ def render_dashboard_body(
         "</div>"
         "</div>"
         "</div>"
-        "<div class='hero-card hero-card-compact'>"
-        "<div class='hero-eyebrow'>LEADER ROTATION</div>"
-        "<div class='hero-title'>Sequence Monitor</div>"
+    )
+    leader_rotation_html = (
+        "<div class='live-support-detail live-rotation-detail'>"
         f"<div class='chart-container'>{timeline_chart}</div>"
         "<div class='rotation-summary'>"
         "<div class='rotation-summary-label'>Recent Sequence</div>"
         f"<div class='rotation-summary-value'>{escape(recent_leader_sequence_html)}</div>"
         "</div>"
         "</div>"
-        "</section>"
+    )
+    rotation_count = int(trader_metrics["signals"].get("rotation_count") or 0)
+    active_signal_summary = f"{decision_status} / {latest_signal_symbol}"
+    leader_rotation_summary = f"{latest_signal_symbol} / {rotation_count} rotations"
+    positions_summary = (
+        f"{position_count} open / {protected_position_count} protected"
+        if position_count
+        else "No open positions"
+    )
+    execution_flow_summary = (
+        f"{len(trade_fills)} fills / {len(recent_broker_orders)} broker actions"
     )
     room_nav_html = render_dashboard_room_nav(
         active_room,
@@ -477,9 +512,14 @@ def render_dashboard_body(
         "live": render_dashboard_live_room(
             account_risk_html=account_risk_html,
             core_lines_html=core_lines_html,
-            hero_html=hero_html,
+            active_signal_html=active_signal_html,
+            active_signal_summary=active_signal_summary,
+            leader_rotation_html=leader_rotation_html,
+            leader_rotation_summary=leader_rotation_summary,
             positions_html=render_position_cards(position_details),
+            positions_summary=positions_summary,
             execution_flow_html=execution_flow_html,
+            execution_flow_summary=execution_flow_summary,
         ),
         "review": render_dashboard_review_room(
             active_review_view=review_view if active_room == "review" else "overview",

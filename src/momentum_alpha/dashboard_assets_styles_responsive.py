@@ -13,9 +13,11 @@ def _render_dashboard_responsive_styles() -> str:
       .decision-row { grid-template-columns: 1fr; }
       .bottom-row { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .live-core-lines-head { flex-direction: column; align-items: flex-start; }
+      .live-core-lines-head { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+      .live-core-context { grid-column: 1 / -1; grid-row: 2; }
       .live-core-lines-summary { max-width: none; }
-      .core-live-range-controls { justify-content: flex-start; width: 100%; }
+      .core-live-range-controls { justify-content: flex-end; }
+      .live-support-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .system-console-grid { grid-template-columns: 1fr; }
       .execution-flow-row { grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.2fr) minmax(140px, 0.72fr); }
       .review-analysis-evidence-grid { grid-template-columns: 1fr; }
@@ -37,25 +39,32 @@ def _render_dashboard_responsive_styles() -> str:
     }
     @media (max-width: 768px) {
       .app { padding: 12px; }
-      .app-shell { padding: 18px; border-radius: 18px; }
+      .app-shell { padding: 0; }
       .cosmic-identity-panel { padding: 16px; }
       .cosmic-identity-title { font-size: 2rem; letter-spacing: 0.14em; }
       .cosmic-visual-tiles { grid-template-columns: 1fr; }
       .metrics-grid { grid-template-columns: 1fr; }
       .header { flex-direction: column; align-items: flex-start; gap: 16px; }
-      .header-status { justify-content: flex-start; }
-      .dashboard-tabs { padding: 8px; gap: 8px; }
-      .dashboard-tab { flex: 1 1 calc(50% - 8px); min-width: 0; }
+      .header-status { justify-content: flex-start; width: 100%; }
+      .header-runtime { justify-content: flex-start; width: 100%; flex-wrap: wrap; }
+      .dashboard-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; gap: 4px; }
+      .dashboard-tab { min-width: 0; padding-inline: 2px; font-size: 0.66rem; white-space: nowrap; }
       .decision-grid { grid-template-columns: 1fr; }
       .positions-table { min-width: 1040px; font-size: 0.68rem; }
       .positions-table th, .positions-table td { padding: 8px; }
       .trade-row { min-width: 640px; grid-template-columns: 60px 80px 50px 60px 70px 60px 60px; font-size: 0.7rem; }
       .analytics-grid { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: 1fr; }
-      .live-core-lines-head { flex-direction: column; align-items: flex-start; }
+      .live-core-lines-head { grid-template-columns: 1fr; align-items: flex-start; }
+      .live-core-context { grid-column: auto; grid-row: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .live-core-context-item { padding: 8px 10px; border-bottom: 1px solid var(--border); }
       .live-core-lines-summary { max-width: none; }
       .core-live-range-controls { justify-content: flex-start; width: 100%; }
       .live-core-lines-grid { grid-template-columns: 1fr; }
+      .live-support-grid { grid-template-columns: 1fr; }
+      .live-support-card[open] { grid-column: auto; }
+      .live-signal-detail .decision-grid { grid-template-columns: 1fr; }
+      .live-rotation-detail { grid-template-columns: 1fr; }
       .system-console-grid { grid-template-columns: 1fr; }
       .execution-flow-row { grid-template-columns: 1fr; gap: 4px; align-items: flex-start; }
       .execution-flow-detail { text-align: left; }

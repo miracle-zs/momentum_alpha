@@ -110,12 +110,29 @@ def _build_account_snapshot_panel(stats: dict[str, float | None]) -> str:
         "</div>"
         "</section>"
     )
+
+
+def _metric_tone_class(value: object) -> str:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return " value-neutral"
+    if numeric_value > 0:
+        return " value-positive"
+    if numeric_value < 0:
+        return " value-negative"
+    return " value-neutral"
+
+
 def _build_live_account_risk_panel(
     *,
     trader_metrics: dict[str, dict[str, object | None]],
     account_range_stats: dict[str, float | None],
 ) -> str:
     account_metrics = trader_metrics["account"]
+    today_pnl_tone = _metric_tone_class(account_metrics.get("today_net_pnl"))
+    unrealized_pnl_tone = _metric_tone_class(account_metrics.get("current_unrealized_pnl"))
+    drawdown_tone = _metric_tone_class(account_range_stats.get("drawdown_abs"))
     try:
         open_risk_pct = float(account_metrics.get("open_risk_pct"))
     except (TypeError, ValueError):
@@ -135,14 +152,21 @@ def _build_live_account_risk_panel(
         f"<div class='decision-item'><div class='decision-label'>Available Balance</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_available_balance')))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Margin Usage</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('margin_usage_pct')))}</div></div>"
         f"<div class='decision-item{open_risk_state}'><div class='decision-label'>OPEN RISK / EQUITY</div><div class='decision-value'>{escape(_format_pct_value(account_metrics.get('open_risk_pct')))}</div><div class='decision-support'>{escape(_format_metric(account_metrics.get('open_risk')))} USDT at risk</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Today Net PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('today_net_pnl'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Unrealized PnL</div><div class='decision-value'>{escape(_format_metric(account_metrics.get('current_unrealized_pnl'), signed=True))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct_value(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Today Net PnL</div><div class='decision-value{today_pnl_tone}'>{escape(_format_metric(account_metrics.get('today_net_pnl'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Unrealized PnL</div><div class='decision-value{unrealized_pnl_tone}'>{escape(_format_metric(account_metrics.get('current_unrealized_pnl'), signed=True))}</div></div>"
+        f"<div class='decision-item'><div class='decision-label'>Current Drawdown</div><div class='decision-value{drawdown_tone}'>{escape(_format_metric(account_range_stats.get('drawdown_abs'), signed=True))}</div><div class='decision-support'>{escape(_format_pct_value(account_range_stats.get('drawdown_pct'), signed=True))}</div></div>"
         f"<div class='decision-item'><div class='decision-label'>Positions / Orders</div><div class='decision-value'>{escape(str(account_metrics.get('current_positions') or 0))} / {escape(str(account_metrics.get('current_orders') or 0))}</div></div>"
         "</div>"
         "</section>"
     )
-def _build_live_core_lines_panel(core_live_points: list[dict], *, account_range_key: str = "1D") -> str:
+
+
+def _build_live_core_lines_panel(
+    core_live_points: list[dict],
+    *,
+    account_range_key: str = "1D",
+    live_context: tuple[dict[str, str], ...] = (),
+) -> str:
     chart_specs = (
         ("Account Equity", "equity", "#4cc9f0", "", False),
         ("Margin Usage %", "margin_usage_pct", "#ff8c42", "", False),
@@ -160,6 +184,18 @@ def _build_live_core_lines_panel(core_live_points: list[dict], *, account_range_
         )
         for range_key in range_keys
     )
+    allowed_tones = {"accent", "success", "warning", "danger", "neutral"}
+    context_items = "".join(
+        (
+            "<div class='live-core-context-item'>"
+            f"<div class='live-core-context-label'>{escape(str(item.get('label') or ''))}</div>"
+            f"<div class='live-core-context-value live-core-context-value--{escape(str(item.get('tone') or 'neutral')) if str(item.get('tone') or 'neutral') in allowed_tones else 'neutral'}'>"
+            f"{escape(str(item.get('value') or 'n/a'))}</div>"
+            "</div>"
+        )
+        for item in live_context
+    )
+    context_html = f"<div class='live-core-context'>{context_items}</div>" if context_items else ""
     data_json = json.dumps(core_live_points, ensure_ascii=False).replace("</", "<\\/")
     chart_cards = "".join(
         (
@@ -179,10 +215,11 @@ def _build_live_core_lines_panel(core_live_points: list[dict], *, account_range_
     return (
         "<section class='dashboard-section live-core-lines-panel'>"
         "<div class='live-core-lines-head'>"
-        "<div>"
+        "<div class='live-core-lines-title-block'>"
         "<div class='section-header'>CORE LIVE LINES</div>"
         "<div class='live-core-lines-summary' data-core-live-summary data-core-live-summary-state='loading'>Loading charts</div>"
         "</div>"
+        f"{context_html}"
         "<div class='core-live-range-controls' role='group' aria-label='CORE LIVE LINES range'>"
         f"{range_buttons}"
         "</div>"

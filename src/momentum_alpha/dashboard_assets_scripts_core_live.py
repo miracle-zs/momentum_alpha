@@ -321,6 +321,11 @@ def render_dashboard_core_live_script() -> str:
       if (currentJson && nextJson) {
         currentJson.textContent = nextJson.textContent || '[]';
       }
+      const currentContext = currentBand.querySelector('.live-core-context');
+      const nextContext = nextBand.querySelector('.live-core-context');
+      if (currentContext && nextContext) {
+        currentContext.replaceWith(nextContext.cloneNode(true));
+      }
       const summaryNode = getCoreLiveSummaryNode();
       if (summaryNode) {
         summaryNode.textContent = 'Loading charts';

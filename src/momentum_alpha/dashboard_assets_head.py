@@ -69,19 +69,12 @@ def render_dashboard_head() -> str:
     .app {{
       max-width: 1600px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 8px 20px 16px;
     }}
     .app-shell {{
       position: relative;
-      border: 1px solid rgba(245,210,138,0.1);
-      border-radius: 30px;
-      padding: 28px;
-      background:
-        radial-gradient(circle at 18% 12%, rgba(245,210,138,0.06), transparent 22%),
-        radial-gradient(circle at 82% 4%, rgba(138,210,255,0.06), transparent 18%),
-        linear-gradient(180deg, rgba(10,12,18,0.94), rgba(5,6,10,0.98));
-      box-shadow: 0 28px 90px rgba(0,0,0,0.42);
-      overflow: hidden;
+      padding: 0;
+      background: transparent;
     }}
     .app-shell::before {{
       content: '';
@@ -98,36 +91,48 @@ def render_dashboard_head() -> str:
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 22px;
-      padding: 18px 0 20px;
+      gap: 18px;
+      margin-bottom: 0;
+      padding: 10px 0 12px;
       border-bottom: 1px solid var(--border);
     }}
     .header-left {{
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
+      flex: 0 0 auto;
     }}
     .header-status {{
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
+      min-width: 0;
+      flex: 1 1 auto;
+    }}
+    .header-runtime {{
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      min-width: 0;
+      margin-right: 4px;
     }}
     .logo {{
-      width: 48px;
-      height: 48px;
+      width: 40px;
+      height: 40px;
       background: linear-gradient(135deg, rgba(245,210,138,0.96), rgba(138,210,255,0.68));
-      border-radius: 12px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: 20px;
       font-weight: 700;
       box-shadow: 0 4px 20px var(--accent-glow);
     }}
     .title-group h1 {{
-      font-size: 1.5rem;
+      font-size: 1.15rem;
       font-weight: 600;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -137,14 +142,14 @@ def render_dashboard_head() -> str:
       background-clip: text;
     }}
     .title-group p {{
-      font-size: 0.8rem;
+      font-size: 0.7rem;
       color: var(--fg-muted);
-      margin-top: 2px;
+      margin-top: 1px;
     }}
     .status-badge {{
-      padding: 10px 20px;
+      padding: 7px 12px;
       border-radius: 100px;
-      font-size: 0.85rem;
+      font-size: 0.7rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -162,9 +167,9 @@ def render_dashboard_head() -> str:
       animation: pulse-danger 2s infinite;
     }}
     .mode-badge {{
-      padding: 10px 16px;
+      padding: 7px 11px;
       border-radius: 100px;
-      font-size: 0.78rem;
+      font-size: 0.68rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.12em;
@@ -305,39 +310,32 @@ def render_dashboard_head() -> str:
     .dashboard-tabs {{
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 10px;
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      background: rgba(255,255,255,0.02);
-      backdrop-filter: blur(18px);
+      gap: 26px;
+      margin-bottom: 14px;
+      padding: 0 2px;
+      border-bottom: 1px solid var(--border);
     }}
     .dashboard-tab {{
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 120px;
-      padding: 10px 16px;
-      border-radius: 999px;
-      border: 1px solid transparent;
+      min-width: 0;
+      padding: 11px 2px 10px;
+      border-bottom: 2px solid transparent;
       color: var(--fg-muted);
       text-decoration: none;
-      font-size: 0.76rem;
+      font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       transition: transform 0.2s, background 0.2s, border-color 0.2s, color 0.2s;
     }}
     .dashboard-tab:hover {{
-      transform: translateY(-1px);
       color: var(--fg);
-      background: rgba(255,255,255,0.04);
+      border-bottom-color: rgba(245,210,138,0.28);
     }}
     .dashboard-tab.is-active {{
-      color: var(--fg);
-      border-color: var(--border-accent);
-      background: rgba(245,210,138,0.1);
-      box-shadow: 0 0 0 1px rgba(245,210,138,0.08);
+      color: var(--accent);
+      border-bottom-color: var(--accent);
     }}
     .dashboard-tab-shell {{
       min-height: 480px;
@@ -352,20 +350,20 @@ def render_dashboard_head() -> str:
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 12px;
+      padding: 6px 9px;
       border-radius: 999px;
       background: rgba(255,255,255,0.04);
       border: 1px solid var(--border);
       color: var(--fg-muted);
-      font-size: 0.76rem;
+      font-size: 0.68rem;
     }}
     .action-button {{
       border: 1px solid var(--border-accent);
       background: rgba(245,210,138,0.08);
       color: var(--fg);
       border-radius: 999px;
-      padding: 9px 14px;
-      font-size: 0.72rem;
+      padding: 7px 10px;
+      font-size: 0.68rem;
       letter-spacing: 0.12em;
       text-transform: uppercase;
       cursor: pointer;
@@ -378,6 +376,13 @@ def render_dashboard_head() -> str:
     .action-button.is-refreshing {{
       border-color: rgba(255,184,0,0.35);
       background: rgba(255,184,0,0.1);
+    }}
+    .header-refresh-button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 30px;
     }}
 
     <!-- render_dashboard_styles -->

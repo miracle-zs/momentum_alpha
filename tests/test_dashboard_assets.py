@@ -35,16 +35,18 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js", head)
         self.assertIn("echarts-ready", head)
 
-    def test_dashboard_styles_stack_live_positions_and_render_order_flow_as_rows(self) -> None:
+    def test_dashboard_styles_use_expandable_live_support_cards_and_order_flow_rows(self) -> None:
         from momentum_alpha import dashboard_assets
 
         styles = dashboard_assets.render_dashboard_styles()
 
         self.assertIn(
-            ".live-decision-grid { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }",
+            "grid-template-columns: repeat(4, minmax(0, 1fr));",
             styles,
         )
-        self.assertIn(".live-decision-grid .execution-flow-panel { margin-bottom: 0; }", styles)
+        self.assertIn(".live-support-card[open] {", styles)
+        self.assertIn("grid-column: 1 / -1;", styles)
+        self.assertIn(".live-support-body > .execution-flow-panel > .section-header {", styles)
         self.assertIn(".execution-flow-grid { display: flex; flex-direction: column; gap: 12px; }", styles)
         self.assertIn(".execution-flow-group { display: flex; flex-direction: column; gap: 8px; }", styles)
         self.assertIn(".execution-flow-group + .execution-flow-group { padding-top: 10px; border-top: 1px solid rgba(184,160,120,0.12); }", styles)

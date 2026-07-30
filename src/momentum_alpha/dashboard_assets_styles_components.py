@@ -217,31 +217,87 @@ def _render_dashboard_component_styles() -> str:
     .review-analysis-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
     .review-analysis-card { display: flex; flex-direction: column; gap: 10px; }
     .review-section-label { font-size: 0.68rem; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
-    .live-control-frame { display: flex; flex-direction: column; gap: 16px; }
+    .live-control-frame { display: flex; flex-direction: column; gap: 14px; margin-bottom: 0; }
     .live-risk-band,
-    .live-core-lines-band,
-    .live-signal-band {
+    .live-core-lines-band {
       width: 100%;
-      padding: 16px;
+      padding: 8px 14px 5px;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      background: linear-gradient(180deg, rgba(245,210,138,0.05), rgba(0,0,0,0.16));
+      background: rgba(5,8,13,0.56);
     }
     .live-core-lines-band {
-      background: linear-gradient(180deg, rgba(245,210,138,0.08), rgba(0,0,0,0.2));
+      padding: 12px;
+      border-color: rgba(245,210,138,0.2);
+      background: linear-gradient(180deg, rgba(245,210,138,0.055), rgba(0,0,0,0.2));
+    }
+    .live-risk-band > .dashboard-section,
+    .live-core-lines-band > .dashboard-section {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    .live-account-risk-panel > .section-header {
+      margin-bottom: 4px;
     }
     .live-core-lines-head {
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(150px, 0.65fr) minmax(500px, 2fr) auto;
       align-items: flex-end;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    .live-core-lines-title-block {
+      min-width: 0;
+    }
+    .live-core-lines-title-block .section-header {
+      margin-bottom: 5px;
+    }
+    .live-core-context {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      min-width: 0;
+      border-left: 1px solid var(--border);
+    }
+    .live-core-context-item {
+      min-width: 0;
+      padding: 0 11px 2px;
+      border-right: 1px solid var(--border);
+    }
+    .live-core-context-label {
+      margin-bottom: 4px;
+      color: var(--fg-muted);
+      font-size: 0.58rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .live-core-context-value {
+      overflow: hidden;
+      color: var(--fg);
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .live-core-context-value--accent { color: var(--accent); }
+    .live-core-context-value--success { color: var(--success); }
+    .live-core-context-value--warning { color: var(--warning); }
+    .live-core-context-value--danger { color: var(--danger); }
+    .live-core-context-value--neutral { color: var(--fg); }
+    .live-core-context-value--accent,
+    .live-core-context-value--success,
+    .live-core-context-value--warning,
+    .live-core-context-value--danger {
+      text-shadow: 0 0 14px currentColor;
     }
     .live-core-lines-summary {
       color: var(--fg-muted);
-      font-size: 0.75rem;
+      font-size: 0.66rem;
       letter-spacing: 0;
-      max-width: 520px;
+      max-width: 240px;
       line-height: 1.4;
     }
     .live-core-lines-summary[data-core-live-summary-state='ready'] {
@@ -260,25 +316,30 @@ def _render_dashboard_component_styles() -> str:
       display: flex;
       align-items: center;
       justify-content: flex-end;
-      gap: 8px;
+      gap: 5px;
       flex-wrap: wrap;
       flex: 0 0 auto;
     }
     .core-live-range-chip {
-      min-width: 44px;
+      min-width: 38px;
+      min-height: 29px;
+      padding: 5px 8px;
       justify-content: center;
     }
     .live-core-lines-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .live-core-line-card {
-      min-height: 248px;
+      min-height: 244px;
+      padding: 12px;
+      border: 1px solid rgba(184,160,120,0.14);
+      background: rgba(0,0,0,0.24);
     }
     .live-core-chart {
       width: 100%;
-      height: 190px;
-      min-height: 190px;
+      height: 188px;
+      min-height: 188px;
     }
     .live-core-chart .chart-empty {
-      min-height: 190px;
+      min-height: 188px;
     }
     .live-core-chart[data-core-live-chart-state='loading'] .chart-empty {
       color: var(--fg-muted);
@@ -297,15 +358,122 @@ def _render_dashboard_component_styles() -> str:
     .live-core-line-card--open-risk .section-header {
       color: var(--danger);
     }
-    .live-signal-band {
-      background: linear-gradient(180deg, rgba(74,201,240,0.06), rgba(0,0,0,0.14));
-    }
     .live-account-risk-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-auto-rows: 68px;
+      gap: 1px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--border);
     }
-    .live-decision-grid { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
-    .live-decision-grid .execution-flow-panel { margin-bottom: 0; }
-    .live-card-shell { margin-bottom: 0; }
+    .live-account-risk-grid .decision-item {
+      min-height: 0;
+      padding: 6px 13px;
+      border: 0;
+      border-radius: 0;
+      background: rgba(5,8,13,0.96);
+    }
+    .live-account-risk-grid .decision-item.warning {
+      box-shadow: inset 3px 0 0 var(--warning);
+    }
+    .live-account-risk-grid .decision-item.danger {
+      box-shadow: inset 3px 0 0 var(--danger);
+    }
+    .live-account-risk-grid .decision-label {
+      margin-bottom: 4px;
+      font-size: 0.6rem;
+    }
+    .live-account-risk-grid .decision-value {
+      font-size: 1.02rem;
+    }
+    .live-account-risk-grid .decision-support {
+      margin-top: 3px;
+      color: var(--fg-muted);
+      font-size: 0.62rem;
+    }
+    .live-support-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .live-support-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(5,8,13,0.72);
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .live-support-card:hover {
+      border-color: rgba(245,210,138,0.28);
+      background: rgba(245,210,138,0.045);
+    }
+    .live-support-card[open] {
+      grid-column: 1 / -1;
+      border-color: rgba(245,210,138,0.28);
+      background: rgba(5,8,13,0.9);
+    }
+    .live-support-summary {
+      min-height: 76px;
+      padding: 12px 15px;
+      cursor: pointer;
+    }
+    .live-support-summary::marker {
+      color: var(--accent);
+    }
+    .live-support-title {
+      display: block;
+      color: var(--accent);
+      font-size: 0.66rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .live-support-status {
+      display: block;
+      min-width: 0;
+      margin-top: 9px;
+      overflow: hidden;
+      color: var(--fg-muted);
+      font-size: 0.7rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .live-support-body {
+      padding: 14px;
+      border-top: 1px solid var(--border);
+    }
+    .live-support-detail {
+      min-width: 0;
+    }
+    .live-signal-detail .decision-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .live-rotation-detail {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(240px, 0.8fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .live-rotation-detail .chart-container,
+    .live-rotation-detail .rotation-summary {
+      margin-top: 0;
+    }
+    .live-support-body > .dashboard-section {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    .live-support-body > .execution-flow-panel > .section-header {
+      display: none;
+    }
+    .live-support-body .positions-table-shell {
+      border-radius: 8px;
+    }
     .live-ops-grid { display: grid; grid-template-columns: 1fr 0.95fr; gap: 16px; align-items: start; }
     .system-analysis-shell { display: flex; flex-direction: column; gap: 16px; }
     .system-summary-strip { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: linear-gradient(180deg, rgba(138,210,255,0.06), rgba(0,0,0,0.16)); }

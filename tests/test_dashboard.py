@@ -353,7 +353,7 @@ class DashboardTests(unittest.TestCase):
         html = render_dashboard_html(self._build_tabbed_snapshot(), active_room="live")
 
         self.assertIn('data-dashboard-room-content="live"', html)
-        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("ACTIVE SIGNAL", html)
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("ORDER FLOW", html)
         self.assertIn("Latest Fill", html)
@@ -428,7 +428,7 @@ class DashboardTests(unittest.TestCase):
 
         self.assertIn("ACCOUNT RISK", live_html)
         self.assertIn("CORE LIVE LINES", live_html)
-        self.assertIn("LIVE OVERVIEW", live_html)
+        self.assertIn("ACTIVE SIGNAL", live_html)
         self.assertNotIn("Closed Trade Detail", live_html)
         self.assertIn("Closed Trade Detail", review_html)
         self.assertIn("TRADE REVIEW SUMMARY", review_html)
@@ -752,7 +752,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("window.location.pathname", overview_html)
         self.assertIn("app", overview_html)
         self.assertIn("metric", overview_html)
-        self.assertIn("LIVE OVERVIEW", overview_html)
+        self.assertIn("ACTIVE SIGNAL", overview_html)
         self.assertIn("LEADER ROTATION", overview_html)
         self.assertNotIn("POSITION SUMMARY", overview_html)
         self.assertNotIn("HOME COMMAND", overview_html)
@@ -918,7 +918,7 @@ class DashboardTests(unittest.TestCase):
             "EQUITY",
             "Today Net PnL",
             "OPEN RISK / EQUITY",
-            "LIVE OVERVIEW",
+            "ACTIVE SIGNAL",
         ):
             self.assertIn(label, overview_html)
         for duplicate_label in (
@@ -940,7 +940,9 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("EXECUTION QUALITY", overview_html)
         self.assertNotIn("STRATEGY PERFORMANCE", overview_html)
         self.assertNotIn("SYSTEM OPERATIONS", overview_html)
-        self.assertLess(overview_html.index("LIVE OVERVIEW"), overview_html.index("ACTIVE POSITIONS"))
+        self.assertLess(overview_html.index("ACCOUNT RISK"), overview_html.index("CORE LIVE LINES"))
+        self.assertLess(overview_html.index("CORE LIVE LINES"), overview_html.index("ACTIVE SIGNAL"))
+        self.assertLess(overview_html.index("ACTIVE SIGNAL"), overview_html.index("ACTIVE POSITIONS"))
 
     def test_render_dashboard_html_refocuses_overview_as_live_workbench(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
@@ -3290,7 +3292,7 @@ console.log(JSON.stringify(cases));
 
         self.assertIn("ACCOUNT RISK", html)
         self.assertIn("CORE LIVE LINES", html)
-        self.assertIn("LIVE OVERVIEW", html)
+        self.assertIn("ACTIVE SIGNAL", html)
         self.assertIn("OPEN RISK / EQUITY", html)
         self.assertIn("Account Equity", html)
         self.assertIn("Margin Usage %", html)
@@ -3894,6 +3896,8 @@ console.log(JSON.stringify(cases));
         self.assertIn("window.location.search", html)
         self.assertIn("document.getElementById('manual-refresh-button')", html)
         self.assertIn("replaceSectionFromDocument", html)
+        self.assertIn("getOpenLiveSupportKeys", html)
+        self.assertIn("restoreOpenLiveSupportCards(openLiveSupportKeys)", html)
         self.assertIn("data-dashboard-room-content=\"live\"", html)
 
     def test_render_dashboard_html_prioritizes_live_overview_and_compacts_position_cards(self) -> None:
@@ -3975,17 +3979,19 @@ console.log(JSON.stringify(cases));
             strategy_config={"stop_budget_usdt": "10", "entry_window": "01:00-23:00 UTC", "testnet": True, "submit_orders": False},
         )
 
-        self.assertIn("LIVE OVERVIEW", html)
         self.assertIn("ACTIVE SIGNAL", html)
-        self.assertIn("MANUAL REFRESH", html)
+        self.assertIn("Refresh dashboard", html)
         self.assertIn("Last update", html)
         self.assertIn("ACTIVE POSITIONS", html)
         self.assertIn("Distance", html)
         self.assertIn("Notional", html)
         self.assertIn("live-account-risk-grid", html)
         self.assertIn("live-core-lines-band", html)
-        self.assertIn("live-signal-band", html)
-        self.assertIn("live-decision-grid", html)
+        self.assertIn("live-support-grid", html)
+        self.assertEqual(html.count("class='live-support-card'"), 4)
+        self.assertEqual(html.count("data-live-support-card="), 4)
+        self.assertIn("Current Leader", html)
+        self.assertIn("Stops Covered", html)
         self.assertNotIn("live-decision-side", html)
         self.assertIn("Execution Results", html)
         self.assertIn("Execution Chain", html)
