@@ -43,5 +43,5 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.stop_budget_usdt, Decimal("10"))
         self.assertEqual(config.entry_start_hour_utc, 1)
         self.assertEqual(config.entry_end_hour_utc, 23)
-        self.assertEqual(config.blocked_base_entry_hour_beijing, 9)
+        self.assertEqual(config.blocked_base_entry_hours_beijing, (9, 10))
         self.assertEqual(config.first_add_on_min_hold_minutes, 30)

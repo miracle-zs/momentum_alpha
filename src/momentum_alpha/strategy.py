@@ -31,11 +31,10 @@ def _in_entry_window(now: datetime, *, start_hour_utc: int = 1, end_hour_utc: in
     return now.hour >= start_hour_utc or now.hour <= end_hour_utc
 
 
-def _in_blocked_beijing_hour(now: datetime, *, blocked_hour: int | None) -> bool:
-    if blocked_hour is None:
-        return False
+def _blocked_beijing_hour(now: datetime, *, blocked_hours: tuple[int, ...]) -> int | None:
     beijing = timezone(timedelta(hours=8))
-    return now.astimezone(beijing).hour == blocked_hour
+    local_hour = now.astimezone(beijing).hour
+    return local_hour if local_hour in blocked_hours else None
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -57,7 +56,7 @@ def evaluate_minute_close(
     market: dict[str, MarketSnapshot],
     entry_start_hour_utc: int = 1,
     entry_end_hour_utc: int = 23,
-    blocked_base_entry_hour_beijing: int | None = 9,
+    blocked_base_entry_hours_beijing: tuple[int, ...] = (9, 10),
 ) -> MinuteCloseDecision:
     daily_base_signal_times = dict(state.daily_base_signal_times)
     daily_base_signal_counts = dict(state.daily_base_signal_counts)
@@ -77,6 +76,10 @@ def evaluate_minute_close(
     leader_changed = leader != state.previous_leader_symbol
     stop_price = _entry_stop_price(snapshot)
     cooldown_expires_at = state.recent_stop_loss_exits.get(leader)
+    blocked_beijing_hour = _blocked_beijing_hour(
+        now,
+        blocked_hours=blocked_base_entry_hours_beijing,
+    )
     blocked_reason: str | None = None
     if not _in_entry_window(now, start_hour_utc=entry_start_hour_utc, end_hour_utc=entry_end_hour_utc):
         blocked_reason = "outside_entry_window"
@@ -111,8 +114,8 @@ def evaluate_minute_close(
                     ),
                 )
             )
-        elif _in_blocked_beijing_hour(now, blocked_hour=blocked_base_entry_hour_beijing):
-            blocked_reason = "beijing_09_base_block"
+        elif blocked_beijing_hour is not None:
+            blocked_reason = f"beijing_{blocked_beijing_hour:02d}_base_block"
             skipped_base_entries.append(
                 SkippedBaseEntry(
                     symbol=leader,
@@ -214,7 +217,7 @@ def process_clock_tick(
     last_add_on_hour: int | None = None,
     entry_start_hour_utc: int = 1,
     entry_end_hour_utc: int = 23,
-    blocked_base_entry_hour_beijing: int | None = 9,
+    blocked_base_entry_hours_beijing: tuple[int, ...] = (9, 10),
     first_add_on_min_hold_minutes: int = 30,
 ) -> TickDecision:
     minute_close = evaluate_minute_close(
@@ -223,7 +226,7 @@ def process_clock_tick(
         market=market,
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
-        blocked_base_entry_hour_beijing=blocked_base_entry_hour_beijing,
+        blocked_base_entry_hours_beijing=blocked_base_entry_hours_beijing,
     )
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []
