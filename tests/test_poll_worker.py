@@ -404,7 +404,7 @@ class PollWorkerTests(unittest.TestCase):
 
         self.assertEqual(calls, [1, 2])
 
-    def test_run_forever_refreshes_auto_symbols_during_long_running_poll(self) -> None:
+    def test_run_forever_refreshes_auto_symbols_at_a_low_frequency(self) -> None:
         from momentum_alpha.execution import ExecutionPlan
         from momentum_alpha.models import StrategyState, TickDecision
         from momentum_alpha.poll_worker import RunOnceResult, run_forever
@@ -465,22 +465,28 @@ class PollWorkerTests(unittest.TestCase):
         times = [
             datetime(2026, 4, 21, 1, 0, tzinfo=timezone.utc),
             datetime(2026, 4, 21, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 4, 21, 2, 0, tzinfo=timezone.utc),
         ]
 
+        client = Client()
         run_forever(
             symbols=None,
             previous_leader_symbol=None,
             submit_orders=False,
             runtime_state_store=None,
-            client_factory=lambda: Client(),
+            client_factory=lambda: client,
             broker_factory=lambda client: Broker(),
             now_provider=lambda: times.pop(0),
             sleep_fn=lambda seconds: None,
-            max_ticks=2,
+            max_ticks=3,
             run_once_live_fn=live_runner,
         )
 
-        self.assertEqual(symbol_batches[-1], ["BTCUSDT", "NEWUSDT"])
+        self.assertEqual(
+            symbol_batches,
+            [["BTCUSDT"], ["BTCUSDT"], ["BTCUSDT", "NEWUSDT"]],
+        )
+        self.assertEqual(client.exchange_info_calls, 2)
 
     def test_run_once_live_restores_daily_base_history_without_positions(self) -> None:
         from momentum_alpha.poll_worker_core_live import run_once_live

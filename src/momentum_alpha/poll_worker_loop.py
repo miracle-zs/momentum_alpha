@@ -22,6 +22,9 @@ from momentum_alpha.trace_ids import build_intent_id_from_client_order_id
 from .poll_worker_core import run_once_live
 
 
+AUTO_SYMBOL_REFRESH_INTERVAL = timedelta(hours=1)
+
+
 def _install_shutdown_handlers(
     *,
     shutdown_requested: threading.Event,
@@ -94,6 +97,7 @@ def run_forever(
     resolved_symbols = market_data_cache.resolve_symbols(symbols=symbols, client=client)
     rate_limited_until = None
     last_add_on_hour: int | None = None
+    last_auto_symbol_refresh_at = None
 
     def _log(event: str, *, level: str = "INFO", **fields) -> None:
         emit_structured_log(logger, service="poll", event=event, level=level, **fields)
@@ -125,6 +129,7 @@ def run_forever(
 
     def _run_once(now):
         nonlocal rate_limited_until, last_add_on_hour
+        nonlocal last_auto_symbol_refresh_at
         nonlocal resolved_symbols, previous_leader_symbol
         if rate_limited_until is not None and now < rate_limited_until:
             _log("rate-limit-backoff", level="WARN", until=rate_limited_until)
@@ -140,7 +145,12 @@ def run_forever(
             else:
                 last_add_on_hour = (now.hour - 1) % 24 if now.minute == 0 else now.hour
         if symbols is None:
-            resolved_symbols = list(market_data_cache.refresh_exchange_symbols(client=client).keys())
+            if last_auto_symbol_refresh_at is None:
+                last_auto_symbol_refresh_at = now
+            elif now - last_auto_symbol_refresh_at >= AUTO_SYMBOL_REFRESH_INTERVAL:
+                market_data_cache.refresh_exchange_symbols(client=client)
+                last_auto_symbol_refresh_at = now
+            resolved_symbols = list(market_data_cache.exchange_symbol_map(client=client).keys())
         _log("tick", now=now, last_add_on_hour=last_add_on_hour)
         try:
             result = run_once_live_fn(
