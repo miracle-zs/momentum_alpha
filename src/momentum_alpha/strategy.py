@@ -3,18 +3,24 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from momentum_alpha.exchange_info import ExchangeSymbol
 from momentum_alpha.leg_semantics import is_add_on_leg
 from momentum_alpha.models import (
     EntryIntent,
     HourCloseDecision,
     MarketSnapshot,
     MinuteCloseDecision,
+    Position,
     SkippedAddOn,
     SkippedBaseEntry,
     StrategyState,
     TickDecision,
 )
+from momentum_alpha.sizing import size_from_stop_budget
 from momentum_alpha.trace_ids import build_shadow_opportunity_id
+
+
+DEFAULT_TAKER_FEE_RATE = Decimal("0.0005")
 
 
 def _leader_symbol(market: dict[str, MarketSnapshot]) -> str | None:
@@ -147,6 +153,64 @@ def evaluate_minute_close(
     )
 
 
+def _add_on_order_parameters(
+    *,
+    symbol: str,
+    entry_price: Decimal | None,
+    stop_price: Decimal,
+    stop_budget: Decimal,
+    exchange_symbols: dict[str, ExchangeSymbol] | None,
+) -> tuple[Decimal, Decimal] | None:
+    if entry_price is None:
+        return None
+    exchange_symbol = exchange_symbols.get(symbol) if exchange_symbols is not None else None
+    effective_stop_price = (
+        exchange_symbol.filters.normalize_price(stop_price)
+        if exchange_symbol is not None
+        else stop_price
+    )
+    if exchange_symbol is None:
+        distance = entry_price - effective_stop_price
+        if distance <= 0:
+            return None
+        return stop_budget / distance, effective_stop_price
+
+    quantity = size_from_stop_budget(
+        entry_price=entry_price,
+        stop_price=effective_stop_price,
+        stop_budget=stop_budget,
+        filters=exchange_symbol.filters,
+    )
+    if quantity is None:
+        return None
+    if exchange_symbol.min_notional > 0 and quantity * entry_price < exchange_symbol.min_notional:
+        return None
+    return quantity, effective_stop_price
+
+
+def _position_net_pnl_at_stop(
+    *,
+    position: Position,
+    candidate_quantity: Decimal,
+    candidate_entry_price: Decimal,
+    stop_price: Decimal,
+    taker_fee_rate: Decimal,
+) -> Decimal:
+    gross_pnl = Decimal("0")
+    entry_notional = Decimal("0")
+    total_quantity = Decimal("0")
+    for leg in position.legs:
+        gross_pnl += (stop_price - leg.entry_price) * leg.quantity
+        entry_notional += leg.entry_price * leg.quantity
+        total_quantity += leg.quantity
+
+    gross_pnl += (stop_price - candidate_entry_price) * candidate_quantity
+    entry_notional += candidate_entry_price * candidate_quantity
+    total_quantity += candidate_quantity
+    exit_notional = stop_price * total_quantity
+    return gross_pnl - taker_fee_rate * (entry_notional + exit_notional)
+
+
 def evaluate_hour_close(
     *,
     now: datetime,
@@ -155,6 +219,9 @@ def evaluate_hour_close(
     latest_prices: dict[str, Decimal] | None = None,
     current_leader_symbol: str | None,
     first_add_on_min_hold_minutes: int = 30,
+    stop_budget: Decimal = Decimal("10"),
+    exchange_symbols: dict[str, ExchangeSymbol] | None = None,
+    taker_fee_rate: Decimal = DEFAULT_TAKER_FEE_RATE,
 ) -> HourCloseDecision:
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []
@@ -201,6 +268,57 @@ def evaluate_hour_close(
                         shadow_only=True,
                     )
                 )
+
+        add_on_count = sum(
+            1
+            for leg in position.legs
+            if is_add_on_leg(leg_type=leg.leg_type, entry_order_id=leg.entry_order_id)
+        )
+        if add_on_count >= 1:
+            if latest_price is None:
+                skipped_add_ons.append(
+                    SkippedAddOn(
+                        symbol=symbol,
+                        stop_price=stop_price,
+                        reason="missing_latest_price_for_coverage",
+                    )
+                )
+                continue
+            order_parameters = _add_on_order_parameters(
+                symbol=symbol,
+                entry_price=latest_price,
+                stop_price=stop_price,
+                stop_budget=stop_budget,
+                exchange_symbols=exchange_symbols,
+            )
+            if order_parameters is None:
+                skipped_add_ons.append(
+                    SkippedAddOn(
+                        symbol=symbol,
+                        stop_price=stop_price,
+                        reason="invalid_add_on_size_for_coverage",
+                    )
+                )
+                continue
+            candidate_quantity, effective_stop_price = order_parameters
+            expected_net_pnl_at_stop = _position_net_pnl_at_stop(
+                position=position,
+                candidate_quantity=candidate_quantity,
+                candidate_entry_price=latest_price,
+                stop_price=effective_stop_price,
+                taker_fee_rate=taker_fee_rate,
+            )
+            if expected_net_pnl_at_stop < 0:
+                skipped_add_ons.append(
+                    SkippedAddOn(
+                        symbol=symbol,
+                        stop_price=stop_price,
+                        reason="full_position_coverage_below_zero",
+                        expected_net_pnl_at_stop=expected_net_pnl_at_stop,
+                        candidate_quantity=candidate_quantity,
+                    )
+                )
+                continue
         add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
     return HourCloseDecision(
         add_on_entries=add_on_entries,
@@ -219,6 +337,9 @@ def process_clock_tick(
     entry_end_hour_utc: int = 23,
     blocked_base_entry_hours_beijing: tuple[int, ...] = (9, 10),
     first_add_on_min_hold_minutes: int = 30,
+    stop_budget: Decimal = Decimal("10"),
+    exchange_symbols: dict[str, ExchangeSymbol] | None = None,
+    taker_fee_rate: Decimal = DEFAULT_TAKER_FEE_RATE,
 ) -> TickDecision:
     minute_close = evaluate_minute_close(
         now=now,
@@ -255,6 +376,9 @@ def process_clock_tick(
             latest_prices=latest_prices,
             current_leader_symbol=minute_close.new_previous_leader_symbol,
             first_add_on_min_hold_minutes=first_add_on_min_hold_minutes,
+            stop_budget=stop_budget,
+            exchange_symbols=exchange_symbols,
+            taker_fee_rate=taker_fee_rate,
         )
         add_on_entries = hour_close.add_on_entries
         skipped_add_ons = hour_close.skipped_add_ons

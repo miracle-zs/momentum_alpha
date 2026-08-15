@@ -686,6 +686,7 @@ def run_once_live(
                     "stop_price": str(skipped.stop_price),
                     "shadow_only": skipped.shadow_only,
                     "would_add_on_under_previous_strategy": True,
+                    "coverage_fee_rate": str(strategy_config.taker_fee_rate),
                     **(
                         {"base_opened_at": skipped.base_opened_at.isoformat()}
                         if skipped.base_opened_at is not None
@@ -694,6 +695,16 @@ def run_once_live(
                     **(
                         {"base_age_minutes": str(skipped.base_age_minutes)}
                         if skipped.base_age_minutes is not None
+                        else {}
+                    ),
+                    **(
+                        {"expected_net_pnl_at_stop": str(skipped.expected_net_pnl_at_stop)}
+                        if skipped.expected_net_pnl_at_stop is not None
+                        else {}
+                    ),
+                    **(
+                        {"candidate_quantity": str(skipped.candidate_quantity)}
+                        if skipped.candidate_quantity is not None
                         else {}
                     ),
                     **{key: value for key, value in market_payloads.get(skipped.symbol, {}).items() if value is not None},

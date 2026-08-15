@@ -73,6 +73,8 @@ class SkippedAddOn:
     base_opened_at: datetime | None = None
     base_age_minutes: Decimal | None = None
     shadow_only: bool = False
+    expected_net_pnl_at_stop: Decimal | None = None
+    candidate_quantity: Decimal | None = None
 
 
 @dataclass(frozen=True)

@@ -440,6 +440,73 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.updated_stop_prices["BTCUSDT"], Decimal("105"))
         self.assertEqual(result.updated_stop_prices["ETHUSDT"], Decimal("205"))
 
+    def test_second_add_on_requires_full_position_coverage_at_new_stop(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import evaluate_hour_close
+
+        now = datetime(2026, 4, 14, 4, 0, tzinfo=timezone.utc)
+        leg_time = datetime(2026, 4, 14, 2, 0, tzinfo=timezone.utc)
+        position = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("110"),
+            legs=(
+                PositionLeg("ETHUSDT", Decimal("1"), Decimal("110"), Decimal("100"), leg_time, "base"),
+                PositionLeg("ETHUSDT", Decimal("1"), Decimal("120"), Decimal("110"), leg_time, "add_on"),
+            ),
+        )
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="ETHUSDT",
+            positions={"ETHUSDT": position},
+        )
+
+        result = evaluate_hour_close(
+            now=now,
+            state=state,
+            latest_hour_lows={"ETHUSDT": Decimal("115")},
+            latest_prices={"ETHUSDT": Decimal("120")},
+            current_leader_symbol="ETHUSDT",
+        )
+
+        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual(result.updated_stop_prices, {"ETHUSDT": Decimal("115")})
+        self.assertEqual(len(result.skipped_add_ons), 1)
+        skipped = result.skipped_add_ons[0]
+        self.assertEqual(skipped.reason, "full_position_coverage_below_zero")
+        self.assertEqual(skipped.candidate_quantity, Decimal("2"))
+        self.assertEqual(skipped.expected_net_pnl_at_stop, Decimal("-10.4650"))
+
+    def test_second_add_on_is_allowed_when_new_full_position_is_non_negative(self) -> None:
+        from momentum_alpha.models import Position, PositionLeg, StrategyState
+        from momentum_alpha.strategy import evaluate_hour_close
+
+        now = datetime(2026, 4, 14, 4, 0, tzinfo=timezone.utc)
+        leg_time = datetime(2026, 4, 14, 2, 0, tzinfo=timezone.utc)
+        position = Position(
+            symbol="ETHUSDT",
+            stop_price=Decimal("100"),
+            legs=(
+                PositionLeg("ETHUSDT", Decimal("4"), Decimal("100"), Decimal("90"), leg_time, "base"),
+                PositionLeg("ETHUSDT", Decimal("1"), Decimal("110"), Decimal("100"), leg_time, "add_on"),
+            ),
+        )
+        state = StrategyState(
+            current_day=now.date(),
+            previous_leader_symbol="ETHUSDT",
+            positions={"ETHUSDT": position},
+        )
+
+        result = evaluate_hour_close(
+            now=now,
+            state=state,
+            latest_hour_lows={"ETHUSDT": Decimal("105")},
+            latest_prices={"ETHUSDT": Decimal("120")},
+            current_leader_symbol="ETHUSDT",
+        )
+
+        self.assertEqual([intent.symbol for intent in result.add_on_entries], ["ETHUSDT"])
+        self.assertEqual(result.skipped_add_ons, [])
+
     def test_hour_boundary_processes_base_entry_before_add_on(self) -> None:
         from momentum_alpha.models import MarketSnapshot, Position, PositionLeg, StrategyState
         from momentum_alpha.strategy import process_clock_tick
