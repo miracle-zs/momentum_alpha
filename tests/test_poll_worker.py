@@ -1007,10 +1007,14 @@ class PollWorkerTests(unittest.TestCase):
                 )
             decisions = fetch_recent_signal_decisions(path=db_path, limit=10)
 
-        self.assertEqual(result.runtime_result.decision.add_on_entries, [])
+        self.assertEqual(
+            [intent.symbol for intent in result.runtime_result.decision.add_on_entries],
+            ["ETHUSDT"],
+        )
         self.assertEqual(result.runtime_result.decision.updated_stop_prices, {"ETHUSDT": Decimal("110")})
-        skipped = next(row for row in decisions if row["decision_type"] == "add_on_skipped")
-        self.assertEqual(skipped["payload"]["blocked_reason"], "first_add_on_before_30m")
-        self.assertEqual(skipped["payload"]["base_opened_at"], base_opened_at.isoformat())
-        self.assertEqual(Decimal(skipped["payload"]["base_age_minutes"]), Decimal("15"))
-        self.assertTrue(skipped["payload"]["would_add_on_under_previous_strategy"])
+        shadow = next(row for row in decisions if row["decision_type"] == "add_on_shadow")
+        self.assertEqual(shadow["payload"]["blocked_reason"], "first_add_on_before_30m")
+        self.assertEqual(shadow["payload"]["base_opened_at"], base_opened_at.isoformat())
+        self.assertEqual(Decimal(shadow["payload"]["base_age_minutes"]), Decimal("15"))
+        self.assertTrue(shadow["payload"]["shadow_only"])
+        self.assertTrue(shadow["payload"]["would_add_on_under_previous_strategy"])

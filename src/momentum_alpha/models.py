@@ -72,6 +72,7 @@ class SkippedAddOn:
     reason: str
     base_opened_at: datetime | None = None
     base_age_minutes: Decimal | None = None
+    shadow_only: bool = False
 
 
 @dataclass(frozen=True)

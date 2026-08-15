@@ -582,7 +582,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result.updated_stop_prices, {})
         self.assertEqual(result.skipped_add_ons[0].reason, "invalid_stop_price")
 
-    def test_first_add_on_before_thirty_minutes_is_skipped_but_stop_still_moves(self) -> None:
+    def test_first_add_on_before_thirty_minutes_is_shadowed_but_still_allowed(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
         from momentum_alpha.strategy import evaluate_hour_close
 
@@ -607,13 +607,14 @@ class StrategyTests(unittest.TestCase):
             current_leader_symbol="ETHUSDT",
         )
 
-        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual([item.symbol for item in result.add_on_entries], ["ETHUSDT"])
         self.assertEqual(result.updated_stop_prices, {"ETHUSDT": Decimal("105")})
         self.assertEqual(len(result.skipped_add_ons), 1)
         skipped = result.skipped_add_ons[0]
         self.assertEqual(skipped.reason, "first_add_on_before_30m")
         self.assertEqual(skipped.base_opened_at, base_opened_at)
         self.assertEqual(skipped.base_age_minutes, Decimal("29.98333333333333333333333333"))
+        self.assertTrue(skipped.shadow_only)
 
     def test_first_add_on_at_thirty_minutes_is_allowed(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
@@ -643,7 +644,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual([item.symbol for item in result.add_on_entries], ["ETHUSDT"])
         self.assertEqual(result.skipped_add_ons, [])
 
-    def test_first_add_on_before_thirty_minutes_is_skipped_for_legacy_stream_fill_base(self) -> None:
+    def test_first_add_on_before_thirty_minutes_is_shadowed_for_legacy_stream_fill_base(self) -> None:
         from momentum_alpha.models import Position, PositionLeg, StrategyState
         from momentum_alpha.strategy import evaluate_hour_close
 
@@ -677,8 +678,9 @@ class StrategyTests(unittest.TestCase):
             current_leader_symbol="ETHUSDT",
         )
 
-        self.assertEqual(result.add_on_entries, [])
+        self.assertEqual([item.symbol for item in result.add_on_entries], ["ETHUSDT"])
         self.assertEqual(result.skipped_add_ons[0].reason, "first_add_on_before_30m")
+        self.assertTrue(result.skipped_add_ons[0].shadow_only)
 
     def test_first_valid_base_signal_consumes_daily_opportunity(self) -> None:
         from momentum_alpha.models import StrategyState

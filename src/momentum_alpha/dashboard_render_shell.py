@@ -58,7 +58,7 @@ def _build_execution_mode(config: dict) -> tuple[str, str]:
     return f"{venue} {order_mode}", state
 
 
-_RECENT_SIGNAL_ACTION_TYPES = {"base_entry", "add_on", "add_on_skipped", "stop_update"}
+_RECENT_SIGNAL_ACTION_TYPES = {"base_entry", "add_on", "add_on_skipped", "add_on_shadow", "stop_update"}
 _RECENT_AUDIT_ACTION_TYPES = {
     "broker_submit",
     "broker_replace",

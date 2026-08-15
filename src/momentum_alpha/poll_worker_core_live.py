@@ -677,13 +677,14 @@ def run_once_live(
         )
         signal_records.extend(
             (
-                "add_on_skipped",
+                "add_on_shadow" if skipped.shadow_only else "add_on_skipped",
                 skipped.symbol,
                 None,
                 {
                     "leg_type": "add_on",
                     "blocked_reason": skipped.reason,
                     "stop_price": str(skipped.stop_price),
+                    "shadow_only": skipped.shadow_only,
                     "would_add_on_under_previous_strategy": True,
                     **(
                         {"base_opened_at": skipped.base_opened_at.isoformat()}

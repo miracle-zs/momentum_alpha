@@ -198,9 +198,9 @@ def evaluate_hour_close(
                         reason="first_add_on_before_30m",
                         base_opened_at=base_opened_at,
                         base_age_minutes=Decimal(str(base_age.total_seconds())) / Decimal("60"),
+                        shadow_only=True,
                     )
                 )
-                continue
         add_on_entries.append(EntryIntent(symbol=symbol, stop_price=stop_price, leg_type="add_on"))
     return HourCloseDecision(
         add_on_entries=add_on_entries,
