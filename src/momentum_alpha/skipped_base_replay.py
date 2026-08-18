@@ -210,6 +210,29 @@ def _open_legs(
     )
 
 
+def _full_position_net_pnl_at_stop(
+    *,
+    legs: list[_OpenLeg],
+    candidate_quantity: Decimal,
+    candidate_entry_price: Decimal,
+    stop_price: Decimal,
+    taker_fee_rate: Decimal,
+) -> Decimal:
+    """Estimate the whole position's net PnL if stopped at ``stop_price``."""
+    gross_pnl = Decimal("0")
+    entry_notional = Decimal("0")
+    total_quantity = Decimal("0")
+    for leg in legs:
+        gross_pnl += (stop_price - leg.entry_price) * leg.quantity
+        entry_notional += leg.entry_price * leg.quantity
+        total_quantity += leg.quantity
+    gross_pnl += (stop_price - candidate_entry_price) * candidate_quantity
+    entry_notional += candidate_entry_price * candidate_quantity
+    total_quantity += candidate_quantity
+    exit_notional = stop_price * total_quantity
+    return gross_pnl - taker_fee_rate * (entry_notional + exit_notional)
+
+
 def replay_shadow_seed(
     *,
     seed: ReplaySeed,
@@ -218,6 +241,7 @@ def replay_shadow_seed(
     cutoff: datetime,
     taker_fee_rate: Decimal,
     first_add_on_min_hold_minutes: int = 30,
+    enforce_full_position_coverage: bool = False,
 ) -> ShadowReplayResult:
     warnings = list(seed.warnings)
     required = {
@@ -458,6 +482,30 @@ def replay_shadow_seed(
             )
             continue
 
+        if add_on_count >= 1 and enforce_full_position_coverage:
+            expected_net_pnl_at_stop = _full_position_net_pnl_at_stop(
+                legs=legs,
+                candidate_quantity=add_on_quantity,
+                candidate_entry_price=candle.close_price,
+                stop_price=active_stop,
+                taker_fee_rate=taker_fee_rate,
+            )
+            if expected_net_pnl_at_stop < 0:
+                skipped_add_on_count += 1
+                events.append(
+                    ShadowReplayEvent(
+                        shadow_opportunity_id=seed.shadow_opportunity_id,
+                        symbol=seed.symbol,
+                        timestamp=boundary,
+                        event_type="add_on_skipped",
+                        price=candle.close_price,
+                        stop_price=active_stop,
+                        quantity=add_on_quantity,
+                        reason="full_position_coverage_below_zero",
+                    )
+                )
+                continue
+
         add_on_count += 1
         legs.append(
             _OpenLeg(
@@ -599,6 +647,7 @@ def replay_skipped_bases(
     proxy: str | None = "http://127.0.0.1:7897",
     taker_fee_rate: Decimal = Decimal("0.0005"),
     refresh_klines: bool = False,
+    blocked_reasons: set[str] | None = None,
     load_inputs_fn=load_replay_inputs,
     kline_cache_factory=BinanceKlineCache,
     write_artifacts_fn=None,
@@ -610,12 +659,15 @@ def replay_skipped_bases(
     if not runtime_db_path.exists():
         raise FileNotFoundError(runtime_db_path)
 
-    seeds, leaders, input_warnings, database_cutoff = load_inputs_fn(
-        runtime_db_path=runtime_db_path,
-        start_time=start_time,
-        end_time=end_time,
-        symbols=set(symbols) if symbols else None,
-    )
+    load_inputs_kwargs = {
+        "runtime_db_path": runtime_db_path,
+        "start_time": start_time,
+        "end_time": end_time,
+        "symbols": set(symbols) if symbols else None,
+    }
+    if blocked_reasons is not None:
+        load_inputs_kwargs["blocked_reasons"] = blocked_reasons
+    seeds, leaders, input_warnings, database_cutoff = load_inputs_fn(**load_inputs_kwargs)
     effective_cutoff = end_time or database_cutoff
     if effective_cutoff is None:
         report = ShadowReplayReport(

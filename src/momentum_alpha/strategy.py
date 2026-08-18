@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from momentum_alpha.base_veto import evaluate_base_veto
 from momentum_alpha.exchange_info import ExchangeSymbol
 from momentum_alpha.leg_semantics import is_add_on_leg
 from momentum_alpha.models import (
@@ -63,6 +64,10 @@ def evaluate_minute_close(
     entry_start_hour_utc: int = 1,
     entry_end_hour_utc: int = 23,
     blocked_base_entry_hours_beijing: tuple[int, ...] = (9, 10),
+    base_veto_enabled: bool = True,
+    base_veto_atr_15m_pct_threshold: Decimal = Decimal("3"),
+    base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1"),
+    base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5"),
 ) -> MinuteCloseDecision:
     daily_base_signal_times = dict(state.daily_base_signal_times)
     daily_base_signal_counts = dict(state.daily_base_signal_counts)
@@ -137,9 +142,37 @@ def evaluate_minute_close(
                 )
             )
         else:
-            daily_base_signal_counts[leader] = sequence
-            daily_base_signal_times[leader] = now
-            entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
+            base_veto_decision = evaluate_base_veto(
+                snapshot.base_veto_features,
+                enabled=base_veto_enabled,
+                atr_15m_pct_threshold=base_veto_atr_15m_pct_threshold,
+                trade_count_ratio_30m_threshold=base_veto_trade_count_ratio_30m_threshold,
+                return_to_vol_15m_threshold=base_veto_return_to_vol_15m_threshold,
+            )
+            if base_veto_decision.triggered:
+                blocked_reason = "base_veto"
+                skipped_base_entries.append(
+                    SkippedBaseEntry(
+                        symbol=leader,
+                        stop_price=stop_price,
+                        reason=blocked_reason,
+                        base_signal_sequence=sequence,
+                        first_base_signal_at=now,
+                        shadow_opportunity_id=build_shadow_opportunity_id(
+                            symbol=leader,
+                            signal_at=now,
+                            sequence=sequence,
+                        ),
+                        base_veto_rule=base_veto_decision.rule,
+                        base_veto_features=snapshot.base_veto_features,
+                        base_veto_atr_triggered=base_veto_decision.atr_triggered,
+                        base_veto_composite_triggered=base_veto_decision.composite_triggered,
+                    )
+                )
+            else:
+                daily_base_signal_counts[leader] = sequence
+                daily_base_signal_times[leader] = now
+                entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
     else:
         blocked_reason = blocked_reason if leader_changed else None
 
@@ -340,6 +373,10 @@ def process_clock_tick(
     stop_budget: Decimal = Decimal("10"),
     exchange_symbols: dict[str, ExchangeSymbol] | None = None,
     taker_fee_rate: Decimal = DEFAULT_TAKER_FEE_RATE,
+    base_veto_enabled: bool = True,
+    base_veto_atr_15m_pct_threshold: Decimal = Decimal("3"),
+    base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1"),
+    base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5"),
 ) -> TickDecision:
     minute_close = evaluate_minute_close(
         now=now,
@@ -348,6 +385,10 @@ def process_clock_tick(
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
         blocked_base_entry_hours_beijing=blocked_base_entry_hours_beijing,
+        base_veto_enabled=base_veto_enabled,
+        base_veto_atr_15m_pct_threshold=base_veto_atr_15m_pct_threshold,
+        base_veto_trade_count_ratio_30m_threshold=base_veto_trade_count_ratio_30m_threshold,
+        base_veto_return_to_vol_15m_threshold=base_veto_return_to_vol_15m_threshold,
     )
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []

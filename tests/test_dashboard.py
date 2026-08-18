@@ -522,6 +522,61 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("Closed Trade Detail", html)
         self.assertLess(html.index("DRAGUSDT"), html.index("GUNUSDT"))
 
+    def test_daily_review_panel_shows_filtered_base_counterfactuals(self) -> None:
+        from momentum_alpha.dashboard_render_panels_review import render_daily_review_panel
+
+        html = render_daily_review_panel(
+            {
+                "report_date": "2026-04-21",
+                "status": "ok",
+                "trade_count": 0,
+                "actual_total_pnl": "0",
+                "counterfactual_total_pnl": "0",
+                "replayed_add_on_count": 0,
+                "payload": {
+                    "rows": [],
+                    "filtered_base_summary": {
+                        "candidate_count": 1,
+                        "resolved_count": 1,
+                        "win_count": 1,
+                        "loss_count": 0,
+                        "pending_count": 0,
+                        "closed_net_pnl": "54.25",
+                        "observed_net_pnl": "54.25",
+                        "tail_50u_count": 1,
+                    },
+                    "filtered_base_rows": [
+                        {
+                            "shadow_opportunity_id": "shadow-ace",
+                            "symbol": "ACEUSDT",
+                            "vetoed_at": "2026-04-20T10:00:00+00:00",
+                            "veto_rule": "A_OR_B",
+                            "atr_15m_pct": "3.40",
+                            "trade_count_ratio_30m": "0.70",
+                            "return_to_vol_15m": "0.31",
+                            "status": "closed",
+                            "outcome": "win",
+                            "exit_at": "2026-04-20T12:00:00+00:00",
+                            "net_pnl": "54.25",
+                            "mark_to_market_net_pnl": None,
+                            "add_on_count": 2,
+                            "is_long_tail_50u": True,
+                            "warnings": [],
+                        }
+                    ],
+                },
+                "history_summary": {},
+                "available_report_dates": ["2026-04-21"],
+            }
+        )
+
+        self.assertIn("COUNTERFACTUAL TRACKING", html)
+        self.assertIn("被过滤的 Base，后来如果开仓会怎样？", html)
+        self.assertIn("ACEUSDT", html)
+        self.assertIn("CLOSED WIN", html)
+        self.assertIn("≥50U tail", html)
+        self.assertIn("A + B", html)
+
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
         from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_daily_review_report

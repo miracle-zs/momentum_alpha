@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 
+from momentum_alpha.base_veto import BaseVetoFeatures
 from momentum_alpha.leg_semantics import LegSource, LegType
 
 
@@ -16,6 +17,7 @@ class MarketSnapshot:
     tradable: bool
     has_previous_hour_candle: bool
     current_hour_low: Decimal = Decimal("0")
+    base_veto_features: BaseVetoFeatures | None = None
 
     @property
     def daily_change_pct(self) -> Decimal:
@@ -85,6 +87,10 @@ class SkippedBaseEntry:
     base_signal_sequence: int
     first_base_signal_at: datetime
     shadow_opportunity_id: str
+    base_veto_rule: str | None = None
+    base_veto_features: BaseVetoFeatures | None = None
+    base_veto_atr_triggered: bool | None = None
+    base_veto_composite_triggered: bool | None = None
 
 
 @dataclass(frozen=True)

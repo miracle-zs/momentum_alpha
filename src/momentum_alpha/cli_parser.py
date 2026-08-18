@@ -48,6 +48,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     daily_review_parser.add_argument("--stop-budget-usdt", default="10")
     daily_review_parser.add_argument("--entry-start-hour-utc", type=int, default=1)
     daily_review_parser.add_argument("--entry-end-hour-utc", type=int, default=23)
+    daily_review_parser.add_argument(
+        "--replay-filtered-bases",
+        action="store_true",
+        help="Replay Base candidates blocked by the live Base veto and store counterfactual outcomes.",
+    )
 
     backfill_account_flows_parser = subparsers.add_parser("backfill-account-flows")
     backfill_account_flows_parser.add_argument("--runtime-db-file", required=True)

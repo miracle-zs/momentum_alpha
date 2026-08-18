@@ -45,3 +45,24 @@ def _fetch_current_hour_klines(*, client, symbol: str, now: datetime):
         start_time_ms=current_hour_start_ms,
         end_time_ms=current_hour_end_ms,
     )
+
+
+def _fetch_base_veto_klines(*, client, symbol: str, now: datetime, limit: int = 90):
+    """Fetch a short 1m history; the feature calculator removes open candles."""
+
+    resolved_now = (
+        now.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None
+        else now.astimezone(timezone.utc)
+    )
+    signal_ms = int(resolved_now.timestamp() * 1000)
+    end_time_ms = signal_ms - 1
+    current_minute_start_ms = (signal_ms // 60_000) * 60_000
+    start_time_ms = current_minute_start_ms - limit * 60_000
+    return client.fetch_klines(
+        symbol=symbol,
+        interval="1m",
+        limit=limit,
+        start_time_ms=start_time_ms,
+        end_time_ms=end_time_ms,
+    )

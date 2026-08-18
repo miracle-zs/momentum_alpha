@@ -4,7 +4,7 @@ import os
 from decimal import Decimal
 from pathlib import Path
 
-from momentum_alpha.daily_review import build_daily_review_report
+from momentum_alpha.daily_review import build_daily_review_report, build_daily_review_window
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.runtime_store import insert_daily_review_report, summarize_audit_events
 
@@ -60,19 +60,47 @@ def daily_review_report_command(
     now_provider,
     build_daily_review_report_fn=build_daily_review_report,
     insert_daily_review_report_fn=insert_daily_review_report,
+    replay_skipped_bases_fn=None,
 ) -> int:
     runtime_db_path = _require_runtime_db_path(
         parser=parser,
         command=args.command,
         explicit_path=args.runtime_db_file,
     )
-    report = build_daily_review_report_fn(
-        path=runtime_db_path,
-        now=now_provider(),
-        stop_budget_usdt=Decimal(args.stop_budget_usdt),
-        entry_start_hour_utc=args.entry_start_hour_utc,
-        entry_end_hour_utc=args.entry_end_hour_utc,
-    )
+    now = now_provider()
+    replay_report = None
+    if getattr(args, "replay_filtered_bases", False):
+        if replay_skipped_bases_fn is None:
+            parser.error("--replay-filtered-bases requires the skipped Base replay command")
+        window = build_daily_review_window(now=now)
+        replay_output_dir = Path(
+            os.environ.get(
+                "DAILY_REVIEW_REPLAY_OUTPUT_DIR",
+                str(runtime_db_path.parent / "daily_review_replay"),
+            )
+        )
+        replay_report = replay_skipped_bases_fn(
+            runtime_db_path=runtime_db_path,
+            output_dir=replay_output_dir,
+            start_time=window.window_start,
+            end_time=window.window_end,
+            symbols=None,
+            proxy=os.environ.get("BINANCE_PROXY") or None,
+            taker_fee_rate=Decimal(os.environ.get("TAKER_FEE_RATE", "0.0005")),
+            refresh_klines=False,
+            blocked_reasons={"base_veto"},
+        )
+
+    report_kwargs = {
+        "path": runtime_db_path,
+        "now": now,
+        "stop_budget_usdt": Decimal(args.stop_budget_usdt),
+        "entry_start_hour_utc": args.entry_start_hour_utc,
+        "entry_end_hour_utc": args.entry_end_hour_utc,
+    }
+    if replay_report is not None:
+        report_kwargs["filtered_base_replay_report"] = replay_report
+    report = build_daily_review_report_fn(**report_kwargs)
     insert_daily_review_report_fn(
         path=runtime_db_path,
         report_date=report.report_date,
@@ -91,6 +119,8 @@ def daily_review_report_command(
         warnings=list(report.warnings),
         payload={
             "rows": [row.__dict__ for row in report.rows],
+            "filtered_base_rows": [row.__dict__ for row in getattr(report, "filtered_base_rows", ())],
+            "filtered_base_summary": getattr(report, "filtered_base_summary", {}),
             "account_reconciliation": report.account_reconciliation.__dict__,
             "strategy_config": {
                 "stop_budget_usdt": report.stop_budget_usdt,
@@ -102,6 +132,9 @@ def daily_review_report_command(
     print(f"trade_count={report.trade_count}")
     print(f"actual_total_pnl={report.actual_total_pnl}")
     print(f"counterfactual_total_pnl={report.counterfactual_total_pnl}")
+    filtered_summary = getattr(report, "filtered_base_summary", {}) or {}
+    print(f"filtered_base_candidates={filtered_summary.get('candidate_count', 0)}")
+    print(f"filtered_base_observed_pnl={filtered_summary.get('observed_net_pnl', '0')}")
     print(f"account_income_total_pnl={report.account_reconciliation.income_total_pnl}")
     print(f"account_trade_vs_income_delta={report.account_reconciliation.trade_vs_income_delta}")
     return 0
@@ -116,6 +149,7 @@ def run_reporting_commands(
     summarize_audit_events_fn=summarize_audit_events,
     build_daily_review_report_fn=build_daily_review_report,
     insert_daily_review_report_fn=insert_daily_review_report,
+    replay_skipped_bases_fn=None,
     **_unused,
 ) -> int | None:
     if args.command == "healthcheck":
@@ -139,5 +173,6 @@ def run_reporting_commands(
             now_provider=now_provider,
             build_daily_review_report_fn=build_daily_review_report_fn,
             insert_daily_review_report_fn=insert_daily_review_report_fn,
+            replay_skipped_bases_fn=replay_skipped_bases_fn,
         )
     return None

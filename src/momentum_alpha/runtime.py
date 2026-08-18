@@ -39,6 +39,7 @@ def build_runtime(*, snapshots: list[dict], config: StrategyConfig | None = None
             tradable=snapshot["tradable"],
             has_previous_hour_candle=snapshot["has_previous_hour_candle"],
             current_hour_low=snapshot.get("current_hour_low", snapshot["previous_hour_low"]),
+            base_veto_features=snapshot.get("base_veto_features"),
         )
         for snapshot in snapshots
     }
@@ -79,6 +80,10 @@ def process_runtime_tick(
         stop_budget=Decimal(runtime.config.stop_budget_usdt),
         exchange_symbols=runtime.exchange_symbols,
         taker_fee_rate=Decimal(runtime.config.taker_fee_rate),
+        base_veto_enabled=runtime.config.base_veto_enabled,
+        base_veto_atr_15m_pct_threshold=Decimal(runtime.config.base_veto_atr_15m_pct_threshold),
+        base_veto_trade_count_ratio_30m_threshold=Decimal(runtime.config.base_veto_trade_count_ratio_30m_threshold),
+        base_veto_return_to_vol_15m_threshold=Decimal(runtime.config.base_veto_return_to_vol_15m_threshold),
     )
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,

@@ -84,7 +84,7 @@ def render_daily_review_room(*, daily_review_html: str) -> str:
         "<div class='section-topbar'>"
         "<div>"
         "<div class='section-header'>每日复盘</div>"
-        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>UTC+8 08:30 to UTC+8 08:30 trading window.</div>"
+        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>UTC+8 08:30 — 真实成交、add-on 反事实与被 Base veto 机会追踪。</div>"
         "</div>"
         "<button type='button' class='section-toggle' data-section-toggle='review-daily'>Collapse</button>"
         "</div>"

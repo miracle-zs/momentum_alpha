@@ -15,6 +15,8 @@ def _build_live_snapshots(
     client,
     now: datetime,
     market_data_cache: LiveMarketDataCache | None = None,
+    base_veto_enabled: bool = False,
+    previous_leader_symbol: str | None = None,
 ) -> list[dict]:
     cache = market_data_cache or LiveMarketDataCache()
     tracked_symbols = list(dict.fromkeys([*symbols, *sorted(held_symbols)]))
@@ -64,6 +66,19 @@ def _build_live_snapshots(
         and latest_prices.get(symbol, Decimal("0")) < cache.previous_hour_lows[symbol][1]
     }
     cache.ensure_current_hour_lows(symbols=current_hour_symbols, client=client, now=now)
+    leader_symbol = leader_snapshot.symbol if leader_snapshot is not None else None
+    base_veto_candidate = bool(
+        base_veto_enabled
+        and leader_symbol is not None
+        and leader_symbol != previous_leader_symbol
+        and leader_symbol not in held_symbols
+    )
+    if base_veto_candidate:
+        cache.ensure_base_veto_features(
+            symbols={leader_symbol},
+            client=client,
+            now=now,
+        )
 
     snapshots: list[dict] = []
     for snapshot in provisional_snapshots:
@@ -79,6 +94,11 @@ def _build_live_snapshots(
                 "previous_hour_low": previous_hour_low,
                 "has_previous_hour_candle": has_previous_hour_candle,
                 "current_hour_low": current_hour_low,
+                "base_veto_features": (
+                    cache.base_veto_features.get(symbol)
+                    if base_veto_candidate and symbol == leader_symbol
+                    else None
+                ),
             }
         )
     return snapshots

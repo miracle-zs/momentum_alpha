@@ -3,9 +3,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
+from momentum_alpha.base_veto import BaseVetoFeatures, compute_base_veto_features
 from momentum_alpha.exchange_info import parse_exchange_info
 
-from .market_data_klines import _fetch_current_hour_klines, _fetch_daily_open_klines, _fetch_previous_hour_klines
+from .market_data_klines import (
+    _fetch_base_veto_klines,
+    _fetch_current_hour_klines,
+    _fetch_daily_open_klines,
+    _fetch_previous_hour_klines,
+)
 from .market_data_windows import _current_hour_window_ms, _previous_closed_hour_window_ms
 
 
@@ -18,6 +24,8 @@ class LiveMarketDataCache:
         self.previous_hour_lows: dict[str, tuple[bool, Decimal]] = {}
         self.current_hour_window: tuple[int, int] | None = None
         self.current_hour_lows: dict[str, Decimal] = {}
+        self.base_veto_minute: int | None = None
+        self.base_veto_features: dict[str, BaseVetoFeatures] = {}
 
     def resolve_symbols(self, *, symbols: list[str] | None, client) -> list[str]:
         requested_symbols = [symbol for symbol in (symbols or []) if symbol]
@@ -111,3 +119,24 @@ class LiveMarketDataCache:
             current_hour_klines = _fetch_current_hour_klines(client=client, symbol=symbol, now=now)
             if current_hour_klines:
                 self.current_hour_lows[symbol] = Decimal(current_hour_klines[0][3])
+
+    def ensure_base_veto_features(self, *, symbols: set[str], client, now: datetime) -> None:
+        """Cache causal Base-veto features for the current poll minute."""
+
+        minute = int(now.astimezone(timezone.utc).timestamp() // 60)
+        if self.base_veto_minute != minute:
+            self.base_veto_minute = minute
+            self.base_veto_features = {}
+        for symbol in symbols:
+            if symbol in self.base_veto_features:
+                continue
+            try:
+                klines = _fetch_base_veto_klines(client=client, symbol=symbol, now=now)
+                self.base_veto_features[symbol] = compute_base_veto_features(
+                    klines=klines,
+                    signal_at=now,
+                )
+            except Exception as exc:
+                self.base_veto_features[symbol] = BaseVetoFeatures(
+                    unavailable_reason=f"feature_fetch_failed:{type(exc).__name__}",
+                )

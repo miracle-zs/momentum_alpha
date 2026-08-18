@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -45,6 +45,37 @@ class DailyReviewTradeRow:
 
 
 @dataclass(frozen=True)
+class DailyReviewFilteredBaseRow:
+    """One Base candidate blocked by the live Base veto.
+
+    ``net_pnl`` is populated for a closed shadow position.  For an open
+    shadow position the dashboard should use ``mark_to_market_net_pnl`` and
+    label it as observed rather than realised.  Keeping both values avoids
+    accidentally mixing a live mark with closed-trade PnL in reports.
+    """
+
+    shadow_opportunity_id: str
+    symbol: str
+    vetoed_at: str
+    veto_rule: str | None
+    atr_15m_pct: str | None
+    trade_count_ratio_30m: str | None
+    return_to_vol_15m: str | None
+    entry_price: str | None
+    stop_price: str | None
+    status: str
+    outcome: str
+    exit_at: str | None
+    exit_price: str | None
+    net_pnl: str | None
+    mark_to_market_net_pnl: str | None
+    duration_minutes: str | None
+    add_on_count: int
+    is_long_tail_50u: bool
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class DailyReviewAccountReconciliation:
     income_total_pnl: str
     income_realized_pnl: str
@@ -80,6 +111,8 @@ class DailyReviewReport:
     warnings: tuple[str, ...]
     account_reconciliation: DailyReviewAccountReconciliation
     rows: tuple[DailyReviewTradeRow, ...]
+    filtered_base_summary: dict[str, object] = field(default_factory=dict)
+    filtered_base_rows: tuple[DailyReviewFilteredBaseRow, ...] = ()
 
 
 def build_daily_review_window(*, now: datetime) -> DailyReviewWindow:
@@ -107,6 +140,7 @@ def build_daily_review_report(
     stop_budget_usdt: Decimal,
     entry_start_hour_utc: int,
     entry_end_hour_utc: int,
+    filtered_base_replay_report: object | None = None,
 ) -> DailyReviewReport:
     window = build_daily_review_window(now=now)
     trade_round_trips = fetch_trade_round_trips_for_window(
@@ -134,6 +168,13 @@ def build_daily_review_report(
         signal_decisions=signal_decisions,
         stop_budget_usdt=stop_budget_usdt,
     )
+    filtered_base_rows, filtered_base_summary = _build_filtered_base_rows(
+        signal_decisions=signal_decisions,
+        replay_report=filtered_base_replay_report,
+    )
+    report_warnings = list(warnings)
+    if filtered_base_replay_report is not None:
+        report_warnings.extend(str(item) for item in (getattr(filtered_base_replay_report, "warnings", ()) or ()))
     actual_total_pnl = sum((Decimal(row.actual_net_pnl) for row in rows), Decimal("0"))
     counterfactual_total_pnl = sum((Decimal(row.counterfactual_net_pnl) for row in rows), Decimal("0"))
     account_reconciliation = _build_account_reconciliation(
@@ -146,7 +187,7 @@ def build_daily_review_report(
         window_start=window.window_start.isoformat(),
         window_end=window.window_end.isoformat(),
         generated_at=now.astimezone(DISPLAY_TIMEZONE).isoformat(),
-        status="warning" if warnings else "ok",
+        status="warning" if report_warnings else "ok",
         trade_count=len(rows),
         actual_total_pnl=str(actual_total_pnl),
         counterfactual_total_pnl=str(counterfactual_total_pnl),
@@ -155,11 +196,195 @@ def build_daily_review_report(
         stop_budget_usdt=str(stop_budget_usdt),
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
-        warnings=tuple(dict.fromkeys(warnings)),
+        warnings=tuple(dict.fromkeys(report_warnings)),
         account_reconciliation=account_reconciliation,
         rows=tuple(rows),
+        filtered_base_summary=filtered_base_summary,
+        filtered_base_rows=tuple(filtered_base_rows),
     )
     return report
+
+
+def _build_filtered_base_rows(
+    *,
+    signal_decisions: list[dict],
+    replay_report: object | None,
+) -> tuple[list[DailyReviewFilteredBaseRow], dict[str, object]]:
+    """Join live Base-veto telemetry with its optional causal replay.
+
+    The signal row is the decision-time truth.  The replay result is only a
+    later observation, so missing replay data remains explicitly ``pending``
+    instead of being treated as a zero-PnL outcome.
+    """
+
+    filtered_signals = sorted(
+        (
+            decision
+            for decision in signal_decisions
+            if decision.get("decision_type") == "base_entry_skipped"
+            and str((decision.get("payload") or {}).get("blocked_reason") or "") == "base_veto"
+        ),
+        key=lambda row: (row.get("timestamp") or "", row.get("id") or ""),
+    )
+    replay_by_id = {
+        str(getattr(result, "shadow_opportunity_id", "")): result
+        for result in (getattr(replay_report, "opportunities", ()) or ())
+        if getattr(result, "shadow_opportunity_id", None)
+    }
+    rows: list[DailyReviewFilteredBaseRow] = []
+    seen_shadow_ids: set[str] = set()
+    for signal in filtered_signals:
+        payload = signal.get("payload") or {}
+        shadow_id = str(
+            payload.get("shadow_opportunity_id")
+            or signal.get("intent_id")
+            or f"base_veto_{signal.get('timestamp') or 'unknown'}_{signal.get('symbol') or 'unknown'}"
+        )
+        if shadow_id in seen_shadow_ids:
+            continue
+        seen_shadow_ids.add(shadow_id)
+
+        result = replay_by_id.get(shadow_id)
+        status, outcome = _filtered_base_status(result=result, shadow_id=shadow_id, replay_report=replay_report)
+        result_pnl = _safe_decimal_text(getattr(result, "net_pnl", None)) if result is not None else None
+        result_mark_pnl = (
+            _safe_decimal_text(getattr(result, "mark_to_market_net_pnl", None))
+            if result is not None
+            else None
+        )
+        if status == "closed":
+            observed_pnl = _parse_optional_decimal(result_pnl)
+        elif status == "open":
+            observed_pnl = _parse_optional_decimal(result_mark_pnl)
+        else:
+            observed_pnl = None
+        warnings = list(getattr(result, "warnings", ()) or ()) if result is not None else []
+        if status == "pending_replay":
+            warnings.append("replay_not_available")
+        elif status == "overlap":
+            warnings.append("overlap_existing_shadow")
+        rows.append(
+            DailyReviewFilteredBaseRow(
+                shadow_opportunity_id=shadow_id,
+                symbol=str(signal.get("symbol") or "n/a"),
+                vetoed_at=str(signal.get("timestamp") or ""),
+                veto_rule=_payload_text(payload, "base_veto_rule"),
+                atr_15m_pct=_payload_text(payload, "atr_15m_pct", "base_veto_atr_15m_pct"),
+                trade_count_ratio_30m=_payload_text(
+                    payload,
+                    "trade_count_ratio_30m",
+                    "base_veto_trade_count_ratio_30m",
+                ),
+                return_to_vol_15m=_payload_text(
+                    payload,
+                    "return_to_vol_15m",
+                    "base_veto_return_to_vol_15m",
+                ),
+                entry_price=(
+                    _safe_decimal_text(getattr(result, "base_entry_price", None))
+                    if result is not None
+                    else _payload_text(payload, "latest_price")
+                ),
+                stop_price=(
+                    _safe_decimal_text(getattr(result, "initial_stop_price", None))
+                    if result is not None
+                    else _payload_text(payload, "stop_price")
+                ),
+                status=status,
+                outcome=outcome,
+                exit_at=_datetime_text(getattr(result, "exit_at", None)) if result is not None else None,
+                exit_price=_safe_decimal_text(getattr(result, "exit_price", None)) if result is not None else None,
+                net_pnl=result_pnl,
+                mark_to_market_net_pnl=result_mark_pnl,
+                duration_minutes=_safe_decimal_text(getattr(result, "duration_minutes", None))
+                if result is not None
+                else None,
+                add_on_count=int(getattr(result, "add_on_count", 0) or 0) if result is not None else 0,
+                is_long_tail_50u=bool(observed_pnl is not None and observed_pnl >= Decimal("50")),
+                warnings=tuple(dict.fromkeys(str(item) for item in warnings)),
+            )
+        )
+
+    closed_rows = [row for row in rows if row.status == "closed" and row.net_pnl is not None]
+    open_rows = [row for row in rows if row.status == "open"]
+    pending_count = sum(1 for row in rows if row.status == "pending_replay")
+    closed_pnl = sum((_parse_optional_decimal(row.net_pnl) or Decimal("0") for row in closed_rows), Decimal("0"))
+    observed_pnl = closed_pnl + sum(
+        (_parse_optional_decimal(row.mark_to_market_net_pnl) or Decimal("0") for row in open_rows),
+        Decimal("0"),
+    )
+    summary: dict[str, object] = {
+        "candidate_count": len(rows),
+        "resolved_count": len(closed_rows) + len(open_rows),
+        "closed_count": len(closed_rows),
+        "open_count": len(open_rows),
+        "pending_count": pending_count,
+        "win_count": sum(
+            1
+            for row in closed_rows
+            if (_parse_optional_decimal(row.net_pnl) or Decimal("0")) > 0
+        ),
+        "loss_count": sum(
+            1
+            for row in closed_rows
+            if (_parse_optional_decimal(row.net_pnl) or Decimal("0")) < 0
+        ),
+        "closed_net_pnl": str(closed_pnl),
+        "observed_net_pnl": str(observed_pnl),
+        "tail_50u_count": sum(1 for row in rows if row.is_long_tail_50u),
+        "replay_warnings": list(getattr(replay_report, "warnings", ()) or ()),
+        "fetch_errors": bool(getattr(replay_report, "had_fetch_errors", False)),
+    }
+    return rows, summary
+
+
+def _filtered_base_status(
+    *,
+    result: object | None,
+    shadow_id: str,
+    replay_report: object | None,
+) -> tuple[str, str]:
+    if result is None:
+        if shadow_id in {
+            str(getattr(overlap, "shadow_opportunity_id", ""))
+            for overlap in (getattr(replay_report, "overlaps", ()) or ())
+        }:
+            return "overlap", "overlap"
+        return "pending_replay", "pending"
+    status = str(getattr(result, "status", "unresolved") or "unresolved")
+    if status == "closed":
+        pnl = _parse_optional_decimal(getattr(result, "net_pnl", None))
+        if pnl is None or pnl == 0:
+            return "closed", "flat"
+        return "closed", "win" if pnl > 0 else "loss"
+    if status == "open":
+        return "open", "open"
+    return "unresolved", "unresolved"
+
+
+def _payload_text(payload: dict, *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _safe_decimal_text(value: object | None) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        return str(_parse_decimal(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _datetime_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
 
 
 def _build_daily_review_rows(

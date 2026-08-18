@@ -52,6 +52,63 @@ class SkippedBaseReplayTests(unittest.TestCase):
             close_price=Decimal(close),
         )
 
+    def test_load_replay_inputs_can_select_only_base_veto_seeds(self) -> None:
+        import json
+        import sqlite3
+        from tempfile import TemporaryDirectory
+
+        from momentum_alpha.runtime_schema import bootstrap_runtime_db
+        from momentum_alpha.skipped_base_replay_data import load_replay_inputs
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            with sqlite3.connect(db_path) as connection:
+                for row_id, reason in ((1, "base_veto"), (2, "daily_repeat_base")):
+                    connection.execute(
+                        """
+                        INSERT INTO signal_decisions(
+                            id, timestamp, source, decision_type, symbol, intent_id,
+                            previous_leader_symbol, next_leader_symbol, position_count,
+                            order_status_count, broker_response_count, stop_replacement_count,
+                            payload_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            row_id,
+                            f"2026-06-12T01:05:0{row_id}+00:00",
+                            "test",
+                            "base_entry_skipped",
+                            "AAAUSDT",
+                            f"shadow-{row_id}",
+                            None,
+                            "AAAUSDT",
+                            0,
+                            0,
+                            0,
+                            0,
+                            json.dumps(
+                                {
+                                    "blocked_reason": reason,
+                                    "latest_price": "110",
+                                    "stop_price": "100",
+                                    "stop_budget_usdt": "10",
+                                    "step_size": "0.1",
+                                    "min_qty": "0.1",
+                                    "tick_size": "0.1",
+                                }
+                            ),
+                        ),
+                    )
+                connection.commit()
+
+            seeds, _, _, _ = load_replay_inputs(
+                runtime_db_path=db_path,
+                blocked_reasons={"base_veto"},
+            )
+
+        self.assertEqual([seed.shadow_opportunity_id for seed in seeds], ["shadow-1"])
+
     def test_sizes_base_and_closes_all_risk_at_stop(self) -> None:
         from momentum_alpha.skipped_base_replay import replay_shadow_seed
 

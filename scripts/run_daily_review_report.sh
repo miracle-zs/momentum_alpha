@@ -45,6 +45,7 @@ ARGS=(
   --stop-budget-usdt "${STOP_BUDGET_USDT}"
   --entry-start-hour-utc "${ENTRY_START_HOUR_UTC}"
   --entry-end-hour-utc "${ENTRY_END_HOUR_UTC}"
+  --replay-filtered-bases
 )
 
 exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"

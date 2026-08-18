@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from .market_data_cache import LiveMarketDataCache
-from .market_data_klines import _fetch_current_hour_klines, _fetch_daily_open_klines, _fetch_previous_hour_klines
+from .market_data_klines import (
+    _fetch_base_veto_klines,
+    _fetch_current_hour_klines,
+    _fetch_daily_open_klines,
+    _fetch_previous_hour_klines,
+)
 from .market_data_snapshots import _build_live_snapshots
 from .market_data_symbols import _resolve_symbols
 from .market_data_windows import _current_hour_window_ms, _previous_closed_hour_window_ms, _utc_midnight_window_ms

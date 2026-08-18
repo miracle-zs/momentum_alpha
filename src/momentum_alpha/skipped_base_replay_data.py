@@ -77,6 +77,7 @@ def load_replay_inputs(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     symbols: set[str] | None = None,
+    blocked_reasons: set[str] | None = None,
 ) -> tuple[list[ReplaySeed], dict[datetime, str], list[str], datetime | None]:
     if not runtime_db_path.exists():
         raise FileNotFoundError(runtime_db_path)
@@ -130,6 +131,10 @@ def load_replay_inputs(
             payload = {}
             warnings.append(f"invalid_payload_json row_id={row_id}")
 
+        blocked_reason = payload.get("blocked_reason")
+        if blocked_reasons is not None and str(blocked_reason or "") not in blocked_reasons:
+            continue
+
         seed_warnings: list[str] = []
         sequence_raw = payload.get("base_signal_sequence")
         try:
@@ -177,7 +182,7 @@ def load_replay_inputs(
             min_qty=decimal_values["min_qty"],
             tick_size=decimal_values["tick_size"],
             warnings=tuple(seed_warnings),
-            blocked_reason=(str(payload["blocked_reason"]) if payload.get("blocked_reason") else None),
+            blocked_reason=(str(blocked_reason) if blocked_reason else None),
         )
         seeds.append(seed)
         warnings.extend(

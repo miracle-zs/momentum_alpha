@@ -33,6 +33,19 @@ Use Testnet with either an environment variable or CLI flag:
 export BINANCE_USE_TESTNET=1
 ```
 
+Base entries use the enabled A OR B veto by default. It uses only completed
+1m candles and fails open when the required 60-candle history is unavailable:
+
+- A: `atr_15m_pct >= 3`
+- B: `trade_count_ratio_30m <= 1` and `return_to_vol_15m <= 0.5`
+
+The rule can be disabled or tuned with `BASE_VETO_ENABLED`,
+`BASE_VETO_ATR_15M_PCT_THRESHOLD`,
+`BASE_VETO_TRADE_COUNT_RATIO_30M_THRESHOLD`, and
+`BASE_VETO_RETURN_TO_VOL_15M_THRESHOLD`. Vetoes are recorded as
+`base_entry_skipped` decisions with the rule, feature values, candle count,
+and feature timestamp for later long-tail review.
+
 ## Run Once
 
 Dry-run a single live evaluation without submitting orders:

@@ -99,6 +99,76 @@ class DailyReviewTests(unittest.TestCase):
         self.assertGreater(Decimal(report.counterfactual_total_pnl), Decimal(report.actual_total_pnl))
         self.assertEqual(report.replayed_add_on_count, 1)
 
+    def test_build_daily_review_report_tracks_filtered_base_counterfactual(self) -> None:
+        from types import SimpleNamespace
+
+        from momentum_alpha.daily_review import build_daily_review_report
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            signal_at = datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc)
+            insert_signal_decision(
+                path=db_path,
+                timestamp=signal_at,
+                source="poll",
+                decision_type="base_entry_skipped",
+                symbol="ACEUSDT",
+                previous_leader_symbol="BTCUSDT",
+                next_leader_symbol="ACEUSDT",
+                position_count=0,
+                order_status_count=0,
+                broker_response_count=0,
+                stop_replacement_count=0,
+                payload={
+                    "blocked_reason": "base_veto",
+                    "shadow_opportunity_id": "shadow-ace",
+                    "base_veto_rule": "A_OR_B",
+                    "atr_15m_pct": "3.40",
+                    "trade_count_ratio_30m": "0.70",
+                    "return_to_vol_15m": "0.31",
+                    "latest_price": "100",
+                    "stop_price": "95",
+                },
+            )
+            replay_result = SimpleNamespace(
+                shadow_opportunity_id="shadow-ace",
+                status="closed",
+                base_entry_price=Decimal("100"),
+                initial_stop_price=Decimal("95"),
+                exit_at=datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc),
+                exit_price=Decimal("110"),
+                net_pnl=Decimal("54.25"),
+                mark_to_market_net_pnl=None,
+                duration_minutes=Decimal("120"),
+                add_on_count=2,
+                warnings=(),
+            )
+            replay_report = SimpleNamespace(
+                opportunities=(replay_result,),
+                overlaps=(),
+                warnings=(),
+                had_fetch_errors=False,
+            )
+
+            report = build_daily_review_report(
+                path=db_path,
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                stop_budget_usdt=Decimal("10"),
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                filtered_base_replay_report=replay_report,
+            )
+
+        self.assertEqual(report.filtered_base_summary["candidate_count"], 1)
+        self.assertEqual(report.filtered_base_summary["resolved_count"], 1)
+        self.assertEqual(report.filtered_base_summary["closed_net_pnl"], "54.25")
+        self.assertEqual(report.filtered_base_summary["tail_50u_count"], 1)
+        self.assertEqual(report.filtered_base_rows[0].veto_rule, "A_OR_B")
+        self.assertEqual(report.filtered_base_rows[0].outcome, "win")
+        self.assertTrue(report.filtered_base_rows[0].is_long_tail_50u)
+
     def test_build_daily_review_report_deduplicates_repeated_skipped_add_on_signals_per_hour(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report
         from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision, insert_trade_round_trip

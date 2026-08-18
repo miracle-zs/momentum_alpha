@@ -208,6 +208,7 @@ def _build_market_context_payloads(
                 "current_hour_low": snapshot.get("current_hour_low", snapshot["previous_hour_low"]),
                 "tradable": snapshot.get("tradable"),
                 "has_previous_hour_candle": snapshot.get("has_previous_hour_candle"),
+                "base_veto_features": snapshot.get("base_veto_features"),
             }
             for snapshot in snapshots
             if snapshot.get("daily_open_price") not in (None, Decimal("0"))
@@ -222,7 +223,7 @@ def _build_market_context_payloads(
     for item in ordered:
         exchange_symbol = None if exchange_symbols is None else exchange_symbols.get(item["symbol"])
         symbol_filters = getattr(exchange_symbol, "filters", None)
-        payloads[item["symbol"]] = {
+        payload = {
             "latest_price": str(item["latest_price"]),
             "daily_open_price": str(item["daily_open_price"]),
             "daily_change_pct": str(item["daily_change_pct"]),
@@ -237,6 +238,11 @@ def _build_market_context_payloads(
             "tick_size": str(symbol_filters.tick_size) if symbol_filters is not None else None,
             "min_notional": str(exchange_symbol.min_notional) if exchange_symbol is not None else None,
         }
+        base_veto_features = item.get("base_veto_features")
+        to_payload = getattr(base_veto_features, "to_payload", None)
+        if callable(to_payload):
+            payload.update(to_payload())
+        payloads[item["symbol"]] = payload
     return payloads, leader_gap_pct
 
 

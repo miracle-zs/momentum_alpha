@@ -353,6 +353,8 @@ def run_once_live(
         client=client,
         now=now,
         market_data_cache=market_data_cache,
+        base_veto_enabled=strategy_config.base_veto_enabled,
+        previous_leader_symbol=previous_leader_symbol,
     )
     snapshot_symbols = {snapshot["symbol"] for snapshot in snapshots}
     missing_held_symbols = sorted(held_symbols - snapshot_symbols)
@@ -666,6 +668,39 @@ def run_once_live(
                     "shadow_opportunity_id": skipped.shadow_opportunity_id,
                     "stop_price": str(skipped.stop_price),
                     "stop_budget_usdt": str(stop_budget_usdt),
+                    **(
+                        {"base_veto_rule": skipped.base_veto_rule}
+                        if skipped.base_veto_rule is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "base_veto_atr_15m_pct_threshold": str(
+                                strategy_config.base_veto_atr_15m_pct_threshold
+                            ),
+                            "base_veto_trade_count_ratio_30m_threshold": str(
+                                strategy_config.base_veto_trade_count_ratio_30m_threshold
+                            ),
+                            "base_veto_return_to_vol_15m_threshold": str(
+                                strategy_config.base_veto_return_to_vol_15m_threshold
+                            ),
+                        }
+                        if skipped.base_veto_rule is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "base_veto_atr_triggered": skipped.base_veto_atr_triggered,
+                            "base_veto_composite_triggered": skipped.base_veto_composite_triggered,
+                        }
+                        if skipped.base_veto_atr_triggered is not None
+                        else {}
+                    ),
+                    **(
+                        skipped.base_veto_features.to_payload()
+                        if skipped.base_veto_features is not None
+                        else {}
+                    ),
                     **{
                         key: value
                         for key, value in market_payloads.get(skipped.symbol, {}).items()
