@@ -148,7 +148,7 @@ class DailyReviewTests(unittest.TestCase):
             replay_report = SimpleNamespace(
                 opportunities=(replay_result,),
                 overlaps=(),
-                warnings=(),
+                warnings=("filtered_base_replay_warning",),
                 had_fetch_errors=False,
             )
 
@@ -165,6 +165,12 @@ class DailyReviewTests(unittest.TestCase):
         self.assertEqual(report.filtered_base_summary["resolved_count"], 1)
         self.assertEqual(report.filtered_base_summary["closed_net_pnl"], "54.25")
         self.assertEqual(report.filtered_base_summary["tail_50u_count"], 1)
+        self.assertEqual(report.status, "ok")
+        self.assertEqual(report.warnings, ())
+        self.assertEqual(
+            report.filtered_base_summary["replay_warnings"],
+            ["filtered_base_replay_warning"],
+        )
         self.assertEqual(report.filtered_base_rows[0].veto_rule, "A_OR_B")
         self.assertEqual(report.filtered_base_rows[0].outcome, "win")
         self.assertTrue(report.filtered_base_rows[0].is_long_tail_50u)

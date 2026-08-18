@@ -37,7 +37,7 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-toolbar-note { max-width: none; text-align: left; }
       .daily-review-hero { grid-template-columns: 1fr; }
       .daily-review-counterfactual-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .daily-review-section-head { align-items: flex-start; flex-direction: column; }
+      .daily-review-module-head, .daily-review-section-head { align-items: flex-start; flex-direction: column; }
       .daily-review-section-note { max-width: none; text-align: left; }
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
@@ -78,6 +78,7 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-panel-redesign { padding: 12px; }
       .daily-review-hero-copy, .daily-review-hero-impact { min-height: 120px; padding: 17px; }
       .daily-review-hero-title { font-size: 1.35rem; }
+      .daily-review-module { padding: 13px; }
       .daily-review-counterfactual-block, .daily-review-ledger { padding: 13px; }
       .daily-review-counterfactual-stats { grid-template-columns: 1fr 1fr; }
       .daily-review-counterfactual-header, .daily-review-counterfactual-row { min-width: 900px; }

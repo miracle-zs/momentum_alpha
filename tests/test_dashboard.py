@@ -576,6 +576,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("CLOSED WIN", html)
         self.assertIn("≥50U tail", html)
         self.assertIn("A + B", html)
+        self.assertIn("data-daily-review-module='original'", html)
+        self.assertIn("data-daily-review-module='filtered-base'", html)
+        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / SHADOW REPLAY"))
 
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

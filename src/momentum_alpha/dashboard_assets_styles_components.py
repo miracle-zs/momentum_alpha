@@ -514,6 +514,14 @@ def _render_dashboard_component_styles() -> str:
     .daily-review-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; }
     .daily-review-panel-redesign { gap: 18px; padding: 20px; background: radial-gradient(circle at 82% 8%, rgba(0,212,255,0.07), transparent 28%), linear-gradient(145deg, rgba(245,210,138,0.035), rgba(0,0,0,0.18)); }
     .daily-review-panel-redesign .daily-review-toolbar { border-color: rgba(245,210,138,0.16); background: rgba(0,0,0,0.24); }
+    .daily-review-module { display: flex; flex-direction: column; gap: 14px; padding: 18px; border: 1px solid var(--border); border-radius: 16px; }
+    .daily-review-original-block { background: rgba(0,0,0,0.13); }
+    .daily-review-filtered-base-block { border-color: rgba(138,210,255,0.24); background: linear-gradient(155deg, rgba(0,212,255,0.045), rgba(0,0,0,0.16) 46%); }
+    .daily-review-module-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; padding-bottom: 2px; }
+    .daily-review-module-head h3 { margin: 0; color: var(--fg); font-family: Georgia, 'Times New Roman', serif; font-size: 1.32rem; font-weight: 500; letter-spacing: -0.02em; }
+    .daily-review-original-block .daily-review-history-summary { border-color: rgba(245,210,138,0.13); background: rgba(245,210,138,0.035); }
+    .daily-review-original-block .daily-review-ledger { border-radius: 12px; }
+    .daily-review-filtered-base-block .daily-review-counterfactual-block { border-color: rgba(138,210,255,0.18); background: rgba(0,0,0,0.14); }
     .daily-review-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: rgba(0,0,0,0.18); }
     .daily-review-toolbar-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
     .daily-review-toolbar-note { max-width: 340px; color: var(--fg-muted); font-size: 0.76rem; line-height: 1.45; text-align: right; }

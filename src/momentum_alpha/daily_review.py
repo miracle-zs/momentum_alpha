@@ -172,9 +172,6 @@ def build_daily_review_report(
         signal_decisions=signal_decisions,
         replay_report=filtered_base_replay_report,
     )
-    report_warnings = list(warnings)
-    if filtered_base_replay_report is not None:
-        report_warnings.extend(str(item) for item in (getattr(filtered_base_replay_report, "warnings", ()) or ()))
     actual_total_pnl = sum((Decimal(row.actual_net_pnl) for row in rows), Decimal("0"))
     counterfactual_total_pnl = sum((Decimal(row.counterfactual_net_pnl) for row in rows), Decimal("0"))
     account_reconciliation = _build_account_reconciliation(
@@ -187,7 +184,9 @@ def build_daily_review_report(
         window_start=window.window_start.isoformat(),
         window_end=window.window_end.isoformat(),
         generated_at=now.astimezone(DISPLAY_TIMEZONE).isoformat(),
-        status="warning" if report_warnings else "ok",
+        # Keep the original daily-review status independent from the optional
+        # filtered-Base replay.  Replay health lives in the filtered summary.
+        status="warning" if warnings else "ok",
         trade_count=len(rows),
         actual_total_pnl=str(actual_total_pnl),
         counterfactual_total_pnl=str(counterfactual_total_pnl),
@@ -196,7 +195,7 @@ def build_daily_review_report(
         stop_budget_usdt=str(stop_budget_usdt),
         entry_start_hour_utc=entry_start_hour_utc,
         entry_end_hour_utc=entry_end_hour_utc,
-        warnings=tuple(dict.fromkeys(report_warnings)),
+        warnings=tuple(dict.fromkeys(warnings)),
         account_reconciliation=account_reconciliation,
         rows=tuple(rows),
         filtered_base_summary=filtered_base_summary,
