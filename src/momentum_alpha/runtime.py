@@ -84,6 +84,13 @@ def process_runtime_tick(
         base_veto_atr_15m_pct_threshold=Decimal(runtime.config.base_veto_atr_15m_pct_threshold),
         base_veto_trade_count_ratio_30m_threshold=Decimal(runtime.config.base_veto_trade_count_ratio_30m_threshold),
         base_veto_return_to_vol_15m_threshold=Decimal(runtime.config.base_veto_return_to_vol_15m_threshold),
+        base_veto_trade_count_ratio_30m_c_threshold=Decimal(runtime.config.base_veto_trade_count_ratio_30m_c_threshold),
+        base_veto_taker_buy_share_15m_threshold=Decimal(runtime.config.base_veto_taker_buy_share_15m_threshold),
+        base_veto_efficiency_15m_d_threshold=Decimal(runtime.config.base_veto_efficiency_15m_d_threshold),
+        base_veto_efficiency_15m_e_threshold=Decimal(runtime.config.base_veto_efficiency_15m_e_threshold),
+        base_veto_range_expansion_15m_threshold=Decimal(runtime.config.base_veto_range_expansion_15m_threshold),
+        base_veto_breakout_5m_pct_threshold=Decimal(runtime.config.base_veto_breakout_5m_pct_threshold),
+        base_veto_pullback_5m_pct_threshold=Decimal(runtime.config.base_veto_pullback_5m_pct_threshold),
     )
     execution_plan = build_execution_plan(
         symbols=runtime.exchange_symbols,

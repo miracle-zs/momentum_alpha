@@ -91,6 +91,10 @@ class SkippedBaseEntry:
     base_veto_features: BaseVetoFeatures | None = None
     base_veto_atr_triggered: bool | None = None
     base_veto_composite_triggered: bool | None = None
+    base_veto_c_triggered: bool | None = None
+    base_veto_d_triggered: bool | None = None
+    base_veto_e_triggered: bool | None = None
+    base_veto_breakout_triggered: bool | None = None
 
 
 @dataclass(frozen=True)

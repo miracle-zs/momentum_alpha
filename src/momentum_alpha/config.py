@@ -17,6 +17,13 @@ class StrategyConfig:
     base_veto_atr_15m_pct_threshold: Decimal = Decimal("3")
     base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1")
     base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5")
+    base_veto_trade_count_ratio_30m_c_threshold: Decimal = Decimal("0.75")
+    base_veto_taker_buy_share_15m_threshold: Decimal = Decimal("0.50")
+    base_veto_efficiency_15m_d_threshold: Decimal = Decimal("0.15")
+    base_veto_efficiency_15m_e_threshold: Decimal = Decimal("0.45")
+    base_veto_range_expansion_15m_threshold: Decimal = Decimal("1.50")
+    base_veto_breakout_5m_pct_threshold: Decimal = Decimal("0.50")
+    base_veto_pullback_5m_pct_threshold: Decimal = Decimal("1.25")
 
     @classmethod
     def from_env(cls) -> "StrategyConfig":
@@ -77,10 +84,48 @@ class StrategyConfig:
             "BASE_VETO_RETURN_TO_VOL_15M_THRESHOLD",
             cls.base_veto_return_to_vol_15m_threshold,
         )
-        if base_veto_atr_threshold < 0:
-            raise ValueError("BASE_VETO_ATR_15M_PCT_THRESHOLD must be non-negative")
-        if base_veto_trade_count_threshold < 0:
-            raise ValueError("BASE_VETO_TRADE_COUNT_RATIO_30M_THRESHOLD must be non-negative")
+        base_veto_trade_count_c_threshold = read_decimal(
+            "BASE_VETO_TRADE_COUNT_RATIO_30M_C_THRESHOLD",
+            cls.base_veto_trade_count_ratio_30m_c_threshold,
+        )
+        base_veto_taker_buy_share_threshold = read_decimal(
+            "BASE_VETO_TAKER_BUY_SHARE_15M_THRESHOLD",
+            cls.base_veto_taker_buy_share_15m_threshold,
+        )
+        base_veto_efficiency_d_threshold = read_decimal(
+            "BASE_VETO_EFFICIENCY_15M_D_THRESHOLD",
+            cls.base_veto_efficiency_15m_d_threshold,
+        )
+        base_veto_efficiency_e_threshold = read_decimal(
+            "BASE_VETO_EFFICIENCY_15M_E_THRESHOLD",
+            cls.base_veto_efficiency_15m_e_threshold,
+        )
+        base_veto_range_expansion_threshold = read_decimal(
+            "BASE_VETO_RANGE_EXPANSION_15M_THRESHOLD",
+            cls.base_veto_range_expansion_15m_threshold,
+        )
+        base_veto_breakout_threshold = read_decimal(
+            "BASE_VETO_BREAKOUT_5M_PCT_THRESHOLD",
+            cls.base_veto_breakout_5m_pct_threshold,
+        )
+        base_veto_pullback_threshold = read_decimal(
+            "BASE_VETO_PULLBACK_5M_PCT_THRESHOLD",
+            cls.base_veto_pullback_5m_pct_threshold,
+        )
+        non_negative_thresholds = (
+            ("BASE_VETO_ATR_15M_PCT_THRESHOLD", base_veto_atr_threshold),
+            ("BASE_VETO_TRADE_COUNT_RATIO_30M_THRESHOLD", base_veto_trade_count_threshold),
+            ("BASE_VETO_TRADE_COUNT_RATIO_30M_C_THRESHOLD", base_veto_trade_count_c_threshold),
+            ("BASE_VETO_TAKER_BUY_SHARE_15M_THRESHOLD", base_veto_taker_buy_share_threshold),
+            ("BASE_VETO_EFFICIENCY_15M_D_THRESHOLD", base_veto_efficiency_d_threshold),
+            ("BASE_VETO_EFFICIENCY_15M_E_THRESHOLD", base_veto_efficiency_e_threshold),
+            ("BASE_VETO_RANGE_EXPANSION_15M_THRESHOLD", base_veto_range_expansion_threshold),
+            ("BASE_VETO_BREAKOUT_5M_PCT_THRESHOLD", base_veto_breakout_threshold),
+            ("BASE_VETO_PULLBACK_5M_PCT_THRESHOLD", base_veto_pullback_threshold),
+        )
+        for name, value in non_negative_thresholds:
+            if value < 0:
+                raise ValueError(f"{name} must be non-negative")
 
         return cls(
             stop_budget_usdt=stop_budget,
@@ -89,4 +134,11 @@ class StrategyConfig:
             base_veto_atr_15m_pct_threshold=base_veto_atr_threshold,
             base_veto_trade_count_ratio_30m_threshold=base_veto_trade_count_threshold,
             base_veto_return_to_vol_15m_threshold=base_veto_return_to_vol_threshold,
+            base_veto_trade_count_ratio_30m_c_threshold=base_veto_trade_count_c_threshold,
+            base_veto_taker_buy_share_15m_threshold=base_veto_taker_buy_share_threshold,
+            base_veto_efficiency_15m_d_threshold=base_veto_efficiency_d_threshold,
+            base_veto_efficiency_15m_e_threshold=base_veto_efficiency_e_threshold,
+            base_veto_range_expansion_15m_threshold=base_veto_range_expansion_threshold,
+            base_veto_breakout_5m_pct_threshold=base_veto_breakout_threshold,
+            base_veto_pullback_5m_pct_threshold=base_veto_pullback_threshold,
         )

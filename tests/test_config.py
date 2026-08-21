@@ -67,6 +67,13 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.base_veto_atr_15m_pct_threshold, Decimal("3"))
         self.assertEqual(config.base_veto_trade_count_ratio_30m_threshold, Decimal("1"))
         self.assertEqual(config.base_veto_return_to_vol_15m_threshold, Decimal("0.5"))
+        self.assertEqual(config.base_veto_trade_count_ratio_30m_c_threshold, Decimal("0.75"))
+        self.assertEqual(config.base_veto_taker_buy_share_15m_threshold, Decimal("0.50"))
+        self.assertEqual(config.base_veto_efficiency_15m_d_threshold, Decimal("0.15"))
+        self.assertEqual(config.base_veto_efficiency_15m_e_threshold, Decimal("0.45"))
+        self.assertEqual(config.base_veto_range_expansion_15m_threshold, Decimal("1.50"))
+        self.assertEqual(config.base_veto_breakout_5m_pct_threshold, Decimal("0.50"))
+        self.assertEqual(config.base_veto_pullback_5m_pct_threshold, Decimal("1.25"))
 
     def test_strategy_config_reads_base_veto_settings_from_environment(self) -> None:
         from momentum_alpha.config import StrategyConfig
@@ -78,6 +85,13 @@ class ConfigTests(unittest.TestCase):
                 "BASE_VETO_ATR_15M_PCT_THRESHOLD": "3.2",
                 "BASE_VETO_TRADE_COUNT_RATIO_30M_THRESHOLD": "0.9",
                 "BASE_VETO_RETURN_TO_VOL_15M_THRESHOLD": "0.4",
+                "BASE_VETO_TRADE_COUNT_RATIO_30M_C_THRESHOLD": "0.7",
+                "BASE_VETO_TAKER_BUY_SHARE_15M_THRESHOLD": "0.48",
+                "BASE_VETO_EFFICIENCY_15M_D_THRESHOLD": "0.12",
+                "BASE_VETO_EFFICIENCY_15M_E_THRESHOLD": "0.42",
+                "BASE_VETO_RANGE_EXPANSION_15M_THRESHOLD": "1.6",
+                "BASE_VETO_BREAKOUT_5M_PCT_THRESHOLD": "0.55",
+                "BASE_VETO_PULLBACK_5M_PCT_THRESHOLD": "1.1",
             },
             clear=True,
         ):
@@ -87,3 +101,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.base_veto_atr_15m_pct_threshold, Decimal("3.2"))
         self.assertEqual(config.base_veto_trade_count_ratio_30m_threshold, Decimal("0.9"))
         self.assertEqual(config.base_veto_return_to_vol_15m_threshold, Decimal("0.4"))
+        self.assertEqual(config.base_veto_trade_count_ratio_30m_c_threshold, Decimal("0.7"))
+        self.assertEqual(config.base_veto_taker_buy_share_15m_threshold, Decimal("0.48"))
+        self.assertEqual(config.base_veto_efficiency_15m_d_threshold, Decimal("0.12"))
+        self.assertEqual(config.base_veto_efficiency_15m_e_threshold, Decimal("0.42"))
+        self.assertEqual(config.base_veto_range_expansion_15m_threshold, Decimal("1.6"))
+        self.assertEqual(config.base_veto_breakout_5m_pct_threshold, Decimal("0.55"))
+        self.assertEqual(config.base_veto_pullback_5m_pct_threshold, Decimal("1.1"))

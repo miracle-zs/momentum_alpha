@@ -68,6 +68,13 @@ def evaluate_minute_close(
     base_veto_atr_15m_pct_threshold: Decimal = Decimal("3"),
     base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1"),
     base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5"),
+    base_veto_trade_count_ratio_30m_c_threshold: Decimal = Decimal("0.75"),
+    base_veto_taker_buy_share_15m_threshold: Decimal = Decimal("0.50"),
+    base_veto_efficiency_15m_d_threshold: Decimal = Decimal("0.15"),
+    base_veto_efficiency_15m_e_threshold: Decimal = Decimal("0.45"),
+    base_veto_range_expansion_15m_threshold: Decimal = Decimal("1.50"),
+    base_veto_breakout_5m_pct_threshold: Decimal = Decimal("0.50"),
+    base_veto_pullback_5m_pct_threshold: Decimal = Decimal("1.25"),
 ) -> MinuteCloseDecision:
     daily_base_signal_times = dict(state.daily_base_signal_times)
     daily_base_signal_counts = dict(state.daily_base_signal_counts)
@@ -148,6 +155,13 @@ def evaluate_minute_close(
                 atr_15m_pct_threshold=base_veto_atr_15m_pct_threshold,
                 trade_count_ratio_30m_threshold=base_veto_trade_count_ratio_30m_threshold,
                 return_to_vol_15m_threshold=base_veto_return_to_vol_15m_threshold,
+                trade_count_ratio_30m_c_threshold=base_veto_trade_count_ratio_30m_c_threshold,
+                taker_buy_share_15m_threshold=base_veto_taker_buy_share_15m_threshold,
+                efficiency_15m_d_threshold=base_veto_efficiency_15m_d_threshold,
+                efficiency_15m_e_threshold=base_veto_efficiency_15m_e_threshold,
+                range_expansion_15m_threshold=base_veto_range_expansion_15m_threshold,
+                breakout_5m_pct_threshold=base_veto_breakout_5m_pct_threshold,
+                pullback_5m_pct_threshold=base_veto_pullback_5m_pct_threshold,
             )
             if base_veto_decision.triggered:
                 blocked_reason = "base_veto"
@@ -167,6 +181,10 @@ def evaluate_minute_close(
                         base_veto_features=snapshot.base_veto_features,
                         base_veto_atr_triggered=base_veto_decision.atr_triggered,
                         base_veto_composite_triggered=base_veto_decision.composite_triggered,
+                        base_veto_c_triggered=base_veto_decision.c_triggered,
+                        base_veto_d_triggered=base_veto_decision.d_triggered,
+                        base_veto_e_triggered=base_veto_decision.e_triggered,
+                        base_veto_breakout_triggered=base_veto_decision.breakout_triggered,
                     )
                 )
             else:
@@ -377,6 +395,13 @@ def process_clock_tick(
     base_veto_atr_15m_pct_threshold: Decimal = Decimal("3"),
     base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1"),
     base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5"),
+    base_veto_trade_count_ratio_30m_c_threshold: Decimal = Decimal("0.75"),
+    base_veto_taker_buy_share_15m_threshold: Decimal = Decimal("0.50"),
+    base_veto_efficiency_15m_d_threshold: Decimal = Decimal("0.15"),
+    base_veto_efficiency_15m_e_threshold: Decimal = Decimal("0.45"),
+    base_veto_range_expansion_15m_threshold: Decimal = Decimal("1.50"),
+    base_veto_breakout_5m_pct_threshold: Decimal = Decimal("0.50"),
+    base_veto_pullback_5m_pct_threshold: Decimal = Decimal("1.25"),
 ) -> TickDecision:
     minute_close = evaluate_minute_close(
         now=now,
@@ -389,6 +414,13 @@ def process_clock_tick(
         base_veto_atr_15m_pct_threshold=base_veto_atr_15m_pct_threshold,
         base_veto_trade_count_ratio_30m_threshold=base_veto_trade_count_ratio_30m_threshold,
         base_veto_return_to_vol_15m_threshold=base_veto_return_to_vol_15m_threshold,
+        base_veto_trade_count_ratio_30m_c_threshold=base_veto_trade_count_ratio_30m_c_threshold,
+        base_veto_taker_buy_share_15m_threshold=base_veto_taker_buy_share_15m_threshold,
+        base_veto_efficiency_15m_d_threshold=base_veto_efficiency_15m_d_threshold,
+        base_veto_efficiency_15m_e_threshold=base_veto_efficiency_15m_e_threshold,
+        base_veto_range_expansion_15m_threshold=base_veto_range_expansion_15m_threshold,
+        base_veto_breakout_5m_pct_threshold=base_veto_breakout_5m_pct_threshold,
+        base_veto_pullback_5m_pct_threshold=base_veto_pullback_5m_pct_threshold,
     )
     add_on_entries: list[EntryIntent] = []
     skipped_add_ons: list[SkippedAddOn] = []

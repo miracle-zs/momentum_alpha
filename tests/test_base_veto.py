@@ -100,6 +100,82 @@ class BaseVetoTests(unittest.TestCase):
         self.assertEqual(b.rule, "B")
         self.assertFalse(allow.triggered)
 
+    def test_combined_rules_report_each_extended_trigger(self) -> None:
+        from momentum_alpha.base_veto import BaseVetoFeatures, evaluate_base_veto
+
+        d = evaluate_base_veto(
+            BaseVetoFeatures(
+                atr_15m_pct=Decimal("2"),
+                trade_count_ratio_30m=Decimal("1.2"),
+                return_to_vol_15m=Decimal("0.8"),
+                taker_buy_share_15m=Decimal("0.40"),
+                efficiency_15m=Decimal("0.10"),
+                range_expansion_15m=Decimal("1.1"),
+                breakout_5m_pct=Decimal("0.1"),
+                pullback_5m_pct=Decimal("3"),
+                completed_candle_count=60,
+            )
+        )
+        e_and_breakout = evaluate_base_veto(
+            BaseVetoFeatures(
+                atr_15m_pct=Decimal("2"),
+                trade_count_ratio_30m=Decimal("1.2"),
+                return_to_vol_15m=Decimal("0.8"),
+                taker_buy_share_15m=Decimal("0.60"),
+                efficiency_15m=Decimal("0.40"),
+                range_expansion_15m=Decimal("1.5"),
+                breakout_5m_pct=Decimal("0.50"),
+                pullback_5m_pct=Decimal("1.25"),
+                completed_candle_count=60,
+            )
+        )
+
+        self.assertTrue(d.triggered)
+        self.assertEqual(d.rule, "D")
+        self.assertTrue(d.d_triggered)
+        self.assertFalse(d.e_triggered)
+        self.assertFalse(d.breakout_triggered)
+        self.assertTrue(e_and_breakout.triggered)
+        self.assertEqual(e_and_breakout.rule, "E+BREAKOUT")
+        self.assertTrue(e_and_breakout.e_triggered)
+        self.assertTrue(e_and_breakout.breakout_triggered)
+
+    def test_feature_calculation_includes_extended_combined_rule_inputs(self) -> None:
+        from momentum_alpha.base_veto import compute_base_veto_features
+
+        klines = []
+        for minute in range(60):
+            open_time = minute * 60_000
+            close = Decimal("100") + Decimal(minute) / Decimal("100")
+            klines.append(
+                [
+                    open_time,
+                    str(close),
+                    str(close + Decimal("1")),
+                    str(close - Decimal("1")),
+                    str(close),
+                    "1",
+                    open_time + 59_999,
+                    "1000",
+                    100,
+                    "500",
+                    "400",
+                    "0",
+                ]
+            )
+
+        features = compute_base_veto_features(
+            klines=klines,
+            signal_at=datetime.fromtimestamp(60 * 60, tz=timezone.utc),
+        )
+
+        self.assertTrue(features.data_ready)
+        self.assertEqual(features.taker_buy_share_15m, Decimal("0.4"))
+        self.assertIsNotNone(features.efficiency_15m)
+        self.assertIsNotNone(features.range_expansion_15m)
+        self.assertIsNotNone(features.breakout_5m_pct)
+        self.assertIsNotNone(features.pullback_5m_pct)
+
     def test_incomplete_features_fail_open(self) -> None:
         from momentum_alpha.base_veto import BaseVetoFeatures, evaluate_base_veto
 

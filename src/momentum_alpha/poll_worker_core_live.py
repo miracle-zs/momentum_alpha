@@ -684,14 +684,41 @@ def run_once_live(
                             "base_veto_return_to_vol_15m_threshold": str(
                                 strategy_config.base_veto_return_to_vol_15m_threshold
                             ),
+                            "base_veto_trade_count_ratio_30m_c_threshold": str(
+                                strategy_config.base_veto_trade_count_ratio_30m_c_threshold
+                            ),
+                            "base_veto_taker_buy_share_15m_threshold": str(
+                                strategy_config.base_veto_taker_buy_share_15m_threshold
+                            ),
+                            "base_veto_efficiency_15m_d_threshold": str(
+                                strategy_config.base_veto_efficiency_15m_d_threshold
+                            ),
+                            "base_veto_efficiency_15m_e_threshold": str(
+                                strategy_config.base_veto_efficiency_15m_e_threshold
+                            ),
+                            "base_veto_range_expansion_15m_threshold": str(
+                                strategy_config.base_veto_range_expansion_15m_threshold
+                            ),
+                            "base_veto_breakout_5m_pct_threshold": str(
+                                strategy_config.base_veto_breakout_5m_pct_threshold
+                            ),
+                            "base_veto_pullback_5m_pct_threshold": str(
+                                strategy_config.base_veto_pullback_5m_pct_threshold
+                            ),
                         }
                         if skipped.base_veto_rule is not None
                         else {}
                     ),
                     **(
                         {
+                            "base_veto_a_triggered": skipped.base_veto_atr_triggered,
+                            "base_veto_b_triggered": skipped.base_veto_composite_triggered,
                             "base_veto_atr_triggered": skipped.base_veto_atr_triggered,
                             "base_veto_composite_triggered": skipped.base_veto_composite_triggered,
+                            "base_veto_c_triggered": skipped.base_veto_c_triggered,
+                            "base_veto_d_triggered": skipped.base_veto_d_triggered,
+                            "base_veto_e_triggered": skipped.base_veto_e_triggered,
+                            "base_veto_breakout_triggered": skipped.base_veto_breakout_triggered,
                         }
                         if skipped.base_veto_atr_triggered is not None
                         else {}
