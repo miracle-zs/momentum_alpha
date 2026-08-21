@@ -226,6 +226,28 @@ def render_daily_review_panel(report: dict | None) -> str:
         for label, value, tone in filtered_stat_items
     )
 
+    veto_rule_counts: dict[str, int] = {}
+    for row in filtered_rows_data:
+        for token in _veto_rule_tokens(row.get("veto_rule")):
+            veto_rule_counts[token] = veto_rule_counts.get(token, 0) + 1
+    veto_rule_mix_html = "".join(
+        (
+            f"<span class='daily-review-rule-mix-item daily-review-rule-{escape(_veto_rule_slug(token))}'>"
+            f"<b>{escape(_veto_rule_label(token))}</b><strong>{count}</strong></span>"
+        )
+        for token, count in sorted(
+            veto_rule_counts.items(),
+            key=lambda item: (-item[1], _veto_rule_label(item[0])),
+        )
+    )
+    veto_rule_mix_content = veto_rule_mix_html or "<span class='daily-review-rule-mix-empty'>No matched rule data</span>"
+    veto_rule_mix_html = (
+        "<div class='daily-review-rule-mix'>"
+        "<span class='daily-review-rule-mix-title'>RULE MIX</span>"
+        f"{veto_rule_mix_content}"
+        "</div>"
+    )
+
     filtered_rows = []
     for row in filtered_rows_data:
         status = str(row.get("status") or "pending_replay")
@@ -238,12 +260,42 @@ def render_daily_review_panel(report: dict | None) -> str:
             "overlap": "OVERLAP",
         }.get(status, status.upper())
         status_tone = "win" if outcome == "win" else "loss" if outcome == "loss" else "pending" if status == "pending_replay" else "neutral"
-        rule = str(row.get("veto_rule") or "-")
-        rule_label = {"A": "A · ATR", "B": "B · FLOW", "A_OR_B": "A + B"}.get(rule, rule)
-        features = (
+        rule_chips_html = "".join(
+            (
+                f"<span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-{escape(_veto_rule_slug(token))}'>"
+                f"{escape(_veto_rule_label(token))}</span>"
+            )
+            for token in _veto_rule_tokens(row.get("veto_rule"))
+        ) or "<span class='daily-review-rule-empty'>—</span>"
+        primary_features = (
             f"ATR {_format_review_pct(row.get('atr_15m_pct'))}"
             f" · TC {_format_review_ratio(row.get('trade_count_ratio_30m'))}"
             f" · R/V {_format_review_ratio(row.get('return_to_vol_15m'))}"
+        )
+        secondary_feature_values = [
+            f"TB {_format_review_share(row.get('taker_buy_share_15m'))}",
+            f"EFF {_format_review_ratio(row.get('efficiency_15m'))}",
+            f"RX {_format_review_multiple(row.get('range_expansion_15m'))}",
+            f"BO {_format_review_signed_pct(row.get('breakout_5m_pct'))}",
+            f"PB {_format_review_pct(row.get('pullback_5m_pct'))}",
+        ]
+        has_secondary_features = any(
+            row.get(key) not in (None, "")
+            for key in (
+                "taker_buy_share_15m",
+                "efficiency_15m",
+                "range_expansion_15m",
+                "breakout_5m_pct",
+                "pullback_5m_pct",
+            )
+        )
+        feature_html = (
+            f"<span class='daily-review-feature-line'>{escape(primary_features)}</span>"
+            + (
+                f"<span class='daily-review-feature-line daily-review-feature-line-secondary'>{escape(' · '.join(secondary_feature_values))}</span>"
+                if has_secondary_features
+                else ""
+            )
         )
         pnl_source = row.get("net_pnl") if status == "closed" else row.get("mark_to_market_net_pnl")
         pnl_value = _parse_decimal(pnl_source)
@@ -261,7 +313,7 @@ def render_daily_review_panel(report: dict | None) -> str:
             f"<strong>{escape(str(row.get('symbol') or 'n/a'))}</strong>"
             f"<small>{escape(str(row.get('shadow_opportunity_id') or ''))}</small>"
             "</div>"
-            f"<div><span class='daily-review-filter-chip'>{escape(rule_label)}</span><span class='daily-review-feature-pills'>{escape(features)}</span></div>"
+            f"<div class='daily-review-veto-evidence'><div class='daily-review-rule-chips'>{rule_chips_html}</div><span class='daily-review-feature-pills'>{feature_html}</span></div>"
             f"<div><span class='daily-review-outcome daily-review-outcome-{status_tone}' title='{escape(warning_text)}'>{escape(status_label)}</span>{tail_html}</div>"
             f"<div class='daily-review-counterfactual-pnl {pnl_class}'><strong>{escape(_format_decimal_metric(pnl_value, signed=True))}</strong><small>{escape(pnl_caption)}</small></div>"
             f"<div class='daily-review-counterfactual-addons'>{escape(str(row.get('add_on_count', 0)))} <small>add-ons</small></div>"
@@ -379,10 +431,11 @@ def render_daily_review_panel(report: dict | None) -> str:
         "<section class='daily-review-counterfactual-block'>"
         "<div class='daily-review-section-head'>"
         "<div><div class='daily-review-eyebrow'>COUNTERFACTUAL TRACKING</div><h3>过滤候选的后续路径</h3></div>"
-        "<div class='daily-review-section-note'>A/B 规则只用开仓当时已完成的 1m 数据</div>"
+        "<div class='daily-review-section-note'>A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据</div>"
         "</div>"
         f"<div class='daily-review-counterfactual-stats'>{filtered_stats_html}</div>"
-        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip'>B · TC ≤ 1 + R/V ≤ 0.5</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益。</span></div>"
+        f"{veto_rule_mix_html}"
+        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益。</span></div>"
         f"{filtered_rows_html}"
         "</section>"
         "</section>"
@@ -398,3 +451,53 @@ def _format_review_pct(value: object | None) -> str:
 def _format_review_ratio(value: object | None) -> str:
     numeric = _parse_numeric(value)
     return "—" if numeric is None else f"{numeric:,.2f}"
+
+
+def _format_review_share(value: object | None) -> str:
+    numeric = _parse_numeric(value)
+    return "—" if numeric is None else f"{numeric * 100:,.1f}%"
+
+
+def _format_review_multiple(value: object | None) -> str:
+    numeric = _parse_numeric(value)
+    return "—" if numeric is None else f"{numeric:,.2f}×"
+
+
+def _format_review_signed_pct(value: object | None) -> str:
+    numeric = _parse_numeric(value)
+    return "—" if numeric is None else f"{numeric:+,.2f}%"
+
+
+_VETO_RULE_LABELS = {
+    "A": "A · ATR",
+    "B": "B · FLOW",
+    "C": "C · LOW TC",
+    "D": "D · SELL IMBALANCE",
+    "E": "E · RANGE / PATH",
+    "BREAKOUT": "BO · BREAKOUT",
+}
+
+
+def _veto_rule_tokens(value: object | None) -> tuple[str, ...]:
+    normalized = str(value or "").strip()
+    if not normalized or normalized == "-":
+        return ()
+    if normalized == "A_OR_B":
+        return ("A", "B")
+    tokens = tuple(token.strip().upper() for token in normalized.replace(" OR ", "+").split("+") if token.strip())
+    return tokens
+
+
+def _veto_rule_label(token: str) -> str:
+    return _VETO_RULE_LABELS.get(token, token)
+
+
+def _veto_rule_slug(token: str) -> str:
+    return {
+        "A": "a",
+        "B": "b",
+        "C": "c",
+        "D": "d",
+        "E": "e",
+        "BREAKOUT": "breakout",
+    }.get(token, "other")

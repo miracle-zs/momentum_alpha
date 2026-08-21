@@ -73,6 +73,17 @@ class DailyReviewFilteredBaseRow:
     add_on_count: int
     is_long_tail_50u: bool
     warnings: tuple[str, ...]
+    taker_buy_share_15m: str | None = None
+    efficiency_15m: str | None = None
+    range_expansion_15m: str | None = None
+    breakout_5m_pct: str | None = None
+    pullback_5m_pct: str | None = None
+    veto_a_triggered: bool | None = None
+    veto_b_triggered: bool | None = None
+    veto_c_triggered: bool | None = None
+    veto_d_triggered: bool | None = None
+    veto_e_triggered: bool | None = None
+    veto_breakout_triggered: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -301,6 +312,37 @@ def _build_filtered_base_rows(
                 add_on_count=int(getattr(result, "add_on_count", 0) or 0) if result is not None else 0,
                 is_long_tail_50u=bool(observed_pnl is not None and observed_pnl >= Decimal("50")),
                 warnings=tuple(dict.fromkeys(str(item) for item in warnings)),
+                taker_buy_share_15m=_payload_text(
+                    payload,
+                    "taker_buy_share_15m",
+                    "base_veto_taker_buy_share_15m",
+                ),
+                efficiency_15m=_payload_text(
+                    payload,
+                    "efficiency_15m",
+                    "base_veto_efficiency_15m",
+                ),
+                range_expansion_15m=_payload_text(
+                    payload,
+                    "range_expansion_15m",
+                    "base_veto_range_expansion_15m",
+                ),
+                breakout_5m_pct=_payload_text(
+                    payload,
+                    "breakout_5m_pct",
+                    "base_veto_breakout_5m_pct",
+                ),
+                pullback_5m_pct=_payload_text(
+                    payload,
+                    "pullback_5m_pct",
+                    "base_veto_pullback_5m_pct",
+                ),
+                veto_a_triggered=_payload_bool(payload, "base_veto_a_triggered", "base_veto_atr_triggered"),
+                veto_b_triggered=_payload_bool(payload, "base_veto_b_triggered", "base_veto_composite_triggered"),
+                veto_c_triggered=_payload_bool(payload, "base_veto_c_triggered"),
+                veto_d_triggered=_payload_bool(payload, "base_veto_d_triggered"),
+                veto_e_triggered=_payload_bool(payload, "base_veto_e_triggered"),
+                veto_breakout_triggered=_payload_bool(payload, "base_veto_breakout_triggered"),
             )
         )
 
@@ -366,6 +408,21 @@ def _payload_text(payload: dict, *keys: str) -> str | None:
         value = payload.get(key)
         if value not in (None, ""):
             return str(value)
+    return None
+
+
+def _payload_bool(payload: dict, *keys: str) -> bool | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            return value
+        if value in (None, ""):
+            continue
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
     return None
 
 

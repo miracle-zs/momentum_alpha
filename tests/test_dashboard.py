@@ -554,6 +554,11 @@ class DashboardTests(unittest.TestCase):
                             "atr_15m_pct": "3.40",
                             "trade_count_ratio_30m": "0.70",
                             "return_to_vol_15m": "0.31",
+                            "taker_buy_share_15m": "0.45",
+                            "efficiency_15m": "0.12",
+                            "range_expansion_15m": "1.60",
+                            "breakout_5m_pct": "0.62",
+                            "pullback_5m_pct": "0.57",
                             "status": "closed",
                             "outcome": "win",
                             "exit_at": "2026-04-20T12:00:00+00:00",
@@ -575,7 +580,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("ACEUSDT", html)
         self.assertIn("CLOSED WIN", html)
         self.assertIn("≥50U tail", html)
-        self.assertIn("A + B", html)
+        self.assertIn("A · ATR", html)
+        self.assertIn("B · FLOW", html)
+        self.assertIn("TB 45.0%", html)
+        self.assertIn("EFF 0.12", html)
+        self.assertIn("RX 1.60×", html)
+        self.assertIn("BO +0.62%", html)
+        self.assertIn("PB 0.57%", html)
+        self.assertIn("RULE MIX", html)
         self.assertIn("data-daily-review-module='original'", html)
         self.assertIn("data-daily-review-module='filtered-base'", html)
         self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / SHADOW REPLAY"))

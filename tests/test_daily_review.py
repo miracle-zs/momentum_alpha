@@ -128,6 +128,17 @@ class DailyReviewTests(unittest.TestCase):
                     "atr_15m_pct": "3.40",
                     "trade_count_ratio_30m": "0.70",
                     "return_to_vol_15m": "0.31",
+                    "taker_buy_share_15m": "0.45",
+                    "efficiency_15m": "0.12",
+                    "range_expansion_15m": "1.60",
+                    "breakout_5m_pct": "0.62",
+                    "pullback_5m_pct": "0.57",
+                    "base_veto_a_triggered": True,
+                    "base_veto_b_triggered": True,
+                    "base_veto_c_triggered": False,
+                    "base_veto_d_triggered": False,
+                    "base_veto_e_triggered": False,
+                    "base_veto_breakout_triggered": False,
                     "latest_price": "100",
                     "stop_price": "95",
                 },
@@ -172,6 +183,10 @@ class DailyReviewTests(unittest.TestCase):
             ["filtered_base_replay_warning"],
         )
         self.assertEqual(report.filtered_base_rows[0].veto_rule, "A_OR_B")
+        self.assertEqual(report.filtered_base_rows[0].taker_buy_share_15m, "0.45")
+        self.assertEqual(report.filtered_base_rows[0].efficiency_15m, "0.12")
+        self.assertTrue(report.filtered_base_rows[0].veto_a_triggered)
+        self.assertTrue(report.filtered_base_rows[0].veto_b_triggered)
         self.assertEqual(report.filtered_base_rows[0].outcome, "win")
         self.assertTrue(report.filtered_base_rows[0].is_long_tail_50u)
 
