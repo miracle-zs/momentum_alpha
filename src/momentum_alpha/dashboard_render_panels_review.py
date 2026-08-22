@@ -206,17 +206,17 @@ def render_daily_review_panel(report: dict | None) -> str:
     filtered_pending_count = int(_parse_numeric(filtered_summary.get("pending_count")) or 0)
     filtered_pnl_class = "positive" if filtered_observed_pnl is not None and filtered_observed_pnl > 0 else "negative" if filtered_observed_pnl is not None and filtered_observed_pnl < 0 else "neutral"
     filtered_status_note = (
-        f"{filtered_resolved_count} independent shadow replays · {filtered_overlap_count} overlap · {filtered_pending_count} pending"
+        f"{filtered_resolved_count} shadow positions · {filtered_overlap_count} overlap · {filtered_pending_count} pending"
         if filtered_candidate_count
         else "No Base veto candidates recorded in this window"
     )
     filtered_stat_items = [
         ("VETOED BASES", str(filtered_candidate_count), ""),
-        ("INDEPENDENT SHADOWS", str(filtered_resolved_count), ""),
+        ("REPLAYED SHADOWS", str(filtered_resolved_count), ""),
         ("OVERLAPS", str(filtered_overlap_count), "neutral" if filtered_overlap_count else ""),
         ("CLOSED WINS", str(filtered_win_count), "positive"),
         ("CLOSED LOSSES", str(filtered_loss_count), "negative"),
-        ("SAMPLE PNL SUM", _format_decimal_metric(filtered_observed_pnl, signed=True), filtered_pnl_class),
+        ("OBSERVED PNL", _format_decimal_metric(filtered_observed_pnl, signed=True), filtered_pnl_class),
         ("≥50U TAILS", str(filtered_tail_count), "tail"),
     ]
     filtered_stats_html = "".join(
@@ -437,17 +437,17 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</section>"
         "<section class='daily-review-module daily-review-filtered-base-block' data-daily-review-module='filtered-base'>"
         "<div class='daily-review-module-head'>"
-        "<div><div class='daily-review-eyebrow'>FILTERED BASE / INDEPENDENT SHADOWS</div><h3>新增实验：原本会开仓、但被新规则过滤的 Base 后来怎样？</h3></div>"
-        f"<div class='daily-review-section-note'>只统计被过滤候选的反事实 Shadow，不等同于实际 Base；{escape(filtered_status_note)}。这一部分独立统计，不改变上面的原有日报。</div>"
+        "<div><div class='daily-review-eyebrow'>FILTERED BASE / SHADOW REPLAY</div><h3>新增实验：原本会开仓、但被新规则过滤的 Base 后来怎样？</h3></div>"
+        f"<div class='daily-review-section-note'>只统计被过滤候选的反事实 Shadow，不等同于实际 Base；{escape(filtered_status_note)}。同一 symbol 同时最多一笔 Shadow，OVERLAP 不重复开仓。</div>"
         "</div>"
         "<section class='daily-review-counterfactual-block'>"
         "<div class='daily-review-section-head'>"
         "<div><div class='daily-review-eyebrow'>COUNTERFACTUAL TRACKING</div><h3>过滤候选的后续路径</h3></div>"
-        "<div class='daily-review-section-note'>只纳入原策略原本会真实开 Base、但被新 Base veto 拦截的候选；每个候选独立回放，不把同一 symbol 的候选合并成组合仓位。A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据。</div>"
+        "<div class='daily-review-section-note'>只纳入原策略原本会真实开 Base、但被新 Base veto 拦截的候选；按真实仓位约束逐笔推进，同一 symbol 已有 Shadow 时后续候选记为 OVERLAP。A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据。</div>"
         "</div>"
         f"<div class='daily-review-counterfactual-stats'>{filtered_stats_html}</div>"
         f"{veto_rule_mix_html}"
-        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益；SAMPLE PNL SUM 仅是独立样本合计，不代表组合收益。</span></div>"
+        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益；OBSERVED PNL 只统计不重叠 Shadow，OVERLAP 不计入。</span></div>"
         f"{filtered_rows_html}"
         "</section>"
         "</section>"

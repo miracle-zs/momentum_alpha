@@ -591,11 +591,11 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("RULE HITS", html)
         self.assertIn("一笔候选可同时命中多个规则", html)
         self.assertIn("只统计被过滤候选的反事实 Shadow，不等同于实际 Base", html)
-        self.assertIn("SAMPLE PNL SUM", html)
-        self.assertIn("不代表组合收益", html)
+        self.assertIn("OBSERVED PNL", html)
+        self.assertIn("OVERLAP 不计入", html)
         self.assertIn("data-daily-review-module='original'", html)
         self.assertIn("data-daily-review-module='filtered-base'", html)
-        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / INDEPENDENT SHADOWS"))
+        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / SHADOW REPLAY"))
 
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot
