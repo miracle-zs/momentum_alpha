@@ -174,6 +174,7 @@ class DailyReviewTests(unittest.TestCase):
 
         self.assertEqual(report.filtered_base_summary["candidate_count"], 1)
         self.assertEqual(report.filtered_base_summary["resolved_count"], 1)
+        self.assertEqual(report.filtered_base_summary["overlap_count"], 0)
         self.assertEqual(report.filtered_base_summary["closed_net_pnl"], "54.25")
         self.assertEqual(report.filtered_base_summary["tail_50u_count"], 1)
         self.assertEqual(report.status, "ok")

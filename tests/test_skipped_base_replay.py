@@ -260,6 +260,38 @@ class SkippedBaseReplayTests(unittest.TestCase):
         self.assertEqual(report.overlaps[0].shadow_opportunity_id, "shadow-2")
         self.assertEqual(report.overlaps[0].active_shadow_opportunity_id, "shadow-1")
 
+    def test_independent_candidate_replay_completes_overlapping_same_symbol_seeds(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_opportunities
+
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        second_at = first_at + timedelta(minutes=1)
+        third_at = first_at + timedelta(minutes=10)
+        seeds = [
+            self._seed(signal_at=first_at, shadow_id="shadow-1"),
+            self._seed(signal_at=second_at, shadow_id="shadow-2"),
+            self._seed(signal_at=third_at, shadow_id="shadow-3"),
+        ]
+        candles = [
+            self._candle(first_at, low="109"),
+            self._candle(first_at + timedelta(minutes=2), low="99"),
+            self._candle(third_at, low="99"),
+        ]
+
+        report = replay_shadow_opportunities(
+            seeds=seeds,
+            candles_by_symbol={"AAAUSDT": candles},
+            leaders={},
+            cutoff=third_at + timedelta(minutes=1),
+            taker_fee_rate=Decimal("0"),
+            independent_candidate_replay=True,
+        )
+
+        self.assertEqual(
+            [item.shadow_opportunity_id for item in report.opportunities],
+            ["shadow-1", "shadow-2", "shadow-3"],
+        )
+        self.assertEqual(report.overlaps, ())
+
     def test_invalid_seed_becomes_unresolved(self) -> None:
         from dataclasses import replace
 

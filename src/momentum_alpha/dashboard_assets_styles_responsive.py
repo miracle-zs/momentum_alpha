@@ -81,6 +81,7 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-module { padding: 13px; }
       .daily-review-counterfactual-block, .daily-review-ledger { padding: 13px; }
       .daily-review-counterfactual-stats { grid-template-columns: 1fr 1fr; }
+      .daily-review-rule-mix-note { flex-basis: 100%; margin-left: 0; }
       .daily-review-counterfactual-header, .daily-review-counterfactual-row { min-width: 900px; }
       .daily-review-date-form { align-items: flex-start; }
       .daily-review-grid { min-width: 920px; grid-template-columns: minmax(112px, 1fr) minmax(82px, 0.7fr) minmax(112px, 1fr) minmax(78px, 0.72fr) minmax(78px, 0.72fr) minmax(96px, 0.82fr) minmax(60px, 0.52fr) minmax(64px, 0.52fr); }

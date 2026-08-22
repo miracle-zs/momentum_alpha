@@ -202,19 +202,21 @@ def render_daily_review_panel(report: dict | None) -> str:
     filtered_observed_pnl = _parse_decimal(filtered_summary.get("observed_net_pnl"))
     filtered_win_count = int(_parse_numeric(filtered_summary.get("win_count")) or 0)
     filtered_loss_count = int(_parse_numeric(filtered_summary.get("loss_count")) or 0)
+    filtered_overlap_count = int(_parse_numeric(filtered_summary.get("overlap_count")) or 0)
     filtered_pending_count = int(_parse_numeric(filtered_summary.get("pending_count")) or 0)
     filtered_pnl_class = "positive" if filtered_observed_pnl is not None and filtered_observed_pnl > 0 else "negative" if filtered_observed_pnl is not None and filtered_observed_pnl < 0 else "neutral"
     filtered_status_note = (
-        f"{filtered_resolved_count} resolved · {filtered_pending_count} pending"
+        f"{filtered_resolved_count} independent shadow replays · {filtered_overlap_count} overlap · {filtered_pending_count} pending"
         if filtered_candidate_count
         else "No Base veto candidates recorded in this window"
     )
     filtered_stat_items = [
         ("VETOED BASES", str(filtered_candidate_count), ""),
-        ("RESOLVED", str(filtered_resolved_count), ""),
+        ("INDEPENDENT SHADOWS", str(filtered_resolved_count), ""),
+        ("OVERLAPS", str(filtered_overlap_count), "neutral" if filtered_overlap_count else ""),
         ("CLOSED WINS", str(filtered_win_count), "positive"),
         ("CLOSED LOSSES", str(filtered_loss_count), "negative"),
-        ("OBSERVED PNL", _format_decimal_metric(filtered_observed_pnl, signed=True), filtered_pnl_class),
+        ("SAMPLE PNL SUM", _format_decimal_metric(filtered_observed_pnl, signed=True), filtered_pnl_class),
         ("≥50U TAILS", str(filtered_tail_count), "tail"),
     ]
     filtered_stats_html = "".join(
@@ -243,8 +245,9 @@ def render_daily_review_panel(report: dict | None) -> str:
     veto_rule_mix_content = veto_rule_mix_html or "<span class='daily-review-rule-mix-empty'>No matched rule data</span>"
     veto_rule_mix_html = (
         "<div class='daily-review-rule-mix'>"
-        "<span class='daily-review-rule-mix-title'>RULE MIX</span>"
+        "<span class='daily-review-rule-mix-title'>RULE HITS</span>"
         f"{veto_rule_mix_content}"
+        "<span class='daily-review-rule-mix-note'>一笔候选可同时命中多个规则，命中次数可能大于候选总数。</span>"
         "</div>"
     )
 
@@ -302,7 +305,16 @@ def render_daily_review_panel(report: dict | None) -> str:
         pnl_class = "daily-review-impact-positive" if pnl_value is not None and pnl_value > 0 else "daily-review-impact-negative" if pnl_value is not None and pnl_value < 0 else ""
         pnl_caption = "REALIZED" if status == "closed" else "MTM" if status == "open" else ""
         tail_html = "<span class='daily-review-tail-badge'>≥50U tail</span>" if row.get("is_long_tail_50u") else ""
-        warning_text = ", ".join(str(item) for item in (row.get("warnings") or [])) or "no warnings"
+        overlap_shadow_id = str(row.get("overlap_with_shadow_opportunity_id") or "")
+        warning_items = [str(item) for item in (row.get("warnings") or [])]
+        if overlap_shadow_id:
+            warning_items.append(f"overlap with {overlap_shadow_id}")
+        warning_text = ", ".join(dict.fromkeys(warning_items)) or "no warnings"
+        overlap_detail_html = (
+            f"<small class='daily-review-overlap-detail'>with {escape(overlap_shadow_id)}</small>"
+            if status == "overlap" and overlap_shadow_id
+            else ""
+        )
         filtered_rows.append(
             "<div class='daily-review-counterfactual-row'>"
             "<div class='daily-review-counterfactual-time'>"
@@ -314,7 +326,7 @@ def render_daily_review_panel(report: dict | None) -> str:
             f"<small>{escape(str(row.get('shadow_opportunity_id') or ''))}</small>"
             "</div>"
             f"<div class='daily-review-veto-evidence'><div class='daily-review-rule-chips'>{rule_chips_html}</div><span class='daily-review-feature-pills'>{feature_html}</span></div>"
-            f"<div><span class='daily-review-outcome daily-review-outcome-{status_tone}' title='{escape(warning_text)}'>{escape(status_label)}</span>{tail_html}</div>"
+            f"<div><span class='daily-review-outcome daily-review-outcome-{status_tone}' title='{escape(warning_text)}'>{escape(status_label)}</span>{overlap_detail_html}{tail_html}</div>"
             f"<div class='daily-review-counterfactual-pnl {pnl_class}'><strong>{escape(_format_decimal_metric(pnl_value, signed=True))}</strong><small>{escape(pnl_caption)}</small></div>"
             f"<div class='daily-review-counterfactual-addons'>{escape(str(row.get('add_on_count', 0)))} <small>add-ons</small></div>"
             "</div>"
@@ -400,8 +412,8 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</div>"
         "<section class='daily-review-module daily-review-original-block' data-daily-review-module='original'>"
         "<div class='daily-review-module-head'>"
-        "<div><div class='daily-review-eyebrow'>ORIGINAL DAILY REVIEW</div><h3>原有日报：真实成交与 add-on 反事实</h3></div>"
-        "<div class='daily-review-section-note'>沿用原有历史汇总、Filter Impact、Actual / Replay 口径；不读取被过滤 Base 的回放结果。</div>"
+        "<div><div class='daily-review-eyebrow'>ORIGINAL DAILY REVIEW</div><h3>原有日报：实际 Base 与 add-on 复盘</h3></div>"
+        "<div class='daily-review-section-note'>只分析原策略实际开出的 Base、实际成交和 add-on 反事实；不读取被新规则过滤的 Base 候选。</div>"
         "</div>"
         "<div class='daily-review-history-summary'>"
         "<div class='daily-review-history-summary-head'>"
@@ -419,23 +431,23 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</div>"
         f"<div class='daily-review-kpi-grid'>{kpi_html}</div>"
         "<section class='daily-review-ledger'>"
-        "<div class='daily-review-section-head'><div><div class='daily-review-eyebrow'>EXECUTED LEDGER</div><h3>真实成交与 add-on 反事实</h3></div><div class='daily-review-section-note'>Actual / Replay / Filter Impact</div></div>"
+        "<div class='daily-review-section-head'><div><div class='daily-review-eyebrow'>EXECUTED BASE LEDGER</div><h3>实际开仓 Base 与 add-on 反事实</h3></div><div class='daily-review-section-note'>Actual Base / Replay Add-Ons / Filter Impact</div></div>"
         f"{rows_html}"
         "</section>"
         "</section>"
         "<section class='daily-review-module daily-review-filtered-base-block' data-daily-review-module='filtered-base'>"
         "<div class='daily-review-module-head'>"
-        "<div><div class='daily-review-eyebrow'>FILTERED BASE / SHADOW REPLAY</div><h3>新增实验：被过滤的 Base，后来如果开仓会怎样？</h3></div>"
-        f"<div class='daily-review-section-note'>{escape(filtered_status_note)} · 这一部分独立统计，不改变上面的原有日报。</div>"
+        "<div><div class='daily-review-eyebrow'>FILTERED BASE / INDEPENDENT SHADOWS</div><h3>新增实验：原本会开仓、但被新规则过滤的 Base 后来怎样？</h3></div>"
+        f"<div class='daily-review-section-note'>只统计被过滤候选的反事实 Shadow，不等同于实际 Base；{escape(filtered_status_note)}。这一部分独立统计，不改变上面的原有日报。</div>"
         "</div>"
         "<section class='daily-review-counterfactual-block'>"
         "<div class='daily-review-section-head'>"
         "<div><div class='daily-review-eyebrow'>COUNTERFACTUAL TRACKING</div><h3>过滤候选的后续路径</h3></div>"
-        "<div class='daily-review-section-note'>A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据</div>"
+        "<div class='daily-review-section-note'>只纳入原策略原本会真实开 Base、但被新 Base veto 拦截的候选；每个候选独立回放，不把同一 symbol 的候选合并成组合仓位。A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据。</div>"
         "</div>"
         f"<div class='daily-review-counterfactual-stats'>{filtered_stats_html}</div>"
         f"{veto_rule_mix_html}"
-        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益。</span></div>"
+        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益；SAMPLE PNL SUM 仅是独立样本合计，不代表组合收益。</span></div>"
         f"{filtered_rows_html}"
         "</section>"
         "</section>"

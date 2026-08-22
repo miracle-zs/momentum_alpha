@@ -589,7 +589,17 @@ def replay_shadow_opportunities(
     cutoff: datetime,
     taker_fee_rate: Decimal,
     had_fetch_errors: bool = False,
+    independent_candidate_replay: bool = False,
 ) -> ShadowReplayReport:
+    """Replay skipped Base candidates.
+
+    The default mode treats the inputs as one same-symbol shadow portfolio and
+    suppresses overlapping positions.  Daily review uses
+    ``independent_candidate_replay=True`` because its question is different:
+    what would each Base candidate have done on its own if the original
+    strategy had opened it?  In that mode every seed is replayed independently
+    and its PnL must not be summed as a portfolio result.
+    """
     opportunities: list[ShadowReplayResult] = []
     overlaps: list[ShadowOverlap] = []
     warnings: list[str] = []
@@ -599,20 +609,21 @@ def replay_shadow_opportunities(
         seeds,
         key=lambda item: (item.symbol, item.signal_at, item.shadow_opportunity_id),
     ):
-        active = active_by_symbol.get(seed.symbol)
-        if active is not None and active.status != "unresolved" and (
-            active.exit_at is None
-            or active.exit_at > seed.signal_at
-        ):
-            overlaps.append(
-                ShadowOverlap(
-                    shadow_opportunity_id=seed.shadow_opportunity_id,
-                    symbol=seed.symbol,
-                    signal_at=seed.signal_at,
-                    active_shadow_opportunity_id=active.shadow_opportunity_id,
+        if not independent_candidate_replay:
+            active = active_by_symbol.get(seed.symbol)
+            if active is not None and active.status != "unresolved" and (
+                active.exit_at is None
+                or active.exit_at > seed.signal_at
+            ):
+                overlaps.append(
+                    ShadowOverlap(
+                        shadow_opportunity_id=seed.shadow_opportunity_id,
+                        symbol=seed.symbol,
+                        signal_at=seed.signal_at,
+                        active_shadow_opportunity_id=active.shadow_opportunity_id,
+                    )
                 )
-            )
-            continue
+                continue
 
         result = replay_shadow_seed(
             seed=seed,
@@ -622,7 +633,8 @@ def replay_shadow_opportunities(
             taker_fee_rate=taker_fee_rate,
         )
         opportunities.append(result)
-        active_by_symbol[seed.symbol] = result
+        if not independent_candidate_replay:
+            active_by_symbol[seed.symbol] = result
         warnings.extend(
             f"seed={seed.shadow_opportunity_id} {warning}"
             for warning in result.warnings
@@ -648,6 +660,7 @@ def replay_skipped_bases(
     taker_fee_rate: Decimal = Decimal("0.0005"),
     refresh_klines: bool = False,
     blocked_reasons: set[str] | None = None,
+    independent_candidate_replay: bool = True,
     load_inputs_fn=load_replay_inputs,
     kline_cache_factory=BinanceKlineCache,
     write_artifacts_fn=None,
@@ -713,6 +726,7 @@ def replay_skipped_bases(
         cutoff=effective_cutoff,
         taker_fee_rate=taker_fee_rate,
         had_fetch_errors=had_fetch_errors,
+        independent_candidate_replay=independent_candidate_replay,
     )
     report = replace(
         report,

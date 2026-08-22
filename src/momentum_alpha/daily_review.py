@@ -73,6 +73,7 @@ class DailyReviewFilteredBaseRow:
     add_on_count: int
     is_long_tail_50u: bool
     warnings: tuple[str, ...]
+    overlap_with_shadow_opportunity_id: str | None = None
     taker_buy_share_15m: str | None = None
     efficiency_15m: str | None = None
     range_expansion_15m: str | None = None
@@ -241,6 +242,13 @@ def _build_filtered_base_rows(
         for result in (getattr(replay_report, "opportunities", ()) or ())
         if getattr(result, "shadow_opportunity_id", None)
     }
+    overlap_by_id = {
+        str(getattr(overlap, "shadow_opportunity_id", "")): str(
+            getattr(overlap, "active_shadow_opportunity_id", "")
+        )
+        for overlap in (getattr(replay_report, "overlaps", ()) or ())
+        if getattr(overlap, "shadow_opportunity_id", None)
+    }
     rows: list[DailyReviewFilteredBaseRow] = []
     seen_shadow_ids: set[str] = set()
     for signal in filtered_signals:
@@ -312,6 +320,7 @@ def _build_filtered_base_rows(
                 add_on_count=int(getattr(result, "add_on_count", 0) or 0) if result is not None else 0,
                 is_long_tail_50u=bool(observed_pnl is not None and observed_pnl >= Decimal("50")),
                 warnings=tuple(dict.fromkeys(str(item) for item in warnings)),
+                overlap_with_shadow_opportunity_id=overlap_by_id.get(shadow_id),
                 taker_buy_share_15m=_payload_text(
                     payload,
                     "taker_buy_share_15m",
@@ -348,6 +357,7 @@ def _build_filtered_base_rows(
 
     closed_rows = [row for row in rows if row.status == "closed" and row.net_pnl is not None]
     open_rows = [row for row in rows if row.status == "open"]
+    overlap_count = sum(1 for row in rows if row.status == "overlap")
     pending_count = sum(1 for row in rows if row.status == "pending_replay")
     closed_pnl = sum((_parse_optional_decimal(row.net_pnl) or Decimal("0") for row in closed_rows), Decimal("0"))
     observed_pnl = closed_pnl + sum(
@@ -359,6 +369,7 @@ def _build_filtered_base_rows(
         "resolved_count": len(closed_rows) + len(open_rows),
         "closed_count": len(closed_rows),
         "open_count": len(open_rows),
+        "overlap_count": overlap_count,
         "pending_count": pending_count,
         "win_count": sum(
             1

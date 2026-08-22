@@ -538,6 +538,7 @@ class DashboardTests(unittest.TestCase):
                     "filtered_base_summary": {
                         "candidate_count": 1,
                         "resolved_count": 1,
+                        "overlap_count": 0,
                         "win_count": 1,
                         "loss_count": 0,
                         "pending_count": 0,
@@ -576,7 +577,7 @@ class DashboardTests(unittest.TestCase):
         )
 
         self.assertIn("COUNTERFACTUAL TRACKING", html)
-        self.assertIn("被过滤的 Base，后来如果开仓会怎样？", html)
+        self.assertIn("原本会开仓、但被新规则过滤的 Base 后来怎样？", html)
         self.assertIn("ACEUSDT", html)
         self.assertIn("CLOSED WIN", html)
         self.assertIn("≥50U tail", html)
@@ -587,10 +588,14 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("RX 1.60×", html)
         self.assertIn("BO +0.62%", html)
         self.assertIn("PB 0.57%", html)
-        self.assertIn("RULE MIX", html)
+        self.assertIn("RULE HITS", html)
+        self.assertIn("一笔候选可同时命中多个规则", html)
+        self.assertIn("只统计被过滤候选的反事实 Shadow，不等同于实际 Base", html)
+        self.assertIn("SAMPLE PNL SUM", html)
+        self.assertIn("不代表组合收益", html)
         self.assertIn("data-daily-review-module='original'", html)
         self.assertIn("data-daily-review-module='filtered-base'", html)
-        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / SHADOW REPLAY"))
+        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / INDEPENDENT SHADOWS"))
 
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

@@ -566,7 +566,7 @@ def _render_dashboard_component_styles() -> str:
     .daily-review-section-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
     .daily-review-section-head h3 { margin: 0; color: var(--fg); font-family: Georgia, 'Times New Roman', serif; font-size: 1.28rem; font-weight: 500; letter-spacing: -0.02em; }
     .daily-review-section-note { max-width: 420px; color: var(--fg-muted); font-size: 0.72rem; line-height: 1.5; text-align: right; }
-    .daily-review-counterfactual-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+    .daily-review-counterfactual-stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
     .daily-review-counterfactual-stat { display: flex; flex-direction: column; gap: 8px; min-height: 68px; padding: 11px 12px; border: 1px solid rgba(138,210,255,0.14); border-radius: 11px; background: rgba(0,0,0,0.2); }
     .daily-review-counterfactual-stat span { color: var(--fg-muted); font-size: 0.61rem; letter-spacing: 0.11em; }
     .daily-review-counterfactual-stat strong { color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem; }
@@ -600,12 +600,14 @@ def _render_dashboard_component_styles() -> str:
     .daily-review-rule-mix-item { display: inline-flex; align-items: center; gap: 6px; min-height: 23px; padding: 3px 7px; border: 1px solid rgba(138,210,255,0.18); border-radius: 999px; background: rgba(138,210,255,0.05); }
     .daily-review-rule-mix-item b { color: var(--fg-muted); font-size: 0.6rem; font-weight: 700; }
     .daily-review-rule-mix-item strong { color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem; }
+    .daily-review-rule-mix-note { margin-left: auto; color: var(--fg-muted); font-size: 0.65rem; line-height: 1.35; }
     .daily-review-outcome { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; }
     .daily-review-outcome-win { color: var(--success); border-color: rgba(0,255,136,0.24); background: rgba(0,255,136,0.08); }
     .daily-review-outcome-loss { color: var(--danger); border-color: rgba(255,68,102,0.25); background: rgba(255,68,102,0.08); }
     .daily-review-outcome-pending { color: var(--warning); border-color: rgba(255,184,0,0.25); background: rgba(255,184,0,0.08); }
     .daily-review-outcome-neutral { color: var(--accent-strong); border-color: rgba(138,210,255,0.24); background: rgba(138,210,255,0.08); }
     .daily-review-tail-badge { display: inline-flex; margin: 5px 0 0 4px; color: var(--accent); font-size: 0.61rem; white-space: nowrap; }
+    .daily-review-overlap-detail { display: block; margin-top: 4px; color: var(--fg-muted); font-size: 0.6rem; line-height: 1.25; }
     .daily-review-counterfactual-pnl strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92rem; }
     .daily-review-counterfactual-addons { color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .daily-review-empty { display: flex; flex-direction: column; gap: 5px; padding: 28px 16px; color: var(--fg-muted); font-size: 0.76rem; }
