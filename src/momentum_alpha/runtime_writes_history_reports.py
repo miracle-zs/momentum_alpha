@@ -81,3 +81,47 @@ def insert_daily_review_report(
                 _json_dumps(payload),
             ),
         )
+
+
+def insert_filtered_base_review_report(
+    *,
+    path: Path,
+    report_date: str,
+    window_start: str,
+    window_end: str,
+    generated_at: str,
+    status: str,
+    warnings: list[str],
+    payload: dict,
+) -> None:
+    bootstrap_runtime_db(path=path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO filtered_base_review_reports(
+                report_date,
+                window_start,
+                window_end,
+                generated_at,
+                status,
+                warning_json,
+                payload_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(report_date) DO UPDATE SET
+                window_start=excluded.window_start,
+                window_end=excluded.window_end,
+                generated_at=excluded.generated_at,
+                status=excluded.status,
+                warning_json=excluded.warning_json,
+                payload_json=excluded.payload_json
+            """,
+            (
+                report_date,
+                window_start,
+                window_end,
+                generated_at,
+                status,
+                _json_dumps(warnings),
+                _json_dumps(payload),
+            ),
+        )

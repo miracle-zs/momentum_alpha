@@ -589,16 +589,16 @@ def replay_shadow_opportunities(
     cutoff: datetime,
     taker_fee_rate: Decimal,
     had_fetch_errors: bool = False,
-    independent_candidate_replay: bool = False,
+    independent_candidate_replay: bool = True,
 ) -> ShadowReplayReport:
     """Replay skipped Base candidates.
 
-    The default mode treats the inputs as one same-symbol shadow portfolio and
-    suppresses overlapping positions.  This is the mode used by the daily
-    review because it must respect the real one-position-per-symbol constraint.
-    ``independent_candidate_replay=True`` remains available only for a separate
-    per-candidate research experiment; its PnL must not be summed as a
-    portfolio result.
+    The default mode answers the filtered-review question: what would each
+    entry sample have done if the veto rule were absent?  Every seed is replayed
+    independently, including samples for the same symbol whose time windows
+    overlap.  Set ``independent_candidate_replay=False`` only for an explicitly
+    requested portfolio simulation.  Independent-sample PnL must not be
+    presented as a portfolio return.
     """
     opportunities: list[ShadowReplayResult] = []
     overlaps: list[ShadowOverlap] = []
@@ -660,7 +660,7 @@ def replay_skipped_bases(
     taker_fee_rate: Decimal = Decimal("0.0005"),
     refresh_klines: bool = False,
     blocked_reasons: set[str] | None = None,
-    independent_candidate_replay: bool = False,
+    independent_candidate_replay: bool = True,
     load_inputs_fn=load_replay_inputs,
     kline_cache_factory=BinanceKlineCache,
     write_artifacts_fn=None,

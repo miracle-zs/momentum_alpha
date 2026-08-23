@@ -448,6 +448,40 @@ class RuntimeStoreTests(unittest.TestCase):
             self.assertEqual(summary["counterfactual_total_pnl"], "18.25")
             self.assertEqual(summary["filter_impact"], "-5.75")
 
+    def test_filtered_base_review_report_round_trips_separately(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_filtered_base_review_report_by_date,
+            fetch_filtered_base_review_report_dates,
+            fetch_latest_filtered_base_review_report,
+            insert_filtered_base_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            insert_filtered_base_review_report(
+                path=db_path,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:02+08:00",
+                status="ok",
+                warnings=[],
+                payload={
+                    "summary": {"candidate_count": 1, "closed_sample_pnl_sum": "-12.5"},
+                    "rows": [{"sample_id": "sample-1", "symbol": "ACEUSDT"}],
+                },
+            )
+
+            latest = fetch_latest_filtered_base_review_report(path=db_path)
+            selected = fetch_filtered_base_review_report_by_date(path=db_path, report_date="2026-04-21")
+            dates = fetch_filtered_base_review_report_dates(path=db_path)
+
+        self.assertEqual(latest["payload"]["summary"]["candidate_count"], 1)
+        self.assertEqual(selected["payload"]["rows"][0]["sample_id"], "sample-1")
+        self.assertEqual(dates, ["2026-04-21"])
+
     def test_fetch_daily_review_report_by_date_returns_matching_history_row(self) -> None:
         from momentum_alpha.runtime_store import (
             bootstrap_runtime_db,

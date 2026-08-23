@@ -42,6 +42,7 @@ class RuntimeWritesSplitTests(unittest.TestCase):
         self.assertTrue(callable(runtime_writes_history.insert_daily_review_report))
         self.assertTrue(callable(runtime_writes_history.insert_stop_exit_summary))
         self.assertTrue(callable(runtime_writes_history_reports.insert_daily_review_report))
+        self.assertTrue(callable(runtime_writes_history_reports.insert_filtered_base_review_report))
         self.assertTrue(callable(runtime_writes_history_trades.insert_trade_round_trip))
         self.assertTrue(callable(runtime_writes_history_trades.insert_stop_exit_summary))
         self.assertTrue(callable(runtime_writes_snapshots.insert_account_snapshot))

@@ -98,11 +98,13 @@ class DailyReviewTests(unittest.TestCase):
         self.assertEqual(report.rows[0].symbol, "BTCUSDT")
         self.assertGreater(Decimal(report.counterfactual_total_pnl), Decimal(report.actual_total_pnl))
         self.assertEqual(report.replayed_add_on_count, 1)
+        self.assertFalse(hasattr(report, "filtered_base_summary"))
+        self.assertFalse(hasattr(report, "filtered_base_rows"))
 
-    def test_build_daily_review_report_tracks_filtered_base_counterfactual(self) -> None:
+    def test_build_filtered_base_review_report_tracks_independent_samples(self) -> None:
         from types import SimpleNamespace
 
-        from momentum_alpha.daily_review import build_daily_review_report
+        from momentum_alpha.filtered_base_review import build_filtered_base_review_report
         from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision
 
         with TemporaryDirectory() as tmpdir:
@@ -163,33 +165,31 @@ class DailyReviewTests(unittest.TestCase):
                 had_fetch_errors=False,
             )
 
-            report = build_daily_review_report(
+            report = build_filtered_base_review_report(
                 path=db_path,
                 now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
-                stop_budget_usdt=Decimal("10"),
-                entry_start_hour_utc=1,
-                entry_end_hour_utc=23,
-                filtered_base_replay_report=replay_report,
+                replay_report=replay_report,
             )
 
-        self.assertEqual(report.filtered_base_summary["candidate_count"], 1)
-        self.assertEqual(report.filtered_base_summary["resolved_count"], 1)
-        self.assertEqual(report.filtered_base_summary["overlap_count"], 0)
-        self.assertEqual(report.filtered_base_summary["closed_net_pnl"], "54.25")
-        self.assertEqual(report.filtered_base_summary["tail_50u_count"], 1)
-        self.assertEqual(report.status, "ok")
-        self.assertEqual(report.warnings, ())
+        self.assertEqual(report.summary["candidate_count"], 1)
+        self.assertEqual(report.summary["resolved_count"], 1)
+        self.assertNotIn("overlap_count", report.summary)
+        self.assertEqual(report.summary["closed_sample_pnl_sum"], "54.25")
+        self.assertEqual(report.summary["missed_profit_sum"], "54.25")
+        self.assertEqual(report.summary["avoided_loss_sum"], "0")
+        self.assertEqual(report.summary["tail_50u_count"], 1)
+        self.assertEqual(report.status, "warning")
         self.assertEqual(
-            report.filtered_base_summary["replay_warnings"],
+            report.summary["replay_warnings"],
             ["filtered_base_replay_warning"],
         )
-        self.assertEqual(report.filtered_base_rows[0].veto_rule, "A_OR_B")
-        self.assertEqual(report.filtered_base_rows[0].taker_buy_share_15m, "0.45")
-        self.assertEqual(report.filtered_base_rows[0].efficiency_15m, "0.12")
-        self.assertTrue(report.filtered_base_rows[0].veto_a_triggered)
-        self.assertTrue(report.filtered_base_rows[0].veto_b_triggered)
-        self.assertEqual(report.filtered_base_rows[0].outcome, "win")
-        self.assertTrue(report.filtered_base_rows[0].is_long_tail_50u)
+        self.assertEqual(report.rows[0].veto_rule, "A_OR_B")
+        self.assertEqual(report.rows[0].taker_buy_share_15m, "0.45")
+        self.assertEqual(report.rows[0].efficiency_15m, "0.12")
+        self.assertTrue(report.rows[0].veto_a_triggered)
+        self.assertTrue(report.rows[0].veto_b_triggered)
+        self.assertEqual(report.rows[0].outcome, "win")
+        self.assertTrue(report.rows[0].is_long_tail_50u)
 
     def test_build_daily_review_report_deduplicates_repeated_skipped_add_on_signals_per_hour(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report

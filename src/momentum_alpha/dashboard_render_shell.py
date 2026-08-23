@@ -14,6 +14,7 @@ from .dashboard_render_panels import (
     _render_timeline_svg,
     render_cosmic_identity_panel,
     render_daily_review_panel,
+    render_filtered_base_review_panel,
 )
 from .dashboard_render_tables import (
     render_closed_trades_table,
@@ -508,6 +509,7 @@ def render_dashboard_body(
         review_view=review_view,
     )
     daily_review_html = render_daily_review_panel(snapshot.get("daily_review_report"))
+    filtered_review_html = render_filtered_base_review_panel(snapshot.get("filtered_review_report"))
     room_content_html = {
         "live": render_dashboard_live_room(
             account_risk_html=account_risk_html,
@@ -524,6 +526,7 @@ def render_dashboard_body(
         "review": render_dashboard_review_room(
             active_review_view=review_view if active_room == "review" else "overview",
             daily_review_html=daily_review_html,
+            filtered_review_html=filtered_review_html,
             performance_summary_html=performance_summary_html,
             round_trip_detail_html=closed_trades_html,
             leg_count_aggregate_html=leg_count_aggregate_html,

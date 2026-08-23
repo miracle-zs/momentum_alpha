@@ -26,12 +26,14 @@ from .dashboard_render_panels import (
     _build_live_account_risk_panel,
     _build_live_core_lines_panel,
     render_daily_review_panel,
+    render_filtered_base_review_panel,
 )
 from .dashboard_render_review import (
     render_daily_review_room,
     render_dashboard_performance_tab,
     render_dashboard_review_room,
     render_dashboard_review_tabs,
+    render_filtered_base_review_room,
 )
 from .dashboard_render_shell import (
     DISPLAY_TIMEZONE,

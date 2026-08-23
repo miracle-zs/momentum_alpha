@@ -36,6 +36,8 @@ class RuntimeReadsSplitTests(unittest.TestCase):
         self.assertTrue(callable(runtime_reads_history.fetch_account_snapshots_for_range))
         self.assertTrue(callable(runtime_reads_history_trades.fetch_recent_stop_exit_summaries))
         self.assertTrue(callable(runtime_reads_history_reports.fetch_daily_review_reports_summary))
+        self.assertTrue(callable(runtime_reads_history_reports.fetch_latest_filtered_base_review_report))
+        self.assertTrue(callable(runtime_reads_history_reports.fetch_filtered_base_review_report_by_date))
         self.assertTrue(callable(runtime_reads_history_snapshots.fetch_recent_account_snapshots))
         self.assertTrue(callable(runtime_reads_history_overview.fetch_event_pulse_points))
         self.assertTrue(callable(runtime_reads_common._json_loads))

@@ -185,6 +185,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_review_reports_report_date
 CREATE INDEX IF NOT EXISTS idx_daily_review_reports_generated_at
     ON daily_review_reports(generated_at DESC);
 
+CREATE TABLE IF NOT EXISTS filtered_base_review_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    warning_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_filtered_base_review_reports_report_date
+    ON filtered_base_review_reports(report_date);
+CREATE INDEX IF NOT EXISTS idx_filtered_base_review_reports_generated_at
+    ON filtered_base_review_reports(generated_at DESC);
+
 CREATE TABLE IF NOT EXISTS stop_exit_summaries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,

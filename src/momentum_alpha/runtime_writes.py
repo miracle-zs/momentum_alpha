@@ -11,6 +11,7 @@ from .runtime_writes_events import (
 )
 from .runtime_writes_history import (
     insert_daily_review_report,
+    insert_filtered_base_review_report,
     insert_stop_exit_summary,
     insert_trade_round_trip,
 )

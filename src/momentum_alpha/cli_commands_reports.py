@@ -5,8 +5,13 @@ from decimal import Decimal
 from pathlib import Path
 
 from momentum_alpha.daily_review import build_daily_review_report, build_daily_review_window
+from momentum_alpha.filtered_base_review import build_filtered_base_review_report
 from momentum_alpha.health import build_runtime_health_report
-from momentum_alpha.runtime_store import insert_daily_review_report, summarize_audit_events
+from momentum_alpha.runtime_store import (
+    insert_daily_review_report,
+    insert_filtered_base_review_report,
+    summarize_audit_events,
+)
 
 from .cli_env import _parse_cli_datetime, _require_runtime_db_path
 
@@ -59,7 +64,9 @@ def daily_review_report_command(
     args,
     now_provider,
     build_daily_review_report_fn=build_daily_review_report,
+    build_filtered_base_review_report_fn=build_filtered_base_review_report,
     insert_daily_review_report_fn=insert_daily_review_report,
+    insert_filtered_base_review_report_fn=insert_filtered_base_review_report,
     replay_skipped_bases_fn=None,
 ) -> int:
     runtime_db_path = _require_runtime_db_path(
@@ -89,6 +96,7 @@ def daily_review_report_command(
             taker_fee_rate=Decimal(os.environ.get("TAKER_FEE_RATE", "0.0005")),
             refresh_klines=False,
             blocked_reasons={"base_veto"},
+            independent_candidate_replay=True,
         )
 
     report_kwargs = {
@@ -98,9 +106,16 @@ def daily_review_report_command(
         "entry_start_hour_utc": args.entry_start_hour_utc,
         "entry_end_hour_utc": args.entry_end_hour_utc,
     }
-    if replay_report is not None:
-        report_kwargs["filtered_base_replay_report"] = replay_report
     report = build_daily_review_report_fn(**report_kwargs)
+    filtered_report = (
+        build_filtered_base_review_report_fn(
+            path=runtime_db_path,
+            now=now,
+            replay_report=replay_report,
+        )
+        if replay_report is not None
+        else None
+    )
     insert_daily_review_report_fn(
         path=runtime_db_path,
         report_date=report.report_date,
@@ -119,8 +134,6 @@ def daily_review_report_command(
         warnings=list(report.warnings),
         payload={
             "rows": [row.__dict__ for row in report.rows],
-            "filtered_base_rows": [row.__dict__ for row in getattr(report, "filtered_base_rows", ())],
-            "filtered_base_summary": getattr(report, "filtered_base_summary", {}),
             "account_reconciliation": report.account_reconciliation.__dict__,
             "strategy_config": {
                 "stop_budget_usdt": report.stop_budget_usdt,
@@ -128,13 +141,27 @@ def daily_review_report_command(
             },
         },
     )
+    if filtered_report is not None:
+        insert_filtered_base_review_report_fn(
+            path=runtime_db_path,
+            report_date=filtered_report.report_date,
+            window_start=filtered_report.window_start,
+            window_end=filtered_report.window_end,
+            generated_at=filtered_report.generated_at,
+            status=filtered_report.status,
+            warnings=list(filtered_report.warnings),
+            payload={
+                "summary": filtered_report.summary,
+                "rows": [row.__dict__ for row in filtered_report.rows],
+            },
+        )
     print(f"report_date={report.report_date}")
     print(f"trade_count={report.trade_count}")
     print(f"actual_total_pnl={report.actual_total_pnl}")
     print(f"counterfactual_total_pnl={report.counterfactual_total_pnl}")
-    filtered_summary = getattr(report, "filtered_base_summary", {}) or {}
+    filtered_summary = filtered_report.summary if filtered_report is not None else {}
     print(f"filtered_base_candidates={filtered_summary.get('candidate_count', 0)}")
-    print(f"filtered_base_observed_pnl={filtered_summary.get('observed_net_pnl', '0')}")
+    print(f"filtered_base_sample_pnl_sum={filtered_summary.get('closed_sample_pnl_sum', '0')}")
     print(f"account_income_total_pnl={report.account_reconciliation.income_total_pnl}")
     print(f"account_trade_vs_income_delta={report.account_reconciliation.trade_vs_income_delta}")
     return 0
@@ -148,7 +175,9 @@ def run_reporting_commands(
     build_runtime_health_report_fn=build_runtime_health_report,
     summarize_audit_events_fn=summarize_audit_events,
     build_daily_review_report_fn=build_daily_review_report,
+    build_filtered_base_review_report_fn=build_filtered_base_review_report,
     insert_daily_review_report_fn=insert_daily_review_report,
+    insert_filtered_base_review_report_fn=insert_filtered_base_review_report,
     replay_skipped_bases_fn=None,
     **_unused,
 ) -> int | None:
@@ -172,7 +201,9 @@ def run_reporting_commands(
             args=args,
             now_provider=now_provider,
             build_daily_review_report_fn=build_daily_review_report_fn,
+            build_filtered_base_review_report_fn=build_filtered_base_review_report_fn,
             insert_daily_review_report_fn=insert_daily_review_report_fn,
+            insert_filtered_base_review_report_fn=insert_filtered_base_review_report_fn,
             replay_skipped_bases_fn=replay_skipped_bases_fn,
         )
     return None

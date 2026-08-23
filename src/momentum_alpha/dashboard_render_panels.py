@@ -20,6 +20,7 @@ from .dashboard_render_panels_account import (
     _build_live_core_lines_panel,
 )
 from .dashboard_render_panels_execution import _build_execution_flow_panel
+from .dashboard_render_panels_filter_review import render_filtered_base_review_panel
 from .dashboard_render_panels_review import render_daily_review_panel
 from .dashboard_render_tables_trades import _render_round_trip_item, _render_round_trip_leg_rows
 
@@ -42,4 +43,5 @@ __all__ = [
     "_render_timeline_svg",
     "render_cosmic_identity_panel",
     "render_daily_review_panel",
+    "render_filtered_base_review_panel",
 ]

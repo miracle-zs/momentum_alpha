@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from decimal import Decimal
 from pathlib import Path
 
@@ -118,6 +119,70 @@ def fetch_daily_review_report_dates(*, path: Path) -> list[str]:
             """
         ).fetchall()
     return [str(row[0]) for row in rows]
+
+
+def fetch_latest_filtered_base_review_report(*, path: Path) -> dict | None:
+    return _fetch_filtered_base_review_report(path=path, report_date=None)
+
+
+def fetch_filtered_base_review_report_by_date(*, path: Path, report_date: str) -> dict | None:
+    return _fetch_filtered_base_review_report(path=path, report_date=report_date)
+
+
+def fetch_filtered_base_review_report_dates(*, path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        with _connect(path) as connection:
+            rows = connection.execute(
+                """
+                SELECT report_date
+                FROM filtered_base_review_reports
+                ORDER BY report_date ASC, id ASC
+                """
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [str(row[0]) for row in rows]
+
+
+def _fetch_filtered_base_review_report(*, path: Path, report_date: str | None) -> dict | None:
+    if not path.exists():
+        return None
+    where_clause = "WHERE report_date = ?" if report_date is not None else ""
+    parameters = (report_date,) if report_date is not None else ()
+    try:
+        with _connect(path) as connection:
+            row = connection.execute(
+                f"""
+                SELECT
+                    report_date,
+                    window_start,
+                    window_end,
+                    generated_at,
+                    status,
+                    warning_json,
+                    payload_json
+                FROM filtered_base_review_reports
+                {where_clause}
+                ORDER BY generated_at DESC, id DESC
+                LIMIT 1
+                """,
+                parameters,
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if row is None:
+        return None
+    return {
+        "report_date": row[0],
+        "window_start": row[1],
+        "window_end": row[2],
+        "generated_at": row[3],
+        "status": row[4],
+        "warnings": _json_loads(row[5]),
+        "payload": _json_loads(row[6]),
+    }
 
 
 def fetch_daily_review_reports_summary(*, path: Path) -> dict:

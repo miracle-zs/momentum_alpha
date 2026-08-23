@@ -39,6 +39,10 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-counterfactual-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .daily-review-module-head, .daily-review-section-head { align-items: flex-start; flex-direction: column; }
       .daily-review-section-note { max-width: none; text-align: left; }
+      .filter-review-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .filter-review-stat { border-bottom: 1px solid rgba(138,210,255,0.12); }
+      .filter-review-evidence-head { align-items: flex-start; flex-direction: column; }
+      .filter-review-rule-mix { justify-content: flex-start; }
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 768px) {
@@ -86,6 +90,13 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-date-form { align-items: flex-start; }
       .daily-review-grid { min-width: 920px; grid-template-columns: minmax(112px, 1fr) minmax(82px, 0.7fr) minmax(112px, 1fr) minmax(78px, 0.72fr) minmax(78px, 0.72fr) minmax(96px, 0.82fr) minmax(60px, 0.52fr) minmax(64px, 0.52fr); }
       .daily-review-row { font-size: 0.68rem; }
+      .filter-review-panel { padding: 12px; }
+      .filter-review-toolbar, .filter-review-verdict { align-items: flex-start; grid-template-columns: 1fr; flex-direction: column; }
+      .filter-review-toolbar { display: flex; }
+      .filter-review-verdict { min-height: 0; padding: 18px; }
+      .filter-review-stats { grid-template-columns: 1fr 1fr; }
+      .filter-review-stat { border-right: 1px solid rgba(138,210,255,0.12); }
+      .filter-review-table-head, .filter-review-table-row { min-width: 860px; }
       .account-overview-grid { grid-template-columns: 1fr; }
       .account-snapshot-grid { grid-template-columns: 1fr; }
       .desktop-only { display: none; }

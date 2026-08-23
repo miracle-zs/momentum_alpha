@@ -18,10 +18,7 @@ def render_daily_review_panel(report: dict | None) -> str:
     if report is None:
         return (
             "<section class='chart-card daily-review-panel'>"
-            "<div class='daily-review-empty-hero'>"
-            "<div class='daily-review-eyebrow'>DECISION JOURNAL</div>"
-            "<div class='daily-review-title'>每日复盘</div>"
-            "</div>"
+            "<div style='font-size:0.7rem;color:var(--fg-muted);margin-bottom:8px;'>每日复盘</div>"
             "<div class='trade-history-empty'>No daily review report</div>"
             "</section>"
         )
@@ -101,9 +98,9 @@ def render_daily_review_panel(report: dict | None) -> str:
         )
     )
 
-    payload = report.get("payload") or {}
+    rows = []
     rows_data = sorted(
-        payload.get("rows", []) or [],
+        report.get("payload", {}).get("rows", []) or [],
         key=lambda row: (
             row.get("closed_at") or "",
             row.get("round_trip_id") or "",
@@ -155,6 +152,26 @@ def render_daily_review_panel(report: dict | None) -> str:
         replayed_add_on_count = int(_parse_numeric(row.get("replayed_add_on_count")) or 0)
         if replayed_add_on_count > 0 or (row_impact is not None and row_impact != 0):
             affected_trade_count += 1
+        warnings_text = ", ".join(str(item) for item in (row.get("warnings") or [])) or "n/a"
+        status_label = "WARN" if warnings_text != "n/a" else "OK"
+        status_class = "warn" if status_label == "WARN" else "ok"
+        impact_class = ""
+        if row_impact is not None and row_impact > 0:
+            impact_class = "daily-review-impact-positive"
+        elif row_impact is not None and row_impact < 0:
+            impact_class = "daily-review-impact-negative"
+        rows.append(
+            "<div class='analytics-row daily-review-row daily-review-grid'>"
+            f"<span title='{escape(str(row.get('closed_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('closed_at')))}</span>"
+            f"<span class='analytics-main'><b>{escape(str(row.get('symbol', 'n/a')))}</b></span>"
+            f"<span title='{escape(str(row.get('opened_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('opened_at')))}</span>"
+            f"<span>{escape(_format_decimal_metric(actual_value, signed=True))}</span>"
+            f"<span>{escape(_format_decimal_metric(replay_value, signed=True))}</span>"
+            f"<span class='{impact_class}'>{escape(_format_decimal_metric(row_impact, signed=True))}</span>"
+            f"<span>{escape(str(replayed_add_on_count))}</span>"
+            f"<span><span class='daily-review-status daily-review-status-{status_class}' title='{escape(warnings_text)}'>{status_label}</span></span>"
+            "</div>"
+        )
     actual_win_rate = _daily_review_win_rate(actual_values)
     replay_win_rate = _daily_review_win_rate(replay_values)
     trade_count = _parse_decimal(report.get("trade_count")) or Decimal(len(rows_data) or 0)
@@ -186,193 +203,6 @@ def render_daily_review_panel(report: dict | None) -> str:
         )
         for label, value in kpi_items
     )
-
-    filtered_summary = payload.get("filtered_base_summary") or {}
-    filtered_rows_data = sorted(
-        payload.get("filtered_base_rows", []) or [],
-        key=lambda row: (
-            row.get("vetoed_at") or "",
-            row.get("symbol") or "",
-        ),
-        reverse=True,
-    )
-    filtered_candidate_count = int(_parse_numeric(filtered_summary.get("candidate_count")) or len(filtered_rows_data))
-    filtered_resolved_count = int(_parse_numeric(filtered_summary.get("resolved_count")) or 0)
-    filtered_tail_count = int(_parse_numeric(filtered_summary.get("tail_50u_count")) or 0)
-    filtered_observed_pnl = _parse_decimal(filtered_summary.get("observed_net_pnl"))
-    filtered_win_count = int(_parse_numeric(filtered_summary.get("win_count")) or 0)
-    filtered_loss_count = int(_parse_numeric(filtered_summary.get("loss_count")) or 0)
-    filtered_overlap_count = int(_parse_numeric(filtered_summary.get("overlap_count")) or 0)
-    filtered_pending_count = int(_parse_numeric(filtered_summary.get("pending_count")) or 0)
-    filtered_pnl_class = "positive" if filtered_observed_pnl is not None and filtered_observed_pnl > 0 else "negative" if filtered_observed_pnl is not None and filtered_observed_pnl < 0 else "neutral"
-    filtered_status_note = (
-        f"{filtered_resolved_count} shadow positions · {filtered_overlap_count} overlap · {filtered_pending_count} pending"
-        if filtered_candidate_count
-        else "No Base veto candidates recorded in this window"
-    )
-    filtered_stat_items = [
-        ("VETOED BASES", str(filtered_candidate_count), ""),
-        ("REPLAYED SHADOWS", str(filtered_resolved_count), ""),
-        ("OVERLAPS", str(filtered_overlap_count), "neutral" if filtered_overlap_count else ""),
-        ("CLOSED WINS", str(filtered_win_count), "positive"),
-        ("CLOSED LOSSES", str(filtered_loss_count), "negative"),
-        ("OBSERVED PNL", _format_decimal_metric(filtered_observed_pnl, signed=True), filtered_pnl_class),
-        ("≥50U TAILS", str(filtered_tail_count), "tail"),
-    ]
-    filtered_stats_html = "".join(
-        (
-            f"<div class='daily-review-counterfactual-stat {escape(tone)}'>"
-            f"<span>{escape(label)}</span><strong>{escape(value)}</strong>"
-            "</div>"
-        )
-        for label, value, tone in filtered_stat_items
-    )
-
-    veto_rule_counts: dict[str, int] = {}
-    for row in filtered_rows_data:
-        for token in _veto_rule_tokens(row.get("veto_rule")):
-            veto_rule_counts[token] = veto_rule_counts.get(token, 0) + 1
-    veto_rule_mix_html = "".join(
-        (
-            f"<span class='daily-review-rule-mix-item daily-review-rule-{escape(_veto_rule_slug(token))}'>"
-            f"<b>{escape(_veto_rule_label(token))}</b><strong>{count}</strong></span>"
-        )
-        for token, count in sorted(
-            veto_rule_counts.items(),
-            key=lambda item: (-item[1], _veto_rule_label(item[0])),
-        )
-    )
-    veto_rule_mix_content = veto_rule_mix_html or "<span class='daily-review-rule-mix-empty'>No matched rule data</span>"
-    veto_rule_mix_html = (
-        "<div class='daily-review-rule-mix'>"
-        "<span class='daily-review-rule-mix-title'>RULE HITS</span>"
-        f"{veto_rule_mix_content}"
-        "<span class='daily-review-rule-mix-note'>一笔候选可同时命中多个规则，命中次数可能大于候选总数。</span>"
-        "</div>"
-    )
-
-    filtered_rows = []
-    for row in filtered_rows_data:
-        status = str(row.get("status") or "pending_replay")
-        outcome = str(row.get("outcome") or "pending")
-        status_label = {
-            "pending_replay": "PENDING",
-            "closed": f"CLOSED {outcome.upper()}",
-            "open": "OPEN MTM",
-            "unresolved": "UNRESOLVED",
-            "overlap": "OVERLAP",
-        }.get(status, status.upper())
-        status_tone = "win" if outcome == "win" else "loss" if outcome == "loss" else "pending" if status == "pending_replay" else "neutral"
-        rule_chips_html = "".join(
-            (
-                f"<span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-{escape(_veto_rule_slug(token))}'>"
-                f"{escape(_veto_rule_label(token))}</span>"
-            )
-            for token in _veto_rule_tokens(row.get("veto_rule"))
-        ) or "<span class='daily-review-rule-empty'>—</span>"
-        primary_features = (
-            f"ATR {_format_review_pct(row.get('atr_15m_pct'))}"
-            f" · TC {_format_review_ratio(row.get('trade_count_ratio_30m'))}"
-            f" · R/V {_format_review_ratio(row.get('return_to_vol_15m'))}"
-        )
-        secondary_feature_values = [
-            f"TB {_format_review_share(row.get('taker_buy_share_15m'))}",
-            f"EFF {_format_review_ratio(row.get('efficiency_15m'))}",
-            f"RX {_format_review_multiple(row.get('range_expansion_15m'))}",
-            f"BO {_format_review_signed_pct(row.get('breakout_5m_pct'))}",
-            f"PB {_format_review_pct(row.get('pullback_5m_pct'))}",
-        ]
-        has_secondary_features = any(
-            row.get(key) not in (None, "")
-            for key in (
-                "taker_buy_share_15m",
-                "efficiency_15m",
-                "range_expansion_15m",
-                "breakout_5m_pct",
-                "pullback_5m_pct",
-            )
-        )
-        feature_html = (
-            f"<span class='daily-review-feature-line'>{escape(primary_features)}</span>"
-            + (
-                f"<span class='daily-review-feature-line daily-review-feature-line-secondary'>{escape(' · '.join(secondary_feature_values))}</span>"
-                if has_secondary_features
-                else ""
-            )
-        )
-        pnl_source = row.get("net_pnl") if status == "closed" else row.get("mark_to_market_net_pnl")
-        pnl_value = _parse_decimal(pnl_source)
-        pnl_class = "daily-review-impact-positive" if pnl_value is not None and pnl_value > 0 else "daily-review-impact-negative" if pnl_value is not None and pnl_value < 0 else ""
-        pnl_caption = "REALIZED" if status == "closed" else "MTM" if status == "open" else ""
-        tail_html = "<span class='daily-review-tail-badge'>≥50U tail</span>" if row.get("is_long_tail_50u") else ""
-        overlap_shadow_id = str(row.get("overlap_with_shadow_opportunity_id") or "")
-        warning_items = [str(item) for item in (row.get("warnings") or [])]
-        if overlap_shadow_id:
-            warning_items.append(f"overlap with {overlap_shadow_id}")
-        warning_text = ", ".join(dict.fromkeys(warning_items)) or "no warnings"
-        overlap_detail_html = (
-            f"<small class='daily-review-overlap-detail'>with {escape(overlap_shadow_id)}</small>"
-            if status == "overlap" and overlap_shadow_id
-            else ""
-        )
-        filtered_rows.append(
-            "<div class='daily-review-counterfactual-row'>"
-            "<div class='daily-review-counterfactual-time'>"
-            f"<span>{escape(_format_datetime_review(row.get('vetoed_at')))}</span>"
-            f"<small>{escape(str(row.get('exit_at') and _format_datetime_review(row.get('exit_at')) or '—'))}</small>"
-            "</div>"
-            "<div class='daily-review-counterfactual-symbol'>"
-            f"<strong>{escape(str(row.get('symbol') or 'n/a'))}</strong>"
-            f"<small>{escape(str(row.get('shadow_opportunity_id') or ''))}</small>"
-            "</div>"
-            f"<div class='daily-review-veto-evidence'><div class='daily-review-rule-chips'>{rule_chips_html}</div><span class='daily-review-feature-pills'>{feature_html}</span></div>"
-            f"<div><span class='daily-review-outcome daily-review-outcome-{status_tone}' title='{escape(warning_text)}'>{escape(status_label)}</span>{overlap_detail_html}{tail_html}</div>"
-            f"<div class='daily-review-counterfactual-pnl {pnl_class}'><strong>{escape(_format_decimal_metric(pnl_value, signed=True))}</strong><small>{escape(pnl_caption)}</small></div>"
-            f"<div class='daily-review-counterfactual-addons'>{escape(str(row.get('add_on_count', 0)))} <small>add-ons</small></div>"
-            "</div>"
-        )
-    filtered_empty_html = (
-        "<div class='daily-review-empty'>"
-        "<strong>No filtered Base outcomes yet.</strong>"
-        "<span>Run the daily report with filtered-Base replay enabled to see what each vetoed candidate did next.</span>"
-        "</div>"
-    )
-    filtered_rows_html = (
-        "<div class='daily-review-counterfactual-table'>"
-        "<div class='daily-review-counterfactual-header'><span>VETOED / EXITED</span><span>SYMBOL</span><span>VETO EVIDENCE</span><span>WHAT HAPPENED</span><span>PNL</span><span>LEGS</span></div>"
-        f"{''.join(filtered_rows) if filtered_rows else filtered_empty_html}"
-        "</div>"
-    )
-
-    rows = []
-    for row in rows_data:
-        actual_value = _parse_decimal(row.get("actual_net_pnl"))
-        replay_value = _parse_decimal(row.get("counterfactual_net_pnl"))
-        row_impact = _daily_review_impact(
-            actual=row.get("actual_net_pnl"),
-            replay=row.get("counterfactual_net_pnl"),
-        )
-        warnings_text = ", ".join(str(item) for item in (row.get("warnings") or [])) or "n/a"
-        status_label = "WARN" if warnings_text != "n/a" else "OK"
-        status_class = "warn" if status_label == "WARN" else "ok"
-        impact_class = ""
-        if row_impact is not None and row_impact > 0:
-            impact_class = "daily-review-impact-positive"
-        elif row_impact is not None and row_impact < 0:
-            impact_class = "daily-review-impact-negative"
-        replayed_add_on_count = int(_parse_numeric(row.get("replayed_add_on_count")) or 0)
-        rows.append(
-            "<div class='analytics-row daily-review-row daily-review-grid'>"
-            f"<span title='{escape(str(row.get('closed_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('closed_at')))}</span>"
-            f"<span class='analytics-main'><b>{escape(str(row.get('symbol', 'n/a')))}</b></span>"
-            f"<span title='{escape(str(row.get('opened_at', 'n/a')))}'>{escape(_format_datetime_review(row.get('opened_at')))}</span>"
-            f"<span>{escape(_format_decimal_metric(actual_value, signed=True))}</span>"
-            f"<span>{escape(_format_decimal_metric(replay_value, signed=True))}</span>"
-            f"<span class='{impact_class}'>{escape(_format_decimal_metric(row_impact, signed=True))}</span>"
-            f"<span>{escape(str(replayed_add_on_count))}</span>"
-            f"<span><span class='daily-review-status daily-review-status-{status_class}' title='{escape(warnings_text)}'>{status_label}</span></span>"
-            "</div>"
-        )
     empty_rows_html = '<div class="trade-history-empty">No trade rows</div>'
     rows_html = (
         "<div class='analytics-table daily-review-table'>"
@@ -383,10 +213,10 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</div>"
     )
     return (
-        "<section class='chart-card daily-review-panel daily-review-panel-redesign'>"
+        "<section class='chart-card daily-review-panel'>"
         "<div class='daily-review-toolbar'>"
         "<div class='daily-review-toolbar-left'>"
-        "<div class='daily-review-eyebrow'>DECISION JOURNAL / FILTER LAB</div>"
+        "<div class='daily-review-eyebrow'>HISTORY</div>"
         "<form class='daily-review-date-form' method='get' action='.'>"
         "<input type='hidden' name='room' value='review'>"
         "<input type='hidden' name='range' value='1D'>"
@@ -396,24 +226,7 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</form>"
         f"<div class='daily-review-nav'>{''.join(navigation_items)}</div>"
         "</div>"
-        "<div class='daily-review-toolbar-note'>真实成交是结果；被 Base veto 的候选是实验组。每天复盘一次，持续监控过滤是否误伤长尾。</div>"
-        "</div>"
-        "<div class='daily-review-hero'>"
-        "<div class='daily-review-hero-copy'>"
-        "<div class='daily-review-eyebrow'>THE DAY IN ONE LINE</div>"
-        "<div class='daily-review-hero-title'>真实仓位之外，<em>被过滤的机会</em>后来发生了什么？</div>"
-        f"<div class='daily-review-support'>{escape(impact_support)}</div>"
-        "</div>"
-        f"<div class='daily-review-hero-impact {impact_state}'>"
-        "<span>FILTER IMPACT</span>"
-        f"<strong>{escape(impact_headline.replace('Filter ', ''))}</strong>"
-        f"<small>{escape(str(report.get('status') or 'ok').upper())} · {escape(str(report.get('report_date') or 'n/a'))}</small>"
-        "</div>"
-        "</div>"
-        "<section class='daily-review-module daily-review-original-block' data-daily-review-module='original'>"
-        "<div class='daily-review-module-head'>"
-        "<div><div class='daily-review-eyebrow'>ORIGINAL DAILY REVIEW</div><h3>原有日报：实际 Base 与 add-on 复盘</h3></div>"
-        "<div class='daily-review-section-note'>只分析原策略实际开出的 Base、实际成交和 add-on 反事实；不读取被新规则过滤的 Base 候选。</div>"
+        "<div class='daily-review-toolbar-note'>Historical Filter Impact is aggregated across every stored daily review.</div>"
         "</div>"
         "<div class='daily-review-history-summary'>"
         "<div class='daily-review-history-summary-head'>"
@@ -430,86 +243,6 @@ def render_daily_review_panel(report: dict | None) -> str:
         "</div>"
         "</div>"
         f"<div class='daily-review-kpi-grid'>{kpi_html}</div>"
-        "<section class='daily-review-ledger'>"
-        "<div class='daily-review-section-head'><div><div class='daily-review-eyebrow'>EXECUTED BASE LEDGER</div><h3>实际开仓 Base 与 add-on 反事实</h3></div><div class='daily-review-section-note'>Actual Base / Replay Add-Ons / Filter Impact</div></div>"
         f"{rows_html}"
         "</section>"
-        "</section>"
-        "<section class='daily-review-module daily-review-filtered-base-block' data-daily-review-module='filtered-base'>"
-        "<div class='daily-review-module-head'>"
-        "<div><div class='daily-review-eyebrow'>FILTERED BASE / SHADOW REPLAY</div><h3>新增实验：原本会开仓、但被新规则过滤的 Base 后来怎样？</h3></div>"
-        f"<div class='daily-review-section-note'>只统计被过滤候选的反事实 Shadow，不等同于实际 Base；{escape(filtered_status_note)}。同一 symbol 同时最多一笔 Shadow，OVERLAP 不重复开仓。</div>"
-        "</div>"
-        "<section class='daily-review-counterfactual-block'>"
-        "<div class='daily-review-section-head'>"
-        "<div><div class='daily-review-eyebrow'>COUNTERFACTUAL TRACKING</div><h3>过滤候选的后续路径</h3></div>"
-        "<div class='daily-review-section-note'>只纳入原策略原本会真实开 Base、但被新 Base veto 拦截的候选；按真实仓位约束逐笔推进，同一 symbol 已有 Shadow 时后续候选记为 OVERLAP。A–E 与 Breakout 规则只用开仓当时已完成的 1m 数据。</div>"
-        "</div>"
-        f"<div class='daily-review-counterfactual-stats'>{filtered_stats_html}</div>"
-        f"{veto_rule_mix_html}"
-        "<div class='daily-review-filter-explainer'><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-a'>A · ATR ≥ 3%</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-b'>B · TC ≤ 1 + R/V ≤ 0.5</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-c'>C · TC ≤ 0.75</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-d'>D · TB ≤ 50% + EFF ≤ 0.15</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-e'>E · EFF ≤ 0.45 + RX ≥ 1.50×</span><span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-breakout'>BO · Breakout ≥ 0.50% + PB ≤ 1.25%</span><span>绿色代表过滤掉的候选后来为正；红色代表避免了亏损；OPEN MTM 不是已实现收益；OBSERVED PNL 只统计不重叠 Shadow，OVERLAP 不计入。</span></div>"
-        f"{filtered_rows_html}"
-        "</section>"
-        "</section>"
-        "</section>"
     )
-
-
-def _format_review_pct(value: object | None) -> str:
-    numeric = _parse_numeric(value)
-    return "—" if numeric is None else f"{numeric:,.2f}%"
-
-
-def _format_review_ratio(value: object | None) -> str:
-    numeric = _parse_numeric(value)
-    return "—" if numeric is None else f"{numeric:,.2f}"
-
-
-def _format_review_share(value: object | None) -> str:
-    numeric = _parse_numeric(value)
-    return "—" if numeric is None else f"{numeric * 100:,.1f}%"
-
-
-def _format_review_multiple(value: object | None) -> str:
-    numeric = _parse_numeric(value)
-    return "—" if numeric is None else f"{numeric:,.2f}×"
-
-
-def _format_review_signed_pct(value: object | None) -> str:
-    numeric = _parse_numeric(value)
-    return "—" if numeric is None else f"{numeric:+,.2f}%"
-
-
-_VETO_RULE_LABELS = {
-    "A": "A · ATR",
-    "B": "B · FLOW",
-    "C": "C · LOW TC",
-    "D": "D · SELL IMBALANCE",
-    "E": "E · RANGE / PATH",
-    "BREAKOUT": "BO · BREAKOUT",
-}
-
-
-def _veto_rule_tokens(value: object | None) -> tuple[str, ...]:
-    normalized = str(value or "").strip()
-    if not normalized or normalized == "-":
-        return ()
-    if normalized == "A_OR_B":
-        return ("A", "B")
-    tokens = tuple(token.strip().upper() for token in normalized.replace(" OR ", "+").split("+") if token.strip())
-    return tokens
-
-
-def _veto_rule_label(token: str) -> str:
-    return _VETO_RULE_LABELS.get(token, token)
-
-
-def _veto_rule_slug(token: str) -> str:
-    return {
-        "A": "a",
-        "B": "b",
-        "C": "c",
-        "D": "d",
-        "E": "e",
-        "BREAKOUT": "breakout",
-    }.get(token, "other")

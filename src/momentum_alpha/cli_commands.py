@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from momentum_alpha.daily_review import build_daily_review_report
+from momentum_alpha.filtered_base_review import build_filtered_base_review_report
 from momentum_alpha.health import build_runtime_health_report
-from momentum_alpha.runtime_store import insert_daily_review_report, summarize_audit_events
+from momentum_alpha.runtime_store import (
+    insert_daily_review_report,
+    insert_filtered_base_review_report,
+    summarize_audit_events,
+)
 
 from .cli_commands_live import run_live_commands
 from .cli_commands_ops import run_ops_commands
@@ -46,7 +51,9 @@ def run_cli_command(
         "build_runtime_health_report_fn": build_runtime_health_report,
         "summarize_audit_events_fn": summarize_audit_events,
         "build_daily_review_report_fn": build_daily_review_report,
+        "build_filtered_base_review_report_fn": build_filtered_base_review_report,
         "insert_daily_review_report_fn": insert_daily_review_report,
+        "insert_filtered_base_review_report_fn": insert_filtered_base_review_report,
     }
 
     for handler in (run_live_commands, run_reporting_commands, run_ops_commands):
@@ -64,5 +71,7 @@ __all__ = [
     "build_runtime_health_report",
     "summarize_audit_events",
     "build_daily_review_report",
+    "build_filtered_base_review_report",
     "insert_daily_review_report",
+    "insert_filtered_base_review_report",
 ]

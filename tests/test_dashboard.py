@@ -519,13 +519,60 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("-361.44", html)
         self.assertIn("-465.57", html)
         self.assertNotIn("COUNTERFACTUAL PNL", html)
+        self.assertNotIn("独立样本复盘", html)
+        self.assertNotIn("被过滤样本", html)
+        self.assertIn("过滤复盘", html)
         self.assertNotIn("Closed Trade Detail", html)
         self.assertLess(html.index("DRAGUSDT"), html.index("GUNUSDT"))
 
-    def test_daily_review_panel_shows_filtered_base_counterfactuals(self) -> None:
-        from momentum_alpha.dashboard_render_panels_review import render_daily_review_panel
+    def test_render_dashboard_html_keeps_filtered_review_on_its_own_view(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
 
-        html = render_daily_review_panel(
+        snapshot = self._build_tabbed_snapshot()
+        snapshot["daily_review_report"] = {
+            "report_date": "2026-04-21",
+            "status": "ok",
+            "trade_count": 1,
+            "actual_total_pnl": "10",
+            "counterfactual_total_pnl": "10",
+            "replayed_add_on_count": 0,
+            "payload": {"rows": [{"symbol": "DAILYONLY", "actual_net_pnl": "10", "counterfactual_net_pnl": "10"}]},
+            "history_summary": {},
+            "available_report_dates": ["2026-04-21"],
+        }
+        snapshot["filtered_review_report"] = {
+            "report_date": "2026-04-21",
+            "status": "ok",
+            "payload": {
+                "summary": {
+                    "candidate_count": 1,
+                    "closed_count": 1,
+                    "missed_profit_sum": "25",
+                    "avoided_loss_sum": "0",
+                    "closed_sample_pnl_sum": "25",
+                    "win_count": 1,
+                    "loss_count": 0,
+                },
+                "rows": [{"sample_id": "sample-1", "symbol": "FILTERONLY", "status": "closed", "outcome": "win", "net_pnl": "25"}],
+            },
+            "available_report_dates": ["2026-04-21"],
+        }
+
+        filtered_html = render_dashboard_html(snapshot, active_room="review", review_view="filtered")
+        daily_html = render_dashboard_html(snapshot, active_room="review", review_view="daily")
+
+        self.assertIn('data-dashboard-review-view-content="filtered"', filtered_html)
+        self.assertIn("FILTERONLY", filtered_html)
+        self.assertNotIn("DAILYONLY", filtered_html)
+        self.assertIn("DAILYONLY", daily_html)
+        self.assertNotIn("FILTERONLY", daily_html)
+        self.assertNotIn("OVERLAP", filtered_html)
+        self.assertNotIn("Shadow", filtered_html)
+
+    def test_filtered_review_panel_shows_independent_base_samples(self) -> None:
+        from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
+
+        html = render_filtered_base_review_panel(
             {
                 "report_date": "2026-04-21",
                 "status": "ok",
@@ -534,21 +581,22 @@ class DashboardTests(unittest.TestCase):
                 "counterfactual_total_pnl": "0",
                 "replayed_add_on_count": 0,
                 "payload": {
-                    "rows": [],
-                    "filtered_base_summary": {
+                    "summary": {
                         "candidate_count": 1,
                         "resolved_count": 1,
-                        "overlap_count": 0,
+                        "closed_count": 1,
+                        "open_count": 0,
                         "win_count": 1,
                         "loss_count": 0,
                         "pending_count": 0,
-                        "closed_net_pnl": "54.25",
-                        "observed_net_pnl": "54.25",
+                        "missed_profit_sum": "54.25",
+                        "avoided_loss_sum": "0",
+                        "closed_sample_pnl_sum": "54.25",
                         "tail_50u_count": 1,
                     },
-                    "filtered_base_rows": [
+                    "rows": [
                         {
-                            "shadow_opportunity_id": "shadow-ace",
+                            "sample_id": "sample-ace",
                             "symbol": "ACEUSDT",
                             "vetoed_at": "2026-04-20T10:00:00+00:00",
                             "veto_rule": "A_OR_B",
@@ -576,26 +624,73 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("COUNTERFACTUAL TRACKING", html)
-        self.assertIn("原本会开仓、但被新规则过滤的 Base 后来怎样？", html)
+        self.assertIn("独立样本复盘", html)
+        self.assertIn("过滤规则净错过 54.25 U", html)
         self.assertIn("ACEUSDT", html)
-        self.assertIn("CLOSED WIN", html)
-        self.assertIn("≥50U tail", html)
+        self.assertIn("已结束 · 盈利", html)
+        self.assertIn("≥50U 长尾", html)
         self.assertIn("A · ATR", html)
         self.assertIn("B · FLOW", html)
-        self.assertIn("TB 45.0%", html)
-        self.assertIn("EFF 0.12", html)
-        self.assertIn("RX 1.60×", html)
-        self.assertIn("BO +0.62%", html)
-        self.assertIn("PB 0.57%", html)
-        self.assertIn("RULE HITS", html)
-        self.assertIn("一笔候选可同时命中多个规则", html)
-        self.assertIn("只统计被过滤候选的反事实 Shadow，不等同于实际 Base", html)
-        self.assertIn("OBSERVED PNL", html)
-        self.assertIn("OVERLAP 不计入", html)
-        self.assertIn("data-daily-review-module='original'", html)
-        self.assertIn("data-daily-review-module='filtered-base'", html)
-        self.assertLess(html.index("ORIGINAL DAILY REVIEW"), html.index("FILTERED BASE / SHADOW REPLAY"))
+        self.assertIn("ATR 3.40% · TC 0.70 · R/V 0.31", html)
+        self.assertIn("规则命中", html)
+        self.assertIn("计算口径与规则", html)
+        self.assertIn("每个样本独立回放", html)
+        self.assertIn("不代表组合收益", html)
+        self.assertNotIn("OVERLAP", html)
+        self.assertNotIn("Shadow", html)
+
+    def test_dashboard_snapshot_separates_daily_and_filtered_reports(self) -> None:
+        from momentum_alpha.dashboard import load_dashboard_snapshot
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            insert_daily_review_report,
+            insert_filtered_base_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=runtime_db_file)
+            insert_daily_review_report(
+                path=runtime_db_file,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:01+08:00",
+                status="ok",
+                trade_count=1,
+                actual_total_pnl="10",
+                counterfactual_total_pnl="10",
+                pnl_delta="0",
+                replayed_add_on_count=0,
+                stop_budget_usdt="10",
+                entry_start_hour_utc=1,
+                entry_end_hour_utc=23,
+                warnings=[],
+                payload={"rows": [{"symbol": "DAILYONLY"}]},
+            )
+            insert_filtered_base_review_report(
+                path=runtime_db_file,
+                report_date="2026-04-21",
+                window_start="2026-04-20T08:30:00+08:00",
+                window_end="2026-04-21T08:30:00+08:00",
+                generated_at="2026-04-21T08:30:02+08:00",
+                status="ok",
+                warnings=[],
+                payload={
+                    "summary": {"candidate_count": 1},
+                    "rows": [{"sample_id": "sample-1", "symbol": "FILTERONLY"}],
+                },
+            )
+
+            snapshot = load_dashboard_snapshot(
+                now=datetime(2026, 4, 21, 1, 0, tzinfo=timezone.utc),
+                runtime_db_file=runtime_db_file,
+            )
+
+        self.assertEqual(snapshot["daily_review_report"]["payload"]["rows"][0]["symbol"], "DAILYONLY")
+        self.assertNotIn("filtered_base_rows", snapshot["daily_review_report"]["payload"])
+        self.assertEqual(snapshot["filtered_review_report"]["payload"]["rows"][0]["symbol"], "FILTERONLY")
+        self.assertEqual(snapshot["filtered_review_report"]["available_report_dates"], ["2026-04-21"])
 
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

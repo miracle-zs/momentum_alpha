@@ -18,7 +18,7 @@ LEGACY_DASHBOARD_TAB_TO_ROOM = {
     "performance": "review",
     "system": "system",
 }
-REVIEW_VIEWS = ("overview", "daily")
+REVIEW_VIEWS = ("overview", "daily", "filtered")
 
 
 def normalize_dashboard_room(value: str | None) -> str:

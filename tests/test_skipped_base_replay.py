@@ -250,6 +250,7 @@ class SkippedBaseReplayTests(unittest.TestCase):
             leaders={},
             cutoff=third_at + timedelta(minutes=1),
             taker_fee_rate=Decimal("0"),
+            independent_candidate_replay=False,
         )
 
         self.assertEqual(
@@ -283,7 +284,6 @@ class SkippedBaseReplayTests(unittest.TestCase):
             leaders={},
             cutoff=third_at + timedelta(minutes=1),
             taker_fee_rate=Decimal("0"),
-            independent_candidate_replay=True,
         )
 
         self.assertEqual(

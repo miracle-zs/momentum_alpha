@@ -1,4 +1,4 @@
 from __future__ import annotations
 
-from .runtime_writes_history_reports import insert_daily_review_report
+from .runtime_writes_history_reports import insert_daily_review_report, insert_filtered_base_review_report
 from .runtime_writes_history_trades import insert_stop_exit_summary, insert_trade_round_trip

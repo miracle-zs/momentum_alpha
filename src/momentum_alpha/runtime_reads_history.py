@@ -5,7 +5,10 @@ from .runtime_reads_history_reports import (
     fetch_daily_review_report_by_date,
     fetch_daily_review_report_dates,
     fetch_daily_review_reports_summary,
+    fetch_filtered_base_review_report_by_date,
+    fetch_filtered_base_review_report_dates,
     fetch_latest_daily_review_report,
+    fetch_latest_filtered_base_review_report,
 )
 from .runtime_reads_history_snapshots import (
     fetch_account_snapshots_for_window,
