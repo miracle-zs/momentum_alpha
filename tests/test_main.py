@@ -1979,17 +1979,21 @@ class MainTests(unittest.TestCase):
                 self.income_types.append(income_type)
                 return [
                     {
-                        "time": 1776207600000 + len(self.income_types),
+                        "time": 1776207600000 + index,
                         "asset": "USDT",
-                        "incomeType": income_type,
+                        "incomeType": returned_income_type,
                         "income": {
                             "REALIZED_PNL": "-120.00",
                             "COMMISSION": "-4.00",
                             "FUNDING_FEE": "-1.00",
-                        }[income_type],
+                        }[returned_income_type],
                         "info": "API3USDT",
-                        "tranId": income_type,
+                        "tranId": returned_income_type,
                     }
+                    for index, returned_income_type in enumerate(
+                        ("REALIZED_PNL", "COMMISSION", "FUNDING_FEE"),
+                        start=1,
+                    )
                 ]
 
         with TemporaryDirectory() as tmpdir:
@@ -2006,7 +2010,7 @@ class MainTests(unittest.TestCase):
             flows = fetch_recent_account_flows(path=runtime_db_path, limit=10)
 
         self.assertEqual(inserted, 3)
-        self.assertEqual(client.income_types, ["REALIZED_PNL", "COMMISSION", "FUNDING_FEE"])
+        self.assertEqual(client.income_types, [None])
         self.assertEqual({flow["reason"] for flow in flows}, {"REALIZED_PNL", "COMMISSION", "FUNDING_FEE"})
 
     def test_backfill_binance_user_trades_inserts_missing_fills_and_keeps_order_linkage(self) -> None:

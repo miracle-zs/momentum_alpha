@@ -15,6 +15,7 @@ class UserStreamEvent:
     side: str | None = None
     average_price: Decimal | None = None
     filled_quantity: Decimal | None = None
+    original_quantity: Decimal | None = None
     last_filled_price: Decimal | None = None
     last_filled_quantity: Decimal | None = None
     realized_pnl: Decimal | None = None

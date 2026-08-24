@@ -713,33 +713,6 @@ class PollWorkerTests(unittest.TestCase):
         from momentum_alpha.poll_worker_core_live import _repair_failed_stop_coverage
 
         now = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
-        class Client:
-            def fetch_position_risk(self):
-                return [
-                    {
-                        "symbol": "ETHUSDT",
-                        "positionAmt": "2",
-                        "entryPrice": "120",
-                        "updateTime": int(now.timestamp() * 1000),
-                    }
-                ]
-
-            def fetch_open_orders(self):
-                return []
-
-            def fetch_open_algo_orders(self):
-                return [
-                    {
-                        "symbol": "ETHUSDT",
-                        "orderType": "STOP_MARKET",
-                        "side": "SELL",
-                        "algoStatus": "NEW",
-                        "quantity": "1",
-                        "triggerPrice": "110",
-                        "clientAlgoId": "ma_260612020000_ETHUSDT_a00s",
-                    }
-                ]
-
         class Broker:
             def __init__(self) -> None:
                 self.last_stop_replacement_failures = []
@@ -752,7 +725,6 @@ class PollWorkerTests(unittest.TestCase):
         broker = Broker()
 
         repaired, responses, failures = _repair_failed_stop_coverage(
-            client=Client(),
             broker=broker,
             failed_stop_orders=[{"symbol": "ETHUSDT"}],
             runtime_market={
@@ -768,6 +740,25 @@ class PollWorkerTests(unittest.TestCase):
             current_day=now,
             previous_leader_symbol="ETHUSDT",
             position_side=None,
+            position_risk=[
+                {
+                    "symbol": "ETHUSDT",
+                    "positionAmt": "2",
+                    "entryPrice": "120",
+                    "updateTime": int(now.timestamp() * 1000),
+                }
+            ],
+            open_orders=[
+                {
+                    "symbol": "ETHUSDT",
+                    "orderType": "STOP_MARKET",
+                    "side": "SELL",
+                    "algoStatus": "NEW",
+                    "quantity": "1",
+                    "triggerPrice": "110",
+                    "clientAlgoId": "ma_260612020000_ETHUSDT_a00s",
+                }
+            ],
         )
 
         self.assertEqual(repaired, [("ETHUSDT", Decimal("110"))])
@@ -957,7 +948,7 @@ class PollWorkerTests(unittest.TestCase):
             def fetch_exchange_info(self):
                 return self_test._exchange_info()
 
-            def fetch_open_orders(self):
+            def fetch_open_orders(self, *, symbol=None):
                 return []
 
             def fetch_position_risk(self):

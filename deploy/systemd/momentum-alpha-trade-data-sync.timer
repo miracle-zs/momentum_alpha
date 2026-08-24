@@ -2,8 +2,8 @@
 Description=Run Momentum Alpha trade data sync periodically
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=15min
+OnCalendar=*-*-* *:04,19,34,49:00
+AccuracySec=1s
 Persistent=true
 Unit=momentum-alpha-trade-data-sync.service
 

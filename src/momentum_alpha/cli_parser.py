@@ -69,6 +69,19 @@ def build_cli_parser() -> argparse.ArgumentParser:
     backfill_binance_trades_parser.add_argument("--testnet", action="store_true")
     backfill_binance_trades_parser.add_argument("--skip-rebuild", action="store_true")
 
+    sync_trade_data_parser = subparsers.add_parser("sync-trade-data")
+    sync_trade_data_parser.add_argument("--runtime-db-file", required=True)
+    sync_trade_data_parser.add_argument("--testnet", action="store_true")
+    sync_trade_data_parser.add_argument("--max-request-weight", type=int, default=100)
+    sync_trade_data_parser.add_argument("--overlap-minutes", type=int, default=20)
+    sync_trade_data_parser.add_argument("--full-repair", action="store_true")
+    sync_trade_data_parser.add_argument("--symbols", nargs="+")
+
+    request_live_resync_parser = subparsers.add_parser("request-live-resync")
+    request_live_resync_parser.add_argument("--runtime-db-file", required=True)
+    request_live_resync_parser.add_argument("--position-mode", action="store_true")
+    request_live_resync_parser.add_argument("--orders", action="store_true")
+
     backfill_leader_candidates_parser = subparsers.add_parser("backfill-leader-candidates")
     backfill_leader_candidates_parser.add_argument("--runtime-db-file")
     backfill_leader_candidates_parser.add_argument(

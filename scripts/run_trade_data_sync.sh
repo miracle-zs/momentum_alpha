@@ -11,27 +11,21 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
-TRADE_SYNC_LOOKBACK_HOURS="${TRADE_SYNC_LOOKBACK_HOURS:-36}"
+TRADE_SYNC_MAX_REQUEST_WEIGHT="${TRADE_SYNC_MAX_REQUEST_WEIGHT:-100}"
+TRADE_SYNC_OVERLAP_MINUTES="${TRADE_SYNC_OVERLAP_MINUTES:-20}"
 
-SYNC_END_TIME="$("${VENV_PYTHON}" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat())')"
-SYNC_START_TIME="$(
-  TRADE_SYNC_LOOKBACK_HOURS="${TRADE_SYNC_LOOKBACK_HOURS}" "${VENV_PYTHON}" -c 'import os; from datetime import datetime, timedelta, timezone; hours = int(os.environ["TRADE_SYNC_LOOKBACK_HOURS"]); print((datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat())'
-)"
-
-"${VENV_PYTHON}" -u -m momentum_alpha.main \
-  backfill-binance-trades \
-  --runtime-db-file "${RUNTIME_DB_FILE}" \
-  --start-time "${SYNC_START_TIME}" \
-  --end-time "${SYNC_END_TIME}" \
-  --skip-rebuild
-
-"${VENV_PYTHON}" -u -m momentum_alpha.main \
-  backfill-account-flows \
-  --runtime-db-file "${RUNTIME_DB_FILE}" \
-  --start-time "${SYNC_START_TIME}" \
-  --end-time "${SYNC_END_TIME}" \
-  --income-types REALIZED_PNL COMMISSION FUNDING_FEE TRANSFER
+SYNC_LOCAL_HHMM="$(TZ=Asia/Shanghai date +%H%M)"
+SYNC_LOCAL_MINUTES=$((10#${SYNC_LOCAL_HHMM:0:2} * 60 + 10#${SYNC_LOCAL_HHMM:2:2}))
+if ((
+  (SYNC_LOCAL_MINUTES >= 7 * 60 + 30 && SYNC_LOCAL_MINUTES <= 8 * 60 + 10) ||
+  (SYNC_LOCAL_MINUTES >= 11 * 60 + 40 && SYNC_LOCAL_MINUTES <= 12 * 60 + 15)
+)); then
+  echo "trade-data-sync skipped local_time=${SYNC_LOCAL_HHMM}"
+  exit 0
+fi
 
 exec "${VENV_PYTHON}" -u -m momentum_alpha.main \
-  rebuild-trade-analytics \
-  --runtime-db-file "${RUNTIME_DB_FILE}"
+  sync-trade-data \
+  --runtime-db-file "${RUNTIME_DB_FILE}" \
+  --max-request-weight "${TRADE_SYNC_MAX_REQUEST_WEIGHT}" \
+  --overlap-minutes "${TRADE_SYNC_OVERLAP_MINUTES}"

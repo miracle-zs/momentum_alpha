@@ -89,6 +89,7 @@ def extract_order_status_update(event: UserStreamEvent) -> tuple[str, dict | Non
             "client_order_id": event.client_order_id,
             "original_order_type": event.original_order_type,
             "stop_price": str(event.stop_price) if event.stop_price is not None else None,
+            "quantity": str(event.original_quantity) if event.original_quantity is not None else None,
             "event_time": event.event_time.isoformat() if event.event_time is not None else None,
         },
     )
@@ -117,6 +118,7 @@ def extract_algo_order_status_update(event: UserStreamEvent) -> tuple[str, dict 
             "client_order_id": event.client_algo_id,
             "original_order_type": "STOP_MARKET",  # Algo orders for this strategy are stop orders
             "stop_price": str(event.trigger_price) if event.trigger_price is not None else None,
+            "quantity": str(event.original_quantity) if event.original_quantity is not None else None,
             "event_time": event.event_time.isoformat() if event.event_time is not None else None,
         },
     )

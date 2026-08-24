@@ -166,18 +166,17 @@ class DeployArtifactTests(unittest.TestCase):
         self.assertNotIn("momentum-alpha.log", content)
         self.assertNotIn("momentum-alpha-user-stream.log", content)
 
-    def test_run_trade_data_sync_script_backfills_and_rebuilds_analytics(self) -> None:
+    def test_run_trade_data_sync_script_uses_bounded_incremental_sync(self) -> None:
         content = (ROOT / "scripts" / "run_trade_data_sync.sh").read_text()
         self.assertIn('VENV_PYTHON="${PROJECT_ROOT}/.venv/bin/python"', content)
         self.assertIn('RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"', content)
-        self.assertIn('TRADE_SYNC_LOOKBACK_HOURS="${TRADE_SYNC_LOOKBACK_HOURS:-36}"', content)
-        self.assertIn("backfill-binance-trades", content)
-        self.assertIn("backfill-account-flows", content)
-        self.assertIn("REALIZED_PNL", content)
-        self.assertIn("COMMISSION", content)
-        self.assertIn("FUNDING_FEE", content)
-        self.assertIn("TRANSFER", content)
-        self.assertIn("rebuild-trade-analytics", content)
+        self.assertIn('TRADE_SYNC_MAX_REQUEST_WEIGHT="${TRADE_SYNC_MAX_REQUEST_WEIGHT:-100}"', content)
+        self.assertIn("sync-trade-data", content)
+        self.assertIn("--max-request-weight", content)
+        self.assertIn("7 * 60 + 30", content)
+        self.assertIn("11 * 60 + 40", content)
+        self.assertNotIn("backfill-binance-trades", content)
+        self.assertNotIn("BACKFILL_LOOKBACK_HOURS", content)
 
     def test_trade_data_sync_systemd_timer_keeps_review_data_fresh(self) -> None:
         service = (ROOT / "deploy" / "systemd" / "momentum-alpha-trade-data-sync.service").read_text()
@@ -189,8 +188,9 @@ class DeployArtifactTests(unittest.TestCase):
             "StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-trade-data-sync.log",
             service,
         )
-        self.assertIn("OnBootSec=2min", timer)
-        self.assertIn("OnUnitActiveSec=15min", timer)
+        self.assertNotIn("OnBootSec", timer)
+        self.assertIn("OnCalendar=*-*-* *:04,19,34,49:00", timer)
+        self.assertIn("AccuracySec=1s", timer)
         self.assertIn("Persistent=true", timer)
 
     def test_audit_report_script_invokes_audit_report_command(self) -> None:
@@ -200,14 +200,9 @@ class DeployArtifactTests(unittest.TestCase):
 
     def test_daily_review_report_script_invokes_daily_review_report_command(self) -> None:
         content = (ROOT / "scripts" / "run_daily_review_report.sh").read_text()
-        self.assertIn("backfill-binance-trades", content)
-        self.assertIn("backfill-account-flows", content)
-        self.assertIn("REALIZED_PNL", content)
-        self.assertIn("COMMISSION", content)
-        self.assertIn("FUNDING_FEE", content)
-        self.assertIn("TRANSFER", content)
-        self.assertIn("BACKFILL_LOOKBACK_HOURS", content)
-        self.assertIn("rebuild-trade-analytics", content)
+        self.assertIn("sync-trade-data", content)
+        self.assertNotIn("backfill-binance-trades", content)
+        self.assertNotIn("BACKFILL_LOOKBACK_HOURS", content)
         self.assertIn("daily-review-report", content)
         self.assertIn("--runtime-db-file", content)
         self.assertIn("--stop-budget-usdt", content)

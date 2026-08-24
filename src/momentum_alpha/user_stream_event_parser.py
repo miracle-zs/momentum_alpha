@@ -49,6 +49,7 @@ def parse_user_stream_event(payload: dict) -> UserStreamEvent:
         side=order_payload.get("S") or payload.get("S"),
         average_price=_parse_decimal(order_payload.get("ap")),
         filled_quantity=_parse_decimal(order_payload.get("z")),
+        original_quantity=_parse_decimal(order_payload.get("q")),
         last_filled_price=_parse_decimal(order_payload.get("L")),
         last_filled_quantity=_parse_decimal(order_payload.get("l")),
         realized_pnl=_parse_decimal(order_payload.get("rp")),

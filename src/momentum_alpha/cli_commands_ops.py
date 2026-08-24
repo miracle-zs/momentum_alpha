@@ -6,7 +6,9 @@ from pathlib import Path
 from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.leader_opportunity_diagnostics import diagnose_opportunities
 from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analytics
+from momentum_alpha.runtime_sync_state import RuntimeSyncStateStore
 from momentum_alpha.skipped_base_replay import replay_skipped_bases
+from momentum_alpha.trade_data_sync import run_incremental_trade_data_sync
 
 from .cli_backfill import backfill_account_flows
 from .cli_backfill import backfill_binance_user_trades
@@ -66,6 +68,64 @@ def backfill_binance_trades_command(
     if not args.skip_rebuild:
         rebuild_trade_analytics_fn(path=runtime_db_path)
         print("trade-analytics-rebuilt")
+    return 0
+
+
+def sync_trade_data_command(
+    *,
+    parser,
+    args,
+    client_factory,
+    now_provider,
+    sync_trade_data_fn=run_incremental_trade_data_sync,
+    rebuild_trade_analytics_fn=rebuild_trade_analytics,
+) -> int:
+    runtime_settings = load_runtime_settings_from_env()
+    use_testnet = args.testnet or runtime_settings["use_testnet"]
+    client = _build_client_from_factory(client_factory=client_factory, testnet=use_testnet)
+    runtime_db_path = Path(os.path.abspath(args.runtime_db_file))
+    result = sync_trade_data_fn(
+        client=client,
+        runtime_db_path=runtime_db_path,
+        now=now_provider(),
+        logger=print,
+        max_request_weight=args.max_request_weight,
+        overlap_minutes=args.overlap_minutes,
+        full_repair=args.full_repair,
+        repair_symbols=args.symbols,
+    )
+    print(f"trade_sync_request_weight={result.request_weight}")
+    print(f"trade_sync_income_inserted={result.income_inserted}")
+    print(f"trade_sync_trades_inserted={result.trades_inserted}")
+    print(f"trade_sync_dirty_symbols={','.join(result.dirty_symbols)}")
+    print(f"trade_sync_synced_symbols={','.join(result.synced_symbols)}")
+    if result.income_inserted or result.trades_inserted:
+        rebuild_trade_analytics_fn(path=runtime_db_path)
+        print("trade-analytics-rebuilt")
+    if result.rate_limited:
+        return 75
+    return 1 if result.errors else 0
+
+
+def request_live_resync_command(*, parser, args, now_provider) -> int:
+    if not args.position_mode and not args.orders:
+        parser.error("request-live-resync requires --position-mode and/or --orders")
+    runtime_db_path = Path(os.path.abspath(args.runtime_db_file))
+    store = RuntimeSyncStateStore(path=runtime_db_path)
+    now = now_provider()
+    if args.position_mode:
+        store.request_control(
+            key="position_mode_refresh",
+            requested_at=now,
+            reason="manual_cli_request",
+        )
+    if args.orders:
+        store.request_control(
+            key="account_full_sync",
+            requested_at=now,
+            reason="manual_cli_request",
+        )
+    print("live-resync-requested")
     return 0
 
 
@@ -242,6 +302,7 @@ def run_ops_commands(
     replay_skipped_bases_fn=replay_skipped_bases,
     rebuild_trade_analytics_fn=rebuild_trade_analytics,
     prune_runtime_db_fn=prune_runtime_db,
+    sync_trade_data_fn=run_incremental_trade_data_sync,
     **_unused,
 ) -> int | None:
     if args.command == "backfill-account-flows":
@@ -258,6 +319,21 @@ def run_ops_commands(
             client_factory=client_factory,
             backfill_binance_user_trades_fn=backfill_binance_user_trades_fn,
             rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
+        )
+    if args.command == "sync-trade-data":
+        return sync_trade_data_command(
+            parser=parser,
+            args=args,
+            client_factory=client_factory,
+            now_provider=now_provider,
+            sync_trade_data_fn=sync_trade_data_fn,
+            rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
+        )
+    if args.command == "request-live-resync":
+        return request_live_resync_command(
+            parser=parser,
+            args=args,
+            now_provider=now_provider,
         )
     if args.command == "backfill-leader-candidates":
         return backfill_leader_candidates_command(

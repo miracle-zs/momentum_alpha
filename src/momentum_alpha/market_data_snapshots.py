@@ -25,7 +25,12 @@ def _build_live_snapshots(
         client=client,
         fallback_symbols=held_symbols,
     )
-    cache.ensure_daily_open_prices(symbols=tracked_symbols, client=client, now=now)
+    cache.ensure_daily_open_prices(
+        symbols=tracked_symbols,
+        client=client,
+        now=now,
+        priority_symbols=held_symbols,
+    )
 
     provisional_snapshots: list[dict] = []
     for symbol in tracked_symbols:

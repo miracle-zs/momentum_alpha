@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Nice=10
+IOSchedulingClass=idle
 WorkingDirectory=%h/momentum_alpha
 EnvironmentFile=%h/momentum_alpha/deploy/env.local
 ExecStart=%h/momentum_alpha/scripts/run_trade_data_sync.sh

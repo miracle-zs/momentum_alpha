@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.runtime_reads_events_orders import resolve_order_linkage
 from momentum_alpha.runtime_schema import bootstrap_runtime_db
 from momentum_alpha.runtime_store import insert_account_flow, insert_audit_event, insert_trade_fill
@@ -73,52 +74,73 @@ def backfill_account_flows(
     normalized_income_types = tuple(
         str(income_type).strip().upper() for income_type in (income_types or ("TRANSFER",)) if str(income_type).strip()
     )
-    for income_type in normalized_income_types:
-        window_start = start_time.astimezone(timezone.utc)
-        while window_start < end_time_utc:
-            window_end = min(window_start + timedelta(days=7), end_time_utc)
-            incomes = client.fetch_income_history(
-                income_type=income_type,
-                start_time_ms=int(window_start.timestamp() * 1000),
-                end_time_ms=int(window_end.timestamp() * 1000),
-                limit=1000,
-            )
-            for income in incomes:
-                timestamp_ms = income.get("time")
-                if timestamp_ms in (None, ""):
-                    continue
-                timestamp = datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
-                reason = _income_reason(income)
-                asset = income.get("asset")
-                balance_change = str(income.get("income")) if income.get("income") not in (None, "") else None
-                source = "backfill-income-history"
-                if _account_flow_exists(
-                    runtime_db_path=runtime_db_path,
-                    timestamp=timestamp,
-                    reason=reason,
-                    asset=asset,
-                    balance_change=balance_change,
-                    source=source,
-                    reference_id=_income_reference_id(income),
-                ):
-                    continue
-                insert_account_flow(
-                    path=runtime_db_path,
-                    timestamp=timestamp,
-                    source=source,
-                    reason=reason,
-                    asset=asset,
-                    balance_change=balance_change,
-                    payload=income,
-                )
-                inserted += 1
-            logger(
-                "backfill-account-flows "
-                f"income_type={income_type} "
-                f"window_start={window_start.isoformat()} window_end={window_end.isoformat()} "
-                f"fetched={len(incomes)} inserted={inserted}"
-            )
-            window_start = window_end
+    window_start = start_time.astimezone(timezone.utc)
+    while window_start < end_time_utc:
+        window_end = min(window_start + timedelta(days=7), end_time_utc)
+        # Binance charges the same weight whether incomeType is present or not.
+        # Fetch all categories once and classify locally whenever more than one
+        # category is requested.
+        request_income_type = normalized_income_types[0] if len(normalized_income_types) == 1 else None
+        incomes = client.fetch_income_history(
+            income_type=request_income_type,
+            start_time_ms=int(window_start.timestamp() * 1000),
+            end_time_ms=int(window_end.timestamp() * 1000),
+            limit=1000,
+        )
+        inserted += persist_account_income_rows(
+            runtime_db_path=runtime_db_path,
+            incomes=incomes,
+            allowed_income_types=set(normalized_income_types),
+        )
+        logger(
+            "backfill-account-flows "
+            f"income_types={','.join(normalized_income_types)} "
+            f"window_start={window_start.isoformat()} window_end={window_end.isoformat()} "
+            f"fetched={len(incomes)} inserted={inserted}"
+        )
+        window_start = window_end
+    return inserted
+
+
+def persist_account_income_rows(
+    *,
+    runtime_db_path: Path,
+    incomes: list[dict],
+    allowed_income_types: set[str] | frozenset[str] | None = None,
+    source: str = "backfill-income-history",
+) -> int:
+    allowed = None if allowed_income_types is None else {item.upper() for item in allowed_income_types}
+    inserted = 0
+    for income in incomes:
+        timestamp_ms = income.get("time")
+        if timestamp_ms in (None, ""):
+            continue
+        timestamp = datetime.fromtimestamp(int(timestamp_ms) / 1000, tz=timezone.utc)
+        reason = _income_reason(income)
+        if allowed is not None and reason not in allowed:
+            continue
+        asset = income.get("asset")
+        balance_change = str(income.get("income")) if income.get("income") not in (None, "") else None
+        if _account_flow_exists(
+            runtime_db_path=runtime_db_path,
+            timestamp=timestamp,
+            reason=reason,
+            asset=asset,
+            balance_change=balance_change,
+            source=source,
+            reference_id=_income_reference_id(income),
+        ):
+            continue
+        insert_account_flow(
+            path=runtime_db_path,
+            timestamp=timestamp,
+            source=source,
+            reason=reason,
+            asset=asset,
+            balance_change=balance_change,
+            payload=income,
+        )
+        inserted += 1
     return inserted
 
 
@@ -228,6 +250,65 @@ def _trade_side(*, trade: dict, order: dict | None) -> str | None:
     return None
 
 
+def persist_binance_user_trade_rows(
+    *,
+    runtime_db_path: Path,
+    symbol: str,
+    trades: list[dict],
+    orders: list[dict] | tuple[dict, ...],
+    source: str = "backfill-user-trades",
+) -> int:
+    order_by_id = {
+        str(order["orderId"]): order
+        for order in orders
+        if order.get("orderId") not in (None, "")
+    }
+    inserted = 0
+    for trade in trades:
+        trade_symbol = str(trade.get("symbol") or symbol).upper()
+        trade_id = _string_or_none(trade.get("id"))
+        if _trade_fill_exists(runtime_db_path=runtime_db_path, symbol=trade_symbol, trade_id=trade_id):
+            continue
+        timestamp = _trade_timestamp(trade)
+        if timestamp is None:
+            continue
+        order_id = _string_or_none(trade.get("orderId"))
+        order = order_by_id.get(order_id or "")
+        client_order_id = _string_or_none((order or {}).get("clientOrderId"))
+        linkage = resolve_order_linkage(
+            path=runtime_db_path,
+            client_order_id=client_order_id,
+            order_id=order_id,
+        )
+        decision_id = None if linkage is None else linkage.get("decision_id")
+        intent_id = None if linkage is None else linkage.get("intent_id")
+        insert_trade_fill(
+            path=runtime_db_path,
+            timestamp=timestamp,
+            source=source,
+            symbol=trade_symbol,
+            order_id=order_id,
+            trade_id=trade_id,
+            client_order_id=client_order_id,
+            decision_id=decision_id,
+            intent_id=intent_id,
+            order_status=_string_or_none((order or {}).get("status")),
+            execution_type="TRADE",
+            side=_trade_side(trade=trade, order=order),
+            order_type=_string_or_none((order or {}).get("origType") or (order or {}).get("type")),
+            quantity=trade.get("qty"),
+            cumulative_quantity=trade.get("qty"),
+            average_price=trade.get("price"),
+            last_price=trade.get("price"),
+            realized_pnl=trade.get("realizedPnl"),
+            commission=trade.get("commission"),
+            commission_asset=_string_or_none(trade.get("commissionAsset")),
+            payload={"trade": trade, "order": order or {}},
+        )
+        inserted += 1
+    return inserted
+
+
 def _order_metadata_by_id(
     *,
     client,
@@ -247,6 +328,8 @@ def _order_metadata_by_id(
             limit=1000,
         )
     except Exception as exc:
+        if rate_limit_backoff_seconds(exc) > 0:
+            raise
         emit_structured_log(
             logger,
             service="backfill",
@@ -366,50 +449,13 @@ def backfill_binance_user_trades(
                 logger=logger,
             )
             fetched_total += len(trades)
-            window_inserted = 0
-            for trade in trades:
-                trade_symbol = str(trade.get("symbol") or symbol).upper()
-                trade_id = _string_or_none(trade.get("id"))
-                if _trade_fill_exists(runtime_db_path=runtime_db_path, symbol=trade_symbol, trade_id=trade_id):
-                    continue
-                timestamp = _trade_timestamp(trade)
-                if timestamp is None:
-                    continue
-                order_id = _string_or_none(trade.get("orderId"))
-                order = order_by_id.get(order_id or "")
-                client_order_id = _string_or_none((order or {}).get("clientOrderId"))
-                linkage = resolve_order_linkage(
-                    path=runtime_db_path,
-                    client_order_id=client_order_id,
-                    order_id=order_id,
-                )
-                decision_id = None if linkage is None else linkage.get("decision_id")
-                intent_id = None if linkage is None else linkage.get("intent_id")
-                insert_trade_fill(
-                    path=runtime_db_path,
-                    timestamp=timestamp,
-                    source="backfill-user-trades",
-                    symbol=trade_symbol,
-                    order_id=order_id,
-                    trade_id=trade_id,
-                    client_order_id=client_order_id,
-                    decision_id=decision_id,
-                    intent_id=intent_id,
-                    order_status=_string_or_none((order or {}).get("status")),
-                    execution_type="TRADE",
-                    side=_trade_side(trade=trade, order=order),
-                    order_type=_string_or_none((order or {}).get("origType") or (order or {}).get("type")),
-                    quantity=trade.get("qty"),
-                    cumulative_quantity=trade.get("qty"),
-                    average_price=trade.get("price"),
-                    last_price=trade.get("price"),
-                    realized_pnl=trade.get("realizedPnl"),
-                    commission=trade.get("commission"),
-                    commission_asset=_string_or_none(trade.get("commissionAsset")),
-                    payload={"trade": trade, "order": order or {}},
-                )
-                inserted += 1
-                window_inserted += 1
+            window_inserted = persist_binance_user_trade_rows(
+                runtime_db_path=runtime_db_path,
+                symbol=symbol,
+                trades=trades,
+                orders=list(order_by_id.values()),
+            )
+            inserted += window_inserted
             emit_structured_log(
                 logger,
                 service="backfill",

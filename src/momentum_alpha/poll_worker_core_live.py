@@ -7,6 +7,10 @@ from decimal import Decimal
 from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.config import StrategyConfig
+from momentum_alpha.live_account_state import (
+    LiveAccountStateCache,
+    is_position_mode_error,
+)
 from momentum_alpha.market_data import LiveMarketDataCache, _build_live_snapshots, _resolve_symbols
 from momentum_alpha.models import Position, StrategyState
 from momentum_alpha.orders import is_strategy_client_order_id
@@ -20,6 +24,7 @@ from momentum_alpha.reconciliation import (
     restore_state,
 )
 from momentum_alpha.runtime_store import RuntimeStateStore
+from momentum_alpha.runtime_sync_state import RuntimeSyncStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.structured_log import emit_structured_log
 from momentum_alpha.telemetry import (
@@ -159,31 +164,23 @@ def _release_rejected_base_entries(
 
 def _repair_failed_stop_coverage(
     *,
-    client,
     broker: BinanceBroker,
     failed_stop_orders: list[dict],
     runtime_market: dict,
     current_day: datetime,
     previous_leader_symbol: str | None,
     position_side: str | None,
+    position_risk: list[dict] | tuple[dict, ...],
+    open_orders: list[dict] | tuple[dict, ...],
 ) -> tuple[list[tuple[str, Decimal]], list[dict], list[dict]]:
     failed_symbols = {failure.get("symbol") for failure in failed_stop_orders if failure.get("symbol")}
     if not failed_symbols:
         return [], [], []
-    fetch_position_risk = getattr(client, "fetch_position_risk", None)
-    fetch_open_orders = getattr(client, "fetch_open_orders", None)
-    if not callable(fetch_position_risk) or not callable(fetch_open_orders):
-        return [], [], []
-
-    open_orders = list(fetch_open_orders())
-    fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
-    if callable(fetch_open_algo_orders):
-        open_orders.extend(fetch_open_algo_orders())
     recovered_state = restore_state(
         current_day=current_day.date().isoformat(),
         previous_leader_symbol=previous_leader_symbol,
-        position_risk=fetch_position_risk(),
-        open_orders=open_orders,
+        position_risk=list(position_risk),
+        open_orders=list(open_orders),
     )
     replacements = [
         replacement
@@ -207,32 +204,21 @@ def _repair_failed_stop_coverage(
     return replacements, responses, list(getattr(broker, "last_stop_replacement_failures", []) or [])
 
 
-def _fetch_open_orders_with_algo_orders(*, client) -> list[dict]:
-    fetch_open_orders = getattr(client, "fetch_open_orders", None)
-    if not callable(fetch_open_orders):
-        raise RuntimeError("client does not provide fetch_open_orders")
-    open_orders = list(fetch_open_orders())
-    fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
-    if callable(fetch_open_algo_orders):
-        open_orders.extend(fetch_open_algo_orders())
-    return open_orders
-
-
 def _verify_stop_protection(
     *,
-    client,
     current_day: datetime,
     previous_leader_symbol: str | None,
+    position_risk: list[dict] | tuple[dict, ...],
+    open_orders: list[dict] | tuple[dict, ...],
 ) -> tuple[str, list[str], str | None]:
     try:
-        open_orders = _fetch_open_orders_with_algo_orders(client=client)
         state = restore_state(
             current_day=current_day.astimezone(timezone.utc).date().isoformat(),
             previous_leader_symbol=previous_leader_symbol,
-            position_risk=client.fetch_position_risk(),
-            open_orders=open_orders,
+            position_risk=list(position_risk),
+            open_orders=list(open_orders),
         )
-        uncovered_symbols = find_uncovered_stop_symbols(state=state, open_orders=open_orders)
+        uncovered_symbols = find_uncovered_stop_symbols(state=state, open_orders=list(open_orders))
     except Exception as exc:
         return "check_failed", [], str(exc)
     if uncovered_symbols:
@@ -252,6 +238,7 @@ def run_once_live(
     execute_stop_replacements: bool = False,
     runtime_state_store: RuntimeStateStore | None = None,
     market_data_cache: LiveMarketDataCache | None = None,
+    account_state_cache: LiveAccountStateCache | None = None,
     audit_recorder: AuditRecorder | None = None,
     last_add_on_hour: int | None = None,
     logger: object | None = None,
@@ -264,6 +251,62 @@ def run_once_live(
 
     strategy_config = strategy_config or StrategyConfig.from_env()
     stored_state = runtime_state_store.load() if runtime_state_store is not None else None
+    runtime_sync_store = (
+        RuntimeSyncStateStore(path=runtime_state_store.path)
+        if runtime_state_store is not None
+        else None
+    )
+
+    def _begin_live_order_priority(reason: str) -> datetime | None:
+        if runtime_sync_store is None:
+            return None
+        try:
+            runtime_sync_store.request_control(
+                key="live_order_priority",
+                requested_at=now,
+                reason=reason,
+            )
+            return now
+        except Exception as exc:
+            if logger is not None:
+                emit_structured_log(
+                    logger,
+                    service="poll",
+                    event="live-priority-persist-error",
+                    level="ERROR",
+                    reason=reason,
+                    error=str(exc),
+                )
+            return None
+
+    def _end_live_order_priority(requested_at: datetime | None) -> None:
+        if runtime_sync_store is None or requested_at is None:
+            return
+        try:
+            runtime_sync_store.clear_control(
+                key="live_order_priority",
+                requested_at=requested_at,
+            )
+        except Exception as exc:
+            if logger is not None:
+                emit_structured_log(
+                    logger,
+                    service="poll",
+                    event="live-priority-clear-error",
+                    level="ERROR",
+                    error=str(exc),
+                )
+    if account_state_cache is None:
+        account_state_cache = LiveAccountStateCache(
+            client=client,
+            runtime_db_path=(runtime_state_store.path if runtime_state_store is not None else None),
+        )
+    account_snapshot = account_state_cache.snapshot(
+        now=now,
+        stored_state=stored_state,
+        restore_positions=restore_positions,
+        submit_orders=submit_orders,
+    )
     current_day = now.astimezone(timezone.utc).date()
     stored_daily_base_signal_times = {}
     stored_daily_base_signal_counts = {}
@@ -274,24 +317,7 @@ def run_once_live(
         }
         stored_daily_base_signal_counts = dict(stored_state.daily_base_signal_counts or {})
 
-    position_side: str | None = None
-    fetch_position_mode = getattr(client, "fetch_position_mode", None)
-    if callable(fetch_position_mode):
-        try:
-            position_mode = fetch_position_mode()
-        except Exception as exc:
-            if submit_orders:
-                raise RuntimeError("unable to determine Binance position mode for live submission") from exc
-            position_mode = None
-        dual_side = (
-            position_mode.get("dualSidePosition")
-            if isinstance(position_mode, dict)
-            else None
-        )
-        if dual_side in (True, "true", "TRUE", "True"):
-            position_side = "LONG"
-        elif dual_side not in (False, "false", "FALSE", "False") and submit_orders:
-            raise RuntimeError(f"unable to determine Binance position mode from response={position_mode!r}")
+    position_side = account_snapshot.position_side
     if previous_leader_symbol is None and stored_state is not None:
         previous_leader_symbol = stored_state.previous_leader_symbol
 
@@ -304,12 +330,12 @@ def run_once_live(
     removed_positions: dict[str, Position] = {}
     restored_open_orders: list[dict] = []
     if restore_positions:
-        open_orders = _fetch_open_orders_with_algo_orders(client=client)
+        open_orders = list(account_snapshot.open_orders)
         restored_open_orders = open_orders
         initial_state = restore_state(
             current_day=f"{now.year:04d}-{now.month:02d}-{now.day:02d}",
             previous_leader_symbol=previous_leader_symbol,
-            position_risk=client.fetch_position_risk(),
+            position_risk=list(account_snapshot.position_risk),
             open_orders=open_orders,
         )
         initial_state = replace(
@@ -393,6 +419,28 @@ def run_once_live(
     unprotected_position_symbols: list[str] = []
     stop_protection_check_error: str | None = None
     stop_protection_verified_before_entry = False
+    def _remember_dirty(symbols_to_mark, reason: str) -> None:
+        if runtime_sync_store is None:
+            return
+        for symbol in sorted({str(symbol).upper() for symbol in symbols_to_mark if symbol}):
+            try:
+                runtime_sync_store.mark_dirty(
+                    symbol=symbol,
+                    reason=reason,
+                    observed_at=now,
+                )
+            except Exception as exc:
+                if logger is not None:
+                    emit_structured_log(
+                        logger,
+                        service="poll",
+                        event="dirty-symbol-persist-error",
+                        level="ERROR",
+                        symbol=symbol,
+                        reason=reason,
+                        error=str(exc),
+                    )
+
     runtime_market = build_runtime_from_snapshots(snapshots=snapshots, config=strategy_config).market
     if restore_positions and initial_state is not None:
         initial_uncovered_stop_symbols = find_uncovered_stop_symbols(
@@ -429,48 +477,63 @@ def run_once_live(
             merged_replacements[symbol] = stop_price
         stop_replacements = sorted(merged_replacements.items())
         if execute_stop_replacements and stop_replacements:
+            _remember_dirty((symbol for symbol, _ in stop_replacements), "local_stop_replacement")
+            priority_request = _begin_live_order_priority("stop_replacement")
             try:
-                stop_replacement_responses = broker.replace_stop_orders(
-                    replacements=[
-                        (
-                            symbol,
-                            str(initial_state.positions[symbol].total_quantity),
-                            str(stop_price),
-                        )
-                        if position_side is None
-                        else (
-                            symbol,
-                            str(initial_state.positions[symbol].total_quantity),
-                            str(stop_price),
-                            position_side,
-                        )
-                        for symbol, stop_price in stop_replacements
-                        if symbol in initial_state.positions
-                    ]
-                )
-                stop_replacement_failures = list(getattr(broker, "last_stop_replacement_failures", []) or [])
-            except Exception as exc:
-                if logger is not None:
-                    emit_structured_log(
-                        logger,
-                        service="poll",
-                        event="stop-replacement-failed",
-                        level="ERROR",
-                        error=str(exc),
+                try:
+                    stop_replacement_responses = broker.replace_stop_orders(
+                        replacements=[
+                            (
+                                symbol,
+                                str(initial_state.positions[symbol].total_quantity),
+                                str(stop_price),
+                            )
+                            if position_side is None
+                            else (
+                                symbol,
+                                str(initial_state.positions[symbol].total_quantity),
+                                str(stop_price),
+                                position_side,
+                            )
+                            for symbol, stop_price in stop_replacements
+                            if symbol in initial_state.positions
+                        ]
                     )
-                else:
-                    print(f"stop replacement failed: {exc}")
+                    stop_replacement_failures = list(getattr(broker, "last_stop_replacement_failures", []) or [])
+                except Exception as exc:
+                    if logger is not None:
+                        emit_structured_log(
+                            logger,
+                            service="poll",
+                            event="stop-replacement-failed",
+                            level="ERROR",
+                            error=str(exc),
+                        )
+                    else:
+                        print(f"stop replacement failed: {exc}")
+            finally:
+                _end_live_order_priority(priority_request)
     if restore_positions and execute_stop_replacements and (
         initial_uncovered_stop_symbols or stop_replacements
     ):
+        priority_request = _begin_live_order_priority("stop_protection_verification")
+        try:
+            account_snapshot = account_state_cache.refresh_symbols(
+                symbols=set(initial_state.positions),
+                now=now,
+                stored_state=stored_state,
+            )
+        finally:
+            _end_live_order_priority(priority_request)
         (
             stop_protection_status,
             unprotected_position_symbols,
             stop_protection_check_error,
         ) = _verify_stop_protection(
-            client=client,
             current_day=now,
             previous_leader_symbol=previous_leader_symbol,
+            position_risk=account_snapshot.position_risk,
+            open_orders=account_snapshot.open_orders,
         )
         stop_protection_verified_before_entry = True
 
@@ -481,7 +544,21 @@ def run_once_live(
     entries_blocked_by_stop_protection = stop_protection_status in {"unprotected", "check_failed"}
     if submit_orders:
         if rate_limit_error is None and not entries_blocked_by_stop_protection:
-            broker_responses = broker.submit_execution_plan(result.execution_plan)
+            _remember_dirty(
+                (
+                    order.get("symbol")
+                    for order in [
+                        *result.execution_plan.entry_orders,
+                        *result.execution_plan.stop_orders,
+                    ]
+                ),
+                "local_order_submit",
+            )
+            priority_request = _begin_live_order_priority("order_submission")
+            try:
+                broker_responses = broker.submit_execution_plan(result.execution_plan)
+            finally:
+                _end_live_order_priority(priority_request)
             entry_order_failures = list(getattr(broker, "last_entry_order_failures", []) or [])
             stop_order_failures = list(getattr(broker, "last_stop_order_failures", []) or [])
             rate_limit_error = getattr(broker, "last_rate_limit_error", None)
@@ -509,17 +586,34 @@ def run_once_live(
             previous_leader_symbol=previous_leader_symbol,
         )
         if stop_order_failures and rate_limit_error is None:
+            priority_request = _begin_live_order_priority("failed_stop_coverage_repair")
             try:
+                failed_symbols = {
+                    str(failure.get("symbol"))
+                    for failure in stop_order_failures
+                    if failure.get("symbol")
+                }
+                account_snapshot = account_state_cache.refresh_symbols(
+                    symbols=failed_symbols,
+                    now=now,
+                    stored_state=stored_state,
+                    refresh_account=True,
+                )
                 repaired_replacements, repaired_responses, repaired_failures = _repair_failed_stop_coverage(
-                    client=client,
                     broker=broker,
                     failed_stop_orders=stop_order_failures,
                     runtime_market=runtime_market,
                     current_day=now,
                     previous_leader_symbol=previous_leader_symbol,
                     position_side=position_side,
+                    position_risk=account_snapshot.position_risk,
+                    open_orders=account_snapshot.open_orders,
                 )
                 stop_replacements = sorted({*stop_replacements, *repaired_replacements})
+                _remember_dirty(
+                    (symbol for symbol, _ in repaired_replacements),
+                    "local_stop_repair",
+                )
                 stop_replacement_responses.extend(repaired_responses)
                 stop_replacement_failures.extend(repaired_failures)
                 rate_limit_error = getattr(broker, "last_rate_limit_error", None)
@@ -532,6 +626,8 @@ def run_once_live(
                         level="ERROR",
                         error=str(exc),
                     )
+            finally:
+                _end_live_order_priority(priority_request)
     result = replace(result, rate_limit_error=rate_limit_error)
     if restore_positions:
         needs_stop_verification = bool(
@@ -545,17 +641,37 @@ def run_once_live(
             and (execute_stop_replacements or stop_order_failures)
             and (not stop_protection_verified_before_entry or stop_order_failures)
         ):
+            verification_symbols = {
+                *initial_state.positions,
+                *(failure.get("symbol") for failure in stop_order_failures if failure.get("symbol")),
+                *(failure.get("symbol") for failure in stop_replacement_failures if failure.get("symbol")),
+            }
+            priority_request = _begin_live_order_priority("stop_protection_verification")
+            try:
+                account_snapshot = account_state_cache.refresh_symbols(
+                    symbols={str(symbol) for symbol in verification_symbols if symbol},
+                    now=now,
+                    stored_state=stored_state,
+                )
+            finally:
+                _end_live_order_priority(priority_request)
             (
                 stop_protection_status,
                 unprotected_position_symbols,
                 stop_protection_check_error,
             ) = _verify_stop_protection(
-                client=client,
                 current_day=now,
                 previous_leader_symbol=previous_leader_symbol,
+                position_risk=account_snapshot.position_risk,
+                open_orders=account_snapshot.open_orders,
             )
         elif initial_uncovered_stop_symbols:
             unprotected_position_symbols = initial_uncovered_stop_symbols
+    if any(
+        is_position_mode_error(failure.get("error") or failure.get("message"))
+        for failure in [*entry_order_failures, *stop_order_failures, *stop_replacement_failures]
+    ):
+        account_state_cache.invalidate_position_mode()
     if logger is not None and stop_protection_status in {"unprotected", "check_failed"}:
         emit_structured_log(
             logger,
@@ -604,8 +720,7 @@ def run_once_live(
             item.symbol
             for item in result.runtime_result.decision.skipped_base_entries
         ]
-        fetch_account_info = getattr(client, "fetch_account_info", None)
-        account_info = fetch_account_info() if callable(fetch_account_info) else None
+        account_info = account_snapshot.account_info
         market_payloads, leader_gap_pct = _build_market_context_payloads(
             snapshots=snapshots,
             exchange_symbols=(
@@ -636,10 +751,12 @@ def run_once_live(
                 "unprotected_position_symbols": unprotected_position_symbols,
                 "stop_protection_check_error": stop_protection_check_error,
                 "entry_submission_blocked_by_stop_protection": entries_blocked_by_stop_protection,
+                "account_rest_weight": account_snapshot.request_weight,
+                "account_full_sync": account_snapshot.full_sync,
             },
         )
         position_count = len(result.runtime_result.next_state.positions)
-        order_status_count = 0
+        order_status_count = len(account_snapshot.order_statuses)
         signal_records: list[tuple[str, str | None, str | None, dict]] = []
         stop_budget_usdt = strategy_config.stop_budget_usdt
         for sequence, intent in enumerate([*result.runtime_result.decision.base_entries, *result.runtime_result.decision.add_on_entries]):

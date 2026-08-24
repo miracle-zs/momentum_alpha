@@ -31,6 +31,7 @@ def run_cli_command(
     replay_skipped_bases_fn,
     rebuild_trade_analytics_fn,
     prune_runtime_db_fn,
+    sync_trade_data_fn,
 ) -> int:
     dispatch_kwargs = {
         "parser": parser,
@@ -48,6 +49,7 @@ def run_cli_command(
         "replay_skipped_bases_fn": replay_skipped_bases_fn,
         "rebuild_trade_analytics_fn": rebuild_trade_analytics_fn,
         "prune_runtime_db_fn": prune_runtime_db_fn,
+        "sync_trade_data_fn": sync_trade_data_fn,
         "build_runtime_health_report_fn": build_runtime_health_report,
         "summarize_audit_events_fn": summarize_audit_events,
         "build_daily_review_report_fn": build_daily_review_report,

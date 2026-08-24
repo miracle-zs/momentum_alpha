@@ -125,6 +125,7 @@ def poll_command(
         execute_stop_replacements=args.execute_stop_replacements,
         max_ticks=args.max_ticks,
         audit_recorder=audit_recorder,
+        testnet=use_testnet,
     )
 
 

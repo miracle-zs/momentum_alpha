@@ -17,6 +17,8 @@ Current scope:
 - Binance Futures user-data listen-key lifecycle and `user-stream` CLI
 - deployment artifacts for shell and systemd-based service startup
 - startup-time REST prewarm, websocket auto-reconnect, and listen-key keepalive for the user stream worker
+- persisted daily-open prices maintained from UTC-day `1d` kline events, with bounded missing-symbol REST repair
+- cursor-based income/order/trade synchronization driven only by User Stream and local-order dirty symbols
 
 ## Environment
 
@@ -116,6 +118,39 @@ python3 -m momentum_alpha.main user-stream --testnet
 
 For real deployment, `poll` and `user-stream` should run as separate long-lived processes. `poll` is responsible for minute/hour strategy evaluation and order placement; `user-stream` is responsible for account/order state convergence.
 
+## Incremental Trade Data Sync
+
+Run the bounded sync manually:
+
+```bash
+python3 -m momentum_alpha.main sync-trade-data \
+  --runtime-db-file ./var/runtime.db \
+  --max-request-weight 100 \
+  --overlap-minutes 20
+```
+
+The normal path makes one combined income request, then queries `allOrders`
+and `userTrades` only for persisted dirty symbols. Newly seen symbols start at
+their first dirty timestamp minus the configured overlap; valid cursors catch
+up incrementally for gaps up to seven days. A full 36-hour repair is reserved
+for first bootstrap, damaged cursors, or an explicit operation:
+
+```bash
+python3 -m momentum_alpha.main sync-trade-data \
+  --runtime-db-file ./var/runtime.db \
+  --full-repair \
+  --symbols BTCUSDT ETHUSDT
+```
+
+Force the poll worker to refresh cached position mode or held-symbol order
+state on its next tick:
+
+```bash
+python3 -m momentum_alpha.main request-live-resync \
+  --runtime-db-file ./var/runtime.db \
+  --position-mode --orders
+```
+
 ## Architecture
 
 The public entrypoint stays `momentum_alpha.main`, while CLI parsing and command dispatch live behind `momentum_alpha.cli`.
@@ -188,6 +223,7 @@ Operational split:
 
 - `momentum-alpha.service`: minute polling, strategy decisions, optional live order submission
 - `momentum-alpha-user-stream.service`: listen key lifecycle, websocket account/order updates, local state convergence
+- `momentum-alpha-trade-data-sync.timer`: bounded incremental sync at `:04/:19/:34/:49`, with configured local-time skip windows
 
 Practical live startup order:
 

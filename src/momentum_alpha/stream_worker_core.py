@@ -222,6 +222,8 @@ def build_user_stream_event_handler(
     record_position_snapshot_fn: Callable[..., None] = _record_position_snapshot,
     save_user_stream_strategy_state_fn: Callable[..., None] = _save_user_stream_strategy_state,
     on_trade_fill_persisted_fn: Callable[[], None] | None = None,
+    mark_dirty_symbol_fn: Callable[[str, str, datetime], None] | None = None,
+    request_runtime_control_fn: Callable[[str, datetime, str], None] | None = None,
     prune_processed_event_ids_fn: Callable[
         [dict[str, str] | None, datetime],
         dict[str, str],
@@ -385,6 +387,44 @@ def build_user_stream_event_handler(
                                 "error": str(exc),
                             },
                         )
+        dirty_symbols: set[str] = set()
+        if event.event_type in {"ORDER_TRADE_UPDATE", "ALGO_UPDATE"} and event.symbol:
+            dirty_symbols.add(event.symbol.upper())
+        if event.event_type == "ACCOUNT_UPDATE":
+            account_payload = event.payload.get("a")
+            if isinstance(account_payload, dict):
+                positions = account_payload.get("P")
+                if isinstance(positions, list):
+                    dirty_symbols.update(
+                        str(position.get("s") or "").upper()
+                        for position in positions
+                        if isinstance(position, dict) and position.get("s")
+                    )
+        if mark_dirty_symbol_fn is not None:
+            for symbol in sorted(dirty_symbols):
+                try:
+                    mark_dirty_symbol_fn(symbol, event.event_type.lower(), timestamp)
+                except Exception as exc:
+                    durable_projection_succeeded = False
+                    emit_log_line(
+                        logger,
+                        f"dirty-symbol-persist-error symbol={symbol} event={event.event_type} error={exc}",
+                        level="ERROR",
+                    )
+        if event.event_type == "ACCOUNT_CONFIG_UPDATE" and request_runtime_control_fn is not None:
+            try:
+                request_runtime_control_fn(
+                    "position_mode_refresh",
+                    timestamp,
+                    "user_stream_account_config_update",
+                )
+            except Exception as exc:
+                durable_projection_succeeded = False
+                emit_log_line(
+                    logger,
+                    f"runtime-control-persist-error key=position_mode_refresh error={exc}",
+                    level="ERROR",
+                )
         candidate_order_statuses = dict(context.order_statuses)
         removed_order_status_keys: set[str] = set()
         order_status_update = extract_order_status_update_fn(event)

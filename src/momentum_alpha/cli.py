@@ -27,6 +27,7 @@ from .cli_env import (
     resolve_runtime_db_path,
 )
 from .cli_parser import build_cli_parser
+from .trade_data_sync import run_incremental_trade_data_sync
 
 
 def cli_main(
@@ -45,6 +46,7 @@ def cli_main(
     replay_skipped_bases_fn=None,
     rebuild_trade_analytics_fn=None,
     prune_runtime_db_fn=None,
+    sync_trade_data_fn=None,
 ) -> int:
     configure_logging()
     parser = build_cli_parser()
@@ -71,6 +73,7 @@ def cli_main(
     replay_skipped_bases_fn = replay_skipped_bases_fn or replay_skipped_bases
     rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
     prune_runtime_db_fn = prune_runtime_db_fn or prune_runtime_db
+    sync_trade_data_fn = sync_trade_data_fn or run_incremental_trade_data_sync
 
     run_dashboard_fn = run_dashboard_fn or run_dashboard_server
 
@@ -90,6 +93,7 @@ def cli_main(
         replay_skipped_bases_fn=replay_skipped_bases_fn,
         rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
         prune_runtime_db_fn=prune_runtime_db_fn,
+        sync_trade_data_fn=sync_trade_data_fn,
     )
 
 
@@ -106,6 +110,7 @@ __all__ = [
     "_account_flow_exists",
     "backfill_account_flows",
     "backfill_binance_user_trades",
+    "run_incremental_trade_data_sync",
     "backfill_leader_candidates",
     "diagnose_opportunities",
     "replay_skipped_bases",

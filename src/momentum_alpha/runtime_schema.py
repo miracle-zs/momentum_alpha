@@ -270,6 +270,52 @@ CREATE TABLE IF NOT EXISTS strategy_state (
     id INTEGER PRIMARY KEY,
     payload_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS daily_open_prices (
+    trading_day TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    open_price TEXT NOT NULL,
+    source TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY(trading_day, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_open_prices_day
+    ON daily_open_prices(trading_day, symbol);
+
+CREATE TABLE IF NOT EXISTS trade_sync_cursors (
+    cursor_kind TEXT NOT NULL,
+    symbol TEXT NOT NULL DEFAULT '',
+    cursor_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(cursor_kind, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS trade_sync_dirty_symbols (
+    symbol TEXT PRIMARY KEY,
+    first_dirty_at TEXT NOT NULL,
+    last_dirty_at TEXT NOT NULL,
+    reasons_json TEXT NOT NULL,
+    dirty_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_trade_sync_dirty_symbols_last_dirty
+    ON trade_sync_dirty_symbols(last_dirty_at, symbol);
+
+CREATE TABLE IF NOT EXISTS trade_sync_orders (
+    symbol TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    update_time TEXT,
+    synced_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY(symbol, order_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trade_sync_orders_update_time
+    ON trade_sync_orders(symbol, update_time DESC);
+
+CREATE TABLE IF NOT EXISTS runtime_control_requests (
+    request_key TEXT PRIMARY KEY,
+    requested_at TEXT NOT NULL,
+    reason TEXT
+);
 """
 
 
@@ -305,6 +351,7 @@ def _migrate_runtime_db(connection: sqlite3.Connection) -> None:
         "algo_orders": ("decision_id TEXT", "intent_id TEXT"),
         "position_snapshots": ("decision_id TEXT", "intent_id TEXT"),
         "account_snapshots": ("decision_id TEXT", "intent_id TEXT"),
+        "trade_sync_dirty_symbols": ("dirty_version INTEGER NOT NULL DEFAULT 1",),
     }
     for table_name, column_definitions in columns_by_table.items():
         _ensure_columns(connection=connection, table_name=table_name, column_definitions=column_definitions)

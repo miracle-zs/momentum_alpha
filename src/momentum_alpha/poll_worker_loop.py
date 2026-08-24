@@ -11,6 +11,7 @@ from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.config import StrategyConfig
+from momentum_alpha.live_account_state import LiveAccountStateCache
 from momentum_alpha.market_data import LiveMarketDataCache
 from momentum_alpha.runtime_store import RuntimeStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
@@ -89,11 +90,20 @@ def run_forever(
     restore_positions: bool = False,
     execute_stop_replacements: bool = False,
     audit_recorder: AuditRecorder | None = None,
+    testnet: bool = False,
 ) -> int:
     strategy_config = StrategyConfig.from_env()
     client = client_factory()
     broker = broker_factory(client)
-    market_data_cache = LiveMarketDataCache()
+    runtime_db_path = runtime_state_store.path if runtime_state_store is not None else None
+    market_data_cache = LiveMarketDataCache(
+        runtime_db_path=runtime_db_path,
+        logger=logger,
+    )
+    account_state_cache = LiveAccountStateCache(
+        client=client,
+        runtime_db_path=runtime_db_path,
+    )
     resolved_symbols = market_data_cache.resolve_symbols(symbols=symbols, client=client)
     rate_limited_until = None
     last_add_on_hour: int | None = None
@@ -103,6 +113,22 @@ def run_forever(
         emit_structured_log(logger, service="poll", event=event, level=level, **fields)
 
     _log("tracking", symbols=resolved_symbols)
+    if max_ticks is None:
+        market_data_cache.start_daily_open_stream(
+            symbols=resolved_symbols,
+            testnet=testnet,
+        )
+        try:
+            prewarm_now = now_provider()
+            account_state_cache.snapshot(
+                now=prewarm_now,
+                stored_state=(runtime_state_store.load() if runtime_state_store is not None else None),
+                restore_positions=restore_positions,
+                submit_orders=submit_orders,
+            )
+        except Exception:
+            market_data_cache.stop_daily_open_stream()
+            raise
     if audit_recorder is not None:
         audit_recorder.record(
             event_type="poll_worker_start",
@@ -164,6 +190,7 @@ def run_forever(
                 restore_positions=restore_positions,
                 execute_stop_replacements=execute_stop_replacements,
                 market_data_cache=market_data_cache,
+                account_state_cache=account_state_cache,
                 audit_recorder=audit_recorder,
                 last_add_on_hour=last_add_on_hour,
                 logger=logger,
@@ -227,6 +254,7 @@ def run_forever(
         )
     finally:
         restore_shutdown_handlers()
+        market_data_cache.stop_daily_open_stream()
         if shutdown_requested.is_set():
             _log("shutdown-complete")
     return 0

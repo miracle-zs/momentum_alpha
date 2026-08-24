@@ -11,13 +11,14 @@ from momentum_alpha.audit import AuditRecorder
 from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.models import StrategyState
 from momentum_alpha.position_recovery import (
-    fetch_complete_history,
     position_needs_trade_recovery,
     rebuild_position_from_trade_history,
 )
+from momentum_alpha.request_weight_budget import RequestWeightBudget
 from momentum_alpha.reconciliation import merge_position_history, restore_state
 from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
+from momentum_alpha.runtime_sync_state import RuntimeSyncStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.structured_log import emit_structured_log
 from momentum_alpha.telemetry import _record_broker_orders, _record_position_snapshot
@@ -264,6 +265,11 @@ def run_user_stream(
     )
     if runtime_state_store is None and runtime_db_path is not None:
         runtime_state_store = RuntimeStateStore(path=runtime_db_path)
+    sync_state_store = (
+        RuntimeSyncStateStore(path=runtime_db_path)
+        if runtime_db_path is not None
+        else None
+    )
     stored_state = runtime_state_store.load() if runtime_state_store is not None else None
     current_now = now_provider()
     context = _build_initial_user_stream_state(stored_state, current_now)
@@ -331,18 +337,24 @@ def run_user_stream(
         fetch_open_orders = getattr(client, "fetch_open_orders", None)
         if not callable(fetch_position_risk) or not callable(fetch_open_orders):
             return
+        budget = RequestWeightBudget(limit=150)
         previous_position_symbols = set(context.state.positions)
         previous_order_status_keys = set(context.order_statuses)
+        budget.spend(5, operation="position-risk-gap-sync")
         position_risk = fetch_position_risk()
+        budget.spend(40, operation="open-orders-gap-sync")
         open_orders = fetch_open_orders()
         fetch_open_algo_orders = getattr(client, "fetch_open_algo_orders", None)
         open_algo_orders = []
         algo_order_snapshot_complete = False
         if callable(fetch_open_algo_orders):
             try:
+                budget.spend(40, operation="open-algo-orders-gap-sync")
                 open_algo_orders = fetch_open_algo_orders()
                 algo_order_snapshot_complete = True
-            except Exception:
+            except Exception as exc:
+                if rate_limit_backoff_seconds(exc, fallback_seconds=120) > 0:
+                    raise
                 open_algo_orders = []
         restored_open_orders = [*open_orders, *open_algo_orders]
         restored_state = restore_state(
@@ -359,27 +371,44 @@ def run_user_stream(
         fetch_all_orders = getattr(client, "fetch_all_orders", None)
         if callable(fetch_user_trades) and callable(fetch_all_orders):
             recovery_end = now_provider().astimezone(timezone.utc)
-            recovery_start = recovery_end - timedelta(days=6, hours=23)
+            recovery_start = recovery_end - timedelta(hours=36)
             for symbol, position in list(merged_positions.items()):
                 if not position_needs_trade_recovery(position):
+                    continue
+                if sync_state_store is not None:
+                    sync_state_store.mark_dirty(
+                        symbol=symbol,
+                        reason="position_recovery_needed",
+                        observed_at=recovery_end,
+                    )
+                if not budget.can_spend(10):
+                    _log(
+                        "position-trade-recovery-deferred",
+                        symbol=symbol,
+                        request_weight=budget.used,
+                    )
                     continue
                 try:
                     start_time_ms = int(recovery_start.timestamp() * 1000)
                     end_time_ms = int(recovery_end.timestamp() * 1000)
+                    budget.spend(5, operation=f"userTrades-recovery:{symbol}")
+                    trades = fetch_user_trades(
+                        symbol=symbol,
+                        start_time_ms=start_time_ms,
+                        end_time_ms=end_time_ms,
+                        limit=1000,
+                    )
+                    budget.spend(5, operation=f"allOrders-recovery:{symbol}")
+                    orders = fetch_all_orders(
+                        symbol=symbol,
+                        start_time_ms=start_time_ms,
+                        end_time_ms=end_time_ms,
+                        limit=1000,
+                    )
                     rebuilt = rebuild_position_from_trade_history(
                         position=position,
-                        trades=fetch_complete_history(
-                            fetch_user_trades,
-                            symbol=symbol,
-                            start_time_ms=start_time_ms,
-                            end_time_ms=end_time_ms,
-                        ),
-                        orders=fetch_complete_history(
-                            fetch_all_orders,
-                            symbol=symbol,
-                            start_time_ms=start_time_ms,
-                            end_time_ms=end_time_ms,
-                        ),
+                        trades=trades,
+                        orders=orders,
                     )
                     if rebuilt is not None:
                         merged_positions[symbol] = rebuilt
@@ -390,6 +419,8 @@ def run_user_stream(
                             leg_count=len(rebuilt.legs),
                         )
                 except Exception as exc:
+                    if rate_limit_backoff_seconds(exc, fallback_seconds=120) > 0:
+                        raise
                     _log("position-trade-recovery-error", level="WARNING", symbol=symbol, error=str(exc))
         context.state = replace(context.state, positions=merged_positions)
         context.order_statuses = {
@@ -401,6 +432,7 @@ def run_user_stream(
                 "client_order_id": order.get("clientOrderId") or order.get("origClientOrderId"),
                 "original_order_type": order.get("type"),
                 "stop_price": order.get("stopPrice"),
+                "quantity": order.get("origQty") or order.get("quantity"),
                 "event_time": None,
             }
             for order in open_orders
@@ -419,6 +451,7 @@ def run_user_stream(
                 "client_order_id": client_algo_id,
                 "original_order_type": algo_order.get("orderType"),
                 "stop_price": algo_order.get("triggerPrice"),
+                "quantity": algo_order.get("quantity") or algo_order.get("origQty"),
                 "event_time": None,
             }
         if runtime_state_store is not None:
@@ -451,6 +484,7 @@ def run_user_stream(
                 removed_order_status_keys=removed_order_status_keys,
                 prune_processed_event_ids_fn=prune_processed_event_ids_fn,
             )
+        _log("prewarm-complete", request_weight=budget.used)
 
     event_handler = event_handler_factory(
         logger=logger,
@@ -472,6 +506,24 @@ def run_user_stream(
         record_position_snapshot_fn=record_position_snapshot_fn,
         save_user_stream_strategy_state_fn=save_user_stream_strategy_state_fn,
         on_trade_fill_persisted_fn=scheduler.notify if scheduler is not None else None,
+        mark_dirty_symbol_fn=(
+            None
+            if sync_state_store is None
+            else lambda symbol, reason, observed_at: sync_state_store.mark_dirty(
+                symbol=symbol,
+                reason=reason,
+                observed_at=observed_at,
+            )
+        ),
+        request_runtime_control_fn=(
+            None
+            if sync_state_store is None
+            else lambda key, requested_at, reason: sync_state_store.request_control(
+                key=key,
+                requested_at=requested_at,
+                reason=reason,
+            )
+        ),
         prune_processed_event_ids_fn=prune_processed_event_ids_fn,
     )
 

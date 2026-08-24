@@ -53,6 +53,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(callable(cli_env.resolve_runtime_db_path))
         self.assertTrue(callable(cli_env._build_client_from_factory))
         self.assertTrue(callable(cli_backfill.backfill_account_flows))
+        self.assertTrue(callable(cli.run_incremental_trade_data_sync))
         self.assertTrue(callable(cli_backfill_candidates.backfill_leader_candidates))
         self.assertTrue(callable(cli.backfill_leader_candidates))
         self.assertTrue(callable(cli.diagnose_opportunities))
@@ -83,6 +84,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.proxy, "http://127.0.0.1:7897")
         self.assertEqual(args.taker_fee_rate, Decimal("0.0005"))
         self.assertFalse(args.refresh_klines)
+
+    def test_cli_parser_supports_bounded_incremental_trade_sync_defaults(self) -> None:
+        from momentum_alpha.cli_parser import build_cli_parser
+
+        args = build_cli_parser().parse_args(
+            ["sync-trade-data", "--runtime-db-file", "/tmp/runtime.db"]
+        )
+
+        self.assertEqual(args.command, "sync-trade-data")
+        self.assertEqual(args.max_request_weight, 100)
+        self.assertEqual(args.overlap_minutes, 20)
+        self.assertFalse(args.full_repair)
 
 
 if __name__ == "__main__":
