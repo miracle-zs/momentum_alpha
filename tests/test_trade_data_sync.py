@@ -46,6 +46,57 @@ class _RateLimitError(RuntimeError):
 
 
 class TradeDataSyncTests(unittest.TestCase):
+    def test_combined_income_keeps_pnl_and_commission_with_same_trade_reference(self) -> None:
+        from momentum_alpha.runtime_store import fetch_recent_account_flows
+        from momentum_alpha.trade_data_sync import run_incremental_trade_data_sync
+
+        now = datetime(2026, 8, 24, 6, 0, tzinfo=timezone.utc)
+        shared = {
+            "symbol": "BTCUSDT",
+            "asset": "USDT",
+            "time": int((now - timedelta(minutes=1)).timestamp() * 1000),
+            "tranId": 12345,
+            "tradeId": "67890",
+        }
+        incomes = [
+            {
+                **shared,
+                "incomeType": "REALIZED_PNL",
+                "income": "10.00000000",
+            },
+            {
+                **shared,
+                "incomeType": "COMMISSION",
+                "income": "-0.10000000",
+            },
+        ]
+        with TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "runtime.db"
+            first_client = _FakeSyncClient()
+            first_client.incomes = incomes
+            first = run_incremental_trade_data_sync(
+                client=first_client,
+                runtime_db_path=path,
+                now=now,
+                logger=lambda _message: None,
+            )
+            second_client = _FakeSyncClient()
+            second_client.incomes = [
+                incomes[0],
+                {**incomes[1], "income": "-0.1"},
+            ]
+            second = run_incremental_trade_data_sync(
+                client=second_client,
+                runtime_db_path=path,
+                now=now + timedelta(minutes=15),
+                logger=lambda _message: None,
+            )
+            flows = fetch_recent_account_flows(path=path, limit=10)
+
+        self.assertEqual(first.income_inserted, 2)
+        self.assertEqual(second.income_inserted, 0)
+        self.assertEqual({flow["reason"] for flow in flows}, {"REALIZED_PNL", "COMMISSION"})
+
     def test_legacy_manual_backfill_stops_immediately_on_order_429(self) -> None:
         from momentum_alpha.cli_backfill import backfill_binance_user_trades
 

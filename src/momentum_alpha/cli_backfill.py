@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from momentum_alpha.binance_client import rate_limit_backoff_seconds
@@ -29,19 +30,27 @@ def _account_flow_exists(
         if reference_id is not None:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT payload_json, balance_change
                 FROM account_flows
                 WHERE timestamp = ?
-                  AND COALESCE(source, '') = COALESCE(?, '')
+                  AND COALESCE(reason, '') = COALESCE(?, '')
+                  AND COALESCE(asset, '') = COALESCE(?, '')
                 """,
-                (timestamp.astimezone(timezone.utc).isoformat(), source),
+                (
+                    timestamp.astimezone(timezone.utc).isoformat(),
+                    reason,
+                    asset,
+                ),
             ).fetchall()
-            for row in rows:
+            for payload_json, stored_balance_change in rows:
                 try:
-                    payload = json.loads(row[0])
+                    payload = json.loads(payload_json)
                 except (TypeError, json.JSONDecodeError):
                     continue
-                if _income_reference_id(payload) == reference_id:
+                if (
+                    _income_reference_id(payload) == reference_id
+                    and _same_balance_change(stored_balance_change, balance_change)
+                ):
                     return True
         row = connection.execute(
             """
@@ -58,6 +67,15 @@ def _account_flow_exists(
     finally:
         connection.close()
     return row is not None
+
+
+def _same_balance_change(left: object, right: object) -> bool:
+    if left in (None, "") or right in (None, ""):
+        return left in (None, "") and right in (None, "")
+    try:
+        return Decimal(str(left)) == Decimal(str(right))
+    except (InvalidOperation, ValueError):
+        return str(left) == str(right)
 
 
 def backfill_account_flows(
