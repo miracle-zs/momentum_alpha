@@ -83,43 +83,33 @@ def fetch_position_snapshots_for_range(
         rows = connection.execute(
             f"""
             SELECT
-                id,
-                timestamp,
-                source,
-                leader_symbol,
-                decision_id,
-                intent_id,
-                position_count,
-                order_status_count,
-                symbol_count,
-                submit_orders,
-                restore_positions,
-                execute_stop_replacements,
-                payload_json
-            FROM (
+                snapshots.id,
+                snapshots.timestamp,
+                snapshots.source,
+                snapshots.leader_symbol,
+                snapshots.decision_id,
+                snapshots.intent_id,
+                snapshots.position_count,
+                snapshots.order_status_count,
+                snapshots.symbol_count,
+                snapshots.submit_orders,
+                snapshots.restore_positions,
+                snapshots.execute_stop_replacements,
+                snapshots.payload_json
+            FROM position_snapshots AS snapshots
+            JOIN (
                 SELECT
                     id,
                     timestamp,
-                    source,
-                    leader_symbol,
-                    decision_id,
-                    intent_id,
-                    position_count,
-                    order_status_count,
-                    symbol_count,
-                    submit_orders,
-                    restore_positions,
-                    execute_stop_replacements,
-                    payload_json,
                     ROW_NUMBER() OVER (
                         PARTITION BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
                         ORDER BY timestamp DESC, id DESC
                     ) AS rn
                 FROM position_snapshots
                 {where_clause}
-            )
-            WHERE rn = 1
-            ORDER BY timestamp DESC, id DESC
+            ) AS ranked ON ranked.id = snapshots.id
+            WHERE ranked.rn = 1
+            ORDER BY snapshots.timestamp DESC, snapshots.id DESC
             """,
             (bucket_seconds, *params),
         ).fetchall()
