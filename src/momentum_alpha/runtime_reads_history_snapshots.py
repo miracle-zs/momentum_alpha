@@ -65,7 +65,17 @@ def fetch_position_snapshots_for_range(
         return []
     window, bucket_seconds = _ACCOUNT_RANGE_DENSITY.get(range_key, _ACCOUNT_RANGE_DENSITY["1D"])
     cutoff = None if window is None else now.astimezone(timezone.utc) - window
-    where_clause = "WHERE json_type(payload_json, '$.positions') IS NOT NULL" if require_positions else ""
+    # Poll snapshots carry the position payload whenever position_count is non-zero.
+    # User Stream also records lifecycle rows (for example worker_start) with a
+    # restored position_count but no positions payload.  Keep those out without
+    # running SQLite's JSON parser over every large historical payload; the LIKE
+    # predicate is only needed for the smaller User Stream subset.
+    where_clause = (
+        "WHERE position_count > 0 "
+        "AND (source IS NULL OR source != 'user-stream' OR payload_json LIKE '%\"positions\"%')"
+        if require_positions
+        else ""
+    )
     if cutoff is not None:
         where_clause = f"{where_clause} {'AND' if where_clause else 'WHERE'} timestamp >= ?"
     params = () if cutoff is None else (cutoff.isoformat(),)
