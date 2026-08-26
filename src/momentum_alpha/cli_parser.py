@@ -134,6 +134,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=Decimal("0.0005"),
     )
     replay_skipped_base_parser.add_argument("--refresh-klines", action="store_true")
+    replay_skipped_base_parser.add_argument(
+        "--continuous-strategy-replay",
+        action="store_true",
+        help="Apply original one-Base-per-symbol-per-UTC-day and one-position rules.",
+    )
 
     rebuild_trade_analytics_parser = subparsers.add_parser("rebuild-trade-analytics")
     rebuild_trade_analytics_parser.add_argument("--runtime-db-file", required=True)

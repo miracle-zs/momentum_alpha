@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, time as datetime_time, timedelta, timezone
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -83,12 +83,25 @@ class ShadowOverlap:
 
 
 @dataclass(frozen=True)
+class ShadowSuppression:
+    """A filtered seed that would not create a Base in a continuous replay."""
+
+    shadow_opportunity_id: str
+    symbol: str
+    signal_at: datetime
+    reason: str
+    active_shadow_opportunity_id: str | None = None
+
+
+@dataclass(frozen=True)
 class ShadowReplayReport:
     seed_count: int
     opportunities: tuple[ShadowReplayResult, ...]
     overlaps: tuple[ShadowOverlap, ...]
     warnings: tuple[str, ...]
     had_fetch_errors: bool = False
+    suppressed: tuple[ShadowSuppression, ...] = ()
+    replay_mode: str = "independent"
 
 
 @dataclass(frozen=True)
@@ -241,7 +254,7 @@ def replay_shadow_seed(
     cutoff: datetime,
     taker_fee_rate: Decimal,
     first_add_on_min_hold_minutes: int = 30,
-    enforce_full_position_coverage: bool = False,
+    enforce_full_position_coverage: bool = True,
 ) -> ShadowReplayResult:
     warnings = list(seed.warnings)
     required = {
@@ -447,19 +460,20 @@ def replay_shadow_seed(
             )
             continue
         if add_on_count == 0 and boundary - signal_at < timedelta(minutes=first_add_on_min_hold_minutes):
-            skipped_add_on_count += 1
+            # The live strategy records this as a shadow-only diagnostic but
+            # still submits the add-on.  The replay must model the order, not
+            # the diagnostic label, or its PnL will understate the strategy.
             events.append(
                 ShadowReplayEvent(
                     shadow_opportunity_id=seed.shadow_opportunity_id,
                     symbol=seed.symbol,
                     timestamp=boundary,
-                    event_type="add_on_skipped",
+                    event_type="add_on_shadow",
                     price=candle.close_price,
                     stop_price=active_stop,
                     reason="first_add_on_before_30m",
                 )
             )
-            continue
 
         add_on_quantity = size_from_stop_budget(
             candle.close_price,
@@ -590,25 +604,37 @@ def replay_shadow_opportunities(
     taker_fee_rate: Decimal,
     had_fetch_errors: bool = False,
     independent_candidate_replay: bool = True,
+    enforce_daily_base_limit: bool = False,
 ) -> ShadowReplayReport:
     """Replay skipped Base candidates.
 
     The default mode answers the filtered-review question: what would each
     entry sample have done if the veto rule were absent?  Every seed is replayed
     independently, including samples for the same symbol whose time windows
-    overlap.  Set ``independent_candidate_replay=False`` only for an explicitly
-    requested portfolio simulation.  Independent-sample PnL must not be
-    presented as a portfolio return.
+    overlap.  Set ``independent_candidate_replay=False`` for a portfolio-style
+    replay.  Add ``enforce_daily_base_limit=True`` to apply the production
+    strategy's one-Base-per-symbol-per-UTC-day state transition as well.
+    Independent-sample PnL must not be presented as a portfolio return.
     """
     opportunities: list[ShadowReplayResult] = []
     overlaps: list[ShadowOverlap] = []
+    suppressed: list[ShadowSuppression] = []
     warnings: list[str] = []
     active_by_symbol: dict[str, ShadowReplayResult] = {}
+    daily_base_by_symbol: dict[tuple[date, str], str] = {}
 
-    for seed in sorted(
-        seeds,
-        key=lambda item: (item.symbol, item.signal_at, item.shadow_opportunity_id),
-    ):
+    if enforce_daily_base_limit:
+        ordered_seeds = sorted(
+            seeds,
+            key=lambda item: (_utc(item.signal_at), item.symbol, item.shadow_opportunity_id),
+        )
+    else:
+        ordered_seeds = sorted(
+            seeds,
+            key=lambda item: (item.symbol, item.signal_at, item.shadow_opportunity_id),
+        )
+
+    for seed in ordered_seeds:
         if not independent_candidate_replay:
             active = active_by_symbol.get(seed.symbol)
             if active is not None and active.status != "unresolved" and (
@@ -625,6 +651,26 @@ def replay_shadow_opportunities(
                 )
                 continue
 
+        if enforce_daily_base_limit:
+            daily_key = (_utc(seed.signal_at).date(), seed.symbol)
+            first_base = daily_base_by_symbol.get(daily_key)
+            if first_base is not None:
+                suppressed.append(
+                    ShadowSuppression(
+                        shadow_opportunity_id=seed.shadow_opportunity_id,
+                        symbol=seed.symbol,
+                        signal_at=seed.signal_at,
+                        reason="daily_repeat_base",
+                        active_shadow_opportunity_id=first_base,
+                    )
+                )
+                continue
+
+            # The production strategy consumes the daily opportunity when the
+            # first valid Base candidate reaches the veto/entry gate. Mark it
+            # before replay so unresolved market data cannot make a later
+            # same-day candidate incorrectly open.
+            daily_base_by_symbol[daily_key] = seed.shadow_opportunity_id
         result = replay_shadow_seed(
             seed=seed,
             candles=candles_by_symbol.get(seed.symbol, []),
@@ -633,6 +679,9 @@ def replay_shadow_opportunities(
             taker_fee_rate=taker_fee_rate,
         )
         opportunities.append(result)
+        if enforce_daily_base_limit:
+            daily_key = (_utc(seed.signal_at).date(), seed.symbol)
+            daily_base_by_symbol[daily_key] = result.shadow_opportunity_id
         if not independent_candidate_replay:
             active_by_symbol[seed.symbol] = result
         warnings.extend(
@@ -645,7 +694,9 @@ def replay_shadow_opportunities(
         opportunities=tuple(opportunities),
         overlaps=tuple(overlaps),
         warnings=tuple(warnings),
+        suppressed=tuple(suppressed),
         had_fetch_errors=had_fetch_errors,
+        replay_mode=("continuous_strategy" if enforce_daily_base_limit else "portfolio" if not independent_candidate_replay else "independent"),
     )
 
 
@@ -654,6 +705,7 @@ def replay_skipped_bases(
     runtime_db_path: Path,
     output_dir: Path,
     start_time: datetime | None = None,
+    seed_end_time: datetime | None = None,
     end_time: datetime | None = None,
     symbols: list[str] | None = None,
     proxy: str | None = "http://127.0.0.1:7897",
@@ -661,6 +713,7 @@ def replay_skipped_bases(
     refresh_klines: bool = False,
     blocked_reasons: set[str] | None = None,
     independent_candidate_replay: bool = True,
+    enforce_daily_base_limit: bool = False,
     load_inputs_fn=load_replay_inputs,
     kline_cache_factory=BinanceKlineCache,
     write_artifacts_fn=None,
@@ -675,7 +728,7 @@ def replay_skipped_bases(
     load_inputs_kwargs = {
         "runtime_db_path": runtime_db_path,
         "start_time": start_time,
-        "end_time": end_time,
+        "end_time": seed_end_time if seed_end_time is not None else end_time,
         "symbols": set(symbols) if symbols else None,
     }
     if blocked_reasons is not None:
@@ -688,6 +741,7 @@ def replay_skipped_bases(
             opportunities=(),
             overlaps=(),
             warnings=tuple(input_warnings),
+            replay_mode=("continuous_strategy" if enforce_daily_base_limit else "portfolio" if not independent_candidate_replay else "independent"),
         )
         write_artifacts_fn(report=report, output_dir=output_dir)
         return report
@@ -727,6 +781,7 @@ def replay_skipped_bases(
         taker_fee_rate=taker_fee_rate,
         had_fetch_errors=had_fetch_errors,
         independent_candidate_replay=independent_candidate_replay,
+        enforce_daily_base_limit=enforce_daily_base_limit,
     )
     report = replace(
         report,

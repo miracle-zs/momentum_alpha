@@ -4,3 +4,4 @@ var/
 local_analytics/
 .DS_Store
 .worktrees/
+/docs/HANDOFF.md

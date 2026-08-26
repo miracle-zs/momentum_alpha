@@ -147,11 +147,12 @@ def evaluate_base_veto(
     breakout_5m_pct_threshold: Decimal = Decimal("0.50"),
     pullback_5m_pct_threshold: Decimal = Decimal("1.25"),
 ) -> BaseVetoDecision:
-    """Evaluate the combined causal Base veto without using future data.
+    """Evaluate the causal Base veto and the shadow breakout observation.
 
-    A--E are the false-signal veto candidates.  The final breakout clause is
-    also an AND internally, while all six clauses are OR'ed together.
-    Missing inputs fail open for the affected clause.
+    A--E are live false-signal veto candidates and remain OR'ed together.
+    Breakout is evaluated separately as a shadow-only observation: it is
+    returned in ``breakout_triggered`` for telemetry, but it cannot veto a
+    Base entry by itself.  Missing inputs fail open for the affected clause.
     """
 
     features_ready = bool(
@@ -202,7 +203,7 @@ def evaluate_base_veto(
         and features.breakout_5m_pct >= breakout_5m_pct_threshold
         and features.pullback_5m_pct <= pullback_5m_pct_threshold
     )
-    triggered_rules = [
+    live_triggered_rules = [
         label
         for label, value in (
             ("A", atr_triggered),
@@ -210,17 +211,16 @@ def evaluate_base_veto(
             ("C", c_triggered),
             ("D", d_triggered),
             ("E", e_triggered),
-            ("BREAKOUT", breakout_triggered),
         )
         if value
     ]
-    triggered = bool(enabled and triggered_rules)
+    triggered = bool(enabled and live_triggered_rules)
     if not triggered:
         rule = None
-    elif triggered_rules == ["A", "B"]:
+    elif live_triggered_rules == ["A", "B"]:
         rule = "A_OR_B"
     else:
-        rule = "+".join(triggered_rules)
+        rule = "+".join(live_triggered_rules)
     return BaseVetoDecision(
         enabled=enabled,
         triggered=triggered,

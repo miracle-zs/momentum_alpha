@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -129,6 +129,19 @@ class BaseVetoTests(unittest.TestCase):
                 completed_candle_count=60,
             )
         )
+        breakout_only = evaluate_base_veto(
+            BaseVetoFeatures(
+                atr_15m_pct=Decimal("2"),
+                trade_count_ratio_30m=Decimal("1.2"),
+                return_to_vol_15m=Decimal("0.8"),
+                taker_buy_share_15m=Decimal("0.60"),
+                efficiency_15m=Decimal("0.80"),
+                range_expansion_15m=Decimal("1.1"),
+                breakout_5m_pct=Decimal("0.50"),
+                pullback_5m_pct=Decimal("1.25"),
+                completed_candle_count=60,
+            )
+        )
 
         self.assertTrue(d.triggered)
         self.assertEqual(d.rule, "D")
@@ -136,9 +149,58 @@ class BaseVetoTests(unittest.TestCase):
         self.assertFalse(d.e_triggered)
         self.assertFalse(d.breakout_triggered)
         self.assertTrue(e_and_breakout.triggered)
-        self.assertEqual(e_and_breakout.rule, "E+BREAKOUT")
+        self.assertEqual(e_and_breakout.rule, "E")
         self.assertTrue(e_and_breakout.e_triggered)
         self.assertTrue(e_and_breakout.breakout_triggered)
+        self.assertFalse(breakout_only.triggered)
+        self.assertIsNone(breakout_only.rule)
+        self.assertTrue(breakout_only.breakout_triggered)
+
+    def test_strategy_allows_breakout_only_entry_and_marks_it_shadow_only(self) -> None:
+        from momentum_alpha.base_veto import BaseVetoFeatures
+        from momentum_alpha.models import MarketSnapshot, StrategyState
+        from momentum_alpha.strategy import evaluate_minute_close
+
+        now = datetime(2026, 8, 26, 3, 5, tzinfo=timezone.utc)
+        market = {
+            "ETHUSDT": MarketSnapshot(
+                symbol="ETHUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("120"),
+                previous_hour_low=Decimal("110"),
+                tradable=True,
+                has_previous_hour_candle=True,
+                base_veto_features=BaseVetoFeatures(
+                    atr_15m_pct=Decimal("2"),
+                    trade_count_ratio_30m=Decimal("1.2"),
+                    return_to_vol_15m=Decimal("0.8"),
+                    taker_buy_share_15m=Decimal("0.60"),
+                    efficiency_15m=Decimal("0.80"),
+                    range_expansion_15m=Decimal("1.1"),
+                    breakout_5m_pct=Decimal("0.50"),
+                    pullback_5m_pct=Decimal("1.25"),
+                    completed_candle_count=60,
+                ),
+            ),
+            "BTCUSDT": MarketSnapshot(
+                symbol="BTCUSDT",
+                daily_open_price=Decimal("100"),
+                latest_price=Decimal("110"),
+                previous_hour_low=Decimal("105"),
+                tradable=True,
+                has_previous_hour_candle=True,
+            ),
+        }
+
+        result = evaluate_minute_close(
+            now=now,
+            state=StrategyState(current_day=now.date(), previous_leader_symbol="BTCUSDT"),
+            market=market,
+        )
+
+        self.assertEqual([entry.symbol for entry in result.base_entries], ["ETHUSDT"])
+        self.assertTrue(result.base_entries[0].base_veto_breakout_triggered)
+        self.assertEqual(result.skipped_base_entries, [])
 
     def test_feature_calculation_includes_extended_combined_rule_inputs(self) -> None:
         from momentum_alpha.base_veto import compute_base_veto_features
@@ -190,7 +252,7 @@ class BaseVetoTests(unittest.TestCase):
 
         self.assertFalse(decision.triggered)
 
-    def test_strategy_skips_vetoed_base_without_consuming_daily_opportunity(self) -> None:
+    def test_strategy_veto_consumes_daily_opportunity_and_blocks_later_reentry(self) -> None:
         from momentum_alpha.base_veto import BaseVetoFeatures
         from momentum_alpha.models import MarketSnapshot, StrategyState
         from momentum_alpha.strategy import evaluate_minute_close
@@ -226,7 +288,38 @@ class BaseVetoTests(unittest.TestCase):
 
         self.assertEqual(result.base_entries, [])
         self.assertEqual(result.blocked_reason, "base_veto")
-        self.assertEqual(result.new_daily_base_signal_times, {})
-        self.assertEqual(result.new_daily_base_signal_counts, {})
+        self.assertEqual(result.new_daily_base_signal_times, {"ETHUSDT": now})
+        self.assertEqual(result.new_daily_base_signal_counts, {"ETHUSDT": 1})
         self.assertEqual(len(result.skipped_base_entries), 1)
         self.assertEqual(result.skipped_base_entries[0].base_veto_rule, "A")
+
+        recovered_market = dict(market)
+        recovered_market["ETHUSDT"] = MarketSnapshot(
+            symbol="ETHUSDT",
+            daily_open_price=Decimal("100"),
+            latest_price=Decimal("120"),
+            previous_hour_low=Decimal("110"),
+            tradable=True,
+            has_previous_hour_candle=True,
+            base_veto_features=BaseVetoFeatures(
+                atr_15m_pct=Decimal("0.5"),
+                trade_count_ratio_30m=Decimal("1.2"),
+                return_to_vol_15m=Decimal("0.8"),
+                completed_candle_count=60,
+            ),
+        )
+        returned = evaluate_minute_close(
+            now=now + timedelta(minutes=11),
+            state=StrategyState(
+                current_day=now.date(),
+                previous_leader_symbol="BTCUSDT",
+                daily_base_signal_times=result.new_daily_base_signal_times,
+                daily_base_signal_counts=result.new_daily_base_signal_counts,
+            ),
+            market=recovered_market,
+        )
+
+        self.assertEqual(returned.base_entries, [])
+        self.assertEqual(returned.blocked_reason, "daily_repeat_base")
+        self.assertEqual(returned.skipped_base_entries[0].base_signal_sequence, 2)
+        self.assertEqual(returned.skipped_base_entries[0].first_base_signal_at, now)

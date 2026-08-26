@@ -1,6 +1,6 @@
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -190,6 +190,232 @@ class DailyReviewTests(unittest.TestCase):
         self.assertTrue(report.rows[0].veto_b_triggered)
         self.assertEqual(report.rows[0].outcome, "win")
         self.assertTrue(report.rows[0].is_long_tail_50u)
+
+    def test_build_filtered_base_review_report_marks_continuous_suppressions(self) -> None:
+        from types import SimpleNamespace
+
+        from momentum_alpha.filtered_base_review import build_filtered_base_review_report
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision
+        from momentum_alpha.skipped_base_replay import ShadowSuppression
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            first_at = datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc)
+            second_at = datetime(2026, 4, 20, 11, 0, tzinfo=timezone.utc)
+            for signal_at, sample_id in ((first_at, "shadow-first"), (second_at, "shadow-second")):
+                insert_signal_decision(
+                    path=db_path,
+                    timestamp=signal_at,
+                    source="poll",
+                    decision_type="base_entry_skipped",
+                    symbol="ACEUSDT",
+                    previous_leader_symbol="BTCUSDT",
+                    next_leader_symbol="ACEUSDT",
+                    position_count=0,
+                    order_status_count=0,
+                    broker_response_count=0,
+                    stop_replacement_count=0,
+                    payload={
+                        "blocked_reason": "base_veto",
+                        "shadow_opportunity_id": sample_id,
+                        "latest_price": "100",
+                        "stop_price": "95",
+                    },
+                )
+
+            replay_report = SimpleNamespace(
+                opportunities=(
+                    SimpleNamespace(
+                        shadow_opportunity_id="shadow-first",
+                        status="closed",
+                        base_entry_price=Decimal("100"),
+                        initial_stop_price=Decimal("95"),
+                        exit_at=first_at + timedelta(hours=1),
+                        exit_price=Decimal("90"),
+                        net_pnl=Decimal("-10"),
+                        mark_to_market_net_pnl=None,
+                        duration_minutes=Decimal("60"),
+                        add_on_count=1,
+                        warnings=(),
+                    ),
+                ),
+                overlaps=(),
+                suppressed=(
+                    ShadowSuppression(
+                        shadow_opportunity_id="shadow-second",
+                        symbol="ACEUSDT",
+                        signal_at=second_at,
+                        reason="daily_repeat_base",
+                        active_shadow_opportunity_id="shadow-first",
+                    ),
+                ),
+                warnings=(),
+                had_fetch_errors=False,
+                replay_mode="continuous_strategy",
+            )
+
+            report = build_filtered_base_review_report(
+                path=db_path,
+                now=datetime(2026, 4, 21, 0, 31, tzinfo=timezone.utc),
+                replay_report=replay_report,
+            )
+
+        self.assertEqual(report.summary["candidate_count"], 1)
+        self.assertEqual(report.summary["accepted_count"], 1)
+        self.assertEqual(len(report.rows), 1)
+        self.assertEqual(report.rows[0].sample_id, "shadow-first")
+        self.assertNotIn("shadow-second", {row.sample_id for row in report.rows})
+
+    def test_filtered_base_review_can_finalize_an_older_window_with_later_cutoff(self) -> None:
+        from types import SimpleNamespace
+
+        from momentum_alpha.daily_review import DailyReviewWindow
+        from momentum_alpha.filtered_base_review import build_filtered_base_review_report
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_signal_decision
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            signal_at = datetime(2026, 8, 24, 23, 5, tzinfo=timezone.utc)
+            insert_signal_decision(
+                path=db_path,
+                timestamp=signal_at,
+                source="poll",
+                decision_type="base_entry_skipped",
+                symbol="TACUSDT",
+                previous_leader_symbol="BTCUSDT",
+                next_leader_symbol="TACUSDT",
+                position_count=0,
+                order_status_count=0,
+                broker_response_count=0,
+                stop_replacement_count=0,
+                payload={
+                    "blocked_reason": "base_veto",
+                    "shadow_opportunity_id": "shadow-tac-finalized",
+                    "latest_price": "0.0021040",
+                    "stop_price": "0.0020300",
+                },
+            )
+            replay_result = SimpleNamespace(
+                shadow_opportunity_id="shadow-tac-finalized",
+                status="closed",
+                base_entry_price=Decimal("0.0021040"),
+                initial_stop_price=Decimal("0.0020300"),
+                exit_at=datetime(2026, 8, 25, 1, 30, tzinfo=timezone.utc),
+                exit_price=Decimal("0.0021570"),
+                net_pnl=Decimal("1.33921359600"),
+                mark_to_market_net_pnl=None,
+                duration_minutes=Decimal("144.99"),
+                add_on_count=1,
+                warnings=(),
+            )
+            replay_report = SimpleNamespace(
+                opportunities=(replay_result,),
+                overlaps=(),
+                suppressed=(),
+                warnings=(),
+                had_fetch_errors=False,
+                replay_mode="continuous_strategy",
+            )
+            report = build_filtered_base_review_report(
+                path=db_path,
+                now=datetime(2026, 8, 26, 0, 31, tzinfo=timezone.utc),
+                replay_report=replay_report,
+                review_window=DailyReviewWindow(
+                    report_date="2026-08-25",
+                    window_start=datetime(2026, 8, 24, 8, 30, tzinfo=timezone.utc),
+                    window_end=datetime(2026, 8, 25, 8, 30, tzinfo=timezone.utc),
+                ),
+                replay_cutoff=datetime(2026, 8, 26, 0, 30, tzinfo=timezone.utc),
+            )
+
+        self.assertEqual(report.report_date, "2026-08-25")
+        self.assertEqual(report.window_end, "2026-08-25T08:30:00+00:00")
+        self.assertEqual(report.rows[0].status, "closed")
+        self.assertEqual(report.rows[0].net_pnl, "1.33921359600")
+
+    def test_filtered_base_review_compares_shadow_trade_with_later_actual_base(self) -> None:
+        from types import SimpleNamespace
+
+        from momentum_alpha.filtered_base_review import build_filtered_base_review_report
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            insert_signal_decision,
+            insert_trade_round_trip,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            vetoed_at = datetime(2026, 8, 23, 8, 40, tzinfo=timezone.utc)
+            insert_signal_decision(
+                path=db_path,
+                timestamp=vetoed_at,
+                source="poll",
+                decision_type="base_entry_skipped",
+                symbol="YBUSDT",
+                previous_leader_symbol="BTCUSDT",
+                next_leader_symbol="YBUSDT",
+                position_count=0,
+                order_status_count=0,
+                broker_response_count=0,
+                stop_replacement_count=0,
+                payload={
+                    "blocked_reason": "base_veto",
+                    "shadow_opportunity_id": "shadow-yb-0840",
+                    "latest_price": "0.0981400",
+                    "stop_price": "0.0944100",
+                },
+            )
+            insert_trade_round_trip(
+                path=db_path,
+                round_trip_id="YBUSDT:1",
+                symbol="YBUSDT",
+                opened_at=datetime(2026, 8, 23, 8, 51, tzinfo=timezone.utc),
+                closed_at=datetime(2026, 8, 23, 10, 0, tzinfo=timezone.utc),
+                entry_fill_count=1,
+                exit_fill_count=1,
+                weighted_avg_entry_price="0.09916430688336520076481835564",
+                weighted_avg_exit_price="0.09866904875717017208413001912",
+                net_pnl="-1.24301365",
+                exit_reason="stop_loss",
+                duration_seconds=4154,
+            )
+            replay_result = SimpleNamespace(
+                shadow_opportunity_id="shadow-yb-0840",
+                status="closed",
+                base_entry_price=Decimal("0.0981400"),
+                initial_stop_price=Decimal("0.0944100"),
+                exit_at=datetime(2026, 8, 23, 10, 0, 59, 999000, tzinfo=timezone.utc),
+                exit_price=Decimal("0.0986900"),
+                net_pnl=Decimal("1.21024780000"),
+                mark_to_market_net_pnl=None,
+                duration_minutes=Decimal("80.9999833333"),
+                add_on_count=0,
+                warnings=(),
+            )
+            replay_report = SimpleNamespace(
+                opportunities=(replay_result,),
+                overlaps=(),
+                suppressed=(),
+                warnings=(),
+                had_fetch_errors=False,
+                replay_mode="continuous_strategy",
+            )
+
+            report = build_filtered_base_review_report(
+                path=db_path,
+                now=datetime(2026, 8, 24, 0, 31, tzinfo=timezone.utc),
+                replay_report=replay_report,
+            )
+
+        row = report.rows[0]
+        self.assertEqual(row.actual_trade_net_pnl, "-1.24301365")
+        self.assertEqual(row.strategy_pnl_delta, "2.45326145000")
+        self.assertEqual(row.comparison_type, "replaced_later_actual_base")
+        self.assertEqual(report.summary["actual_replaced_pnl_sum"], "-1.24301365")
+        self.assertEqual(report.summary["strategy_pnl_delta"], "2.45326145000")
 
     def test_build_daily_review_report_deduplicates_repeated_skipped_add_on_signals_per_hour(self) -> None:
         from momentum_alpha.daily_review import build_daily_review_report

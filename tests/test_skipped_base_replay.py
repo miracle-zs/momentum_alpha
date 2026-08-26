@@ -171,7 +171,7 @@ class SkippedBaseReplayTests(unittest.TestCase):
         event_types = [event.event_type for event in result.events]
         self.assertLess(event_types.index("stop_update"), event_types.index("add_on"))
 
-    def test_hour_boundary_skips_first_add_on_when_base_age_is_under_thirty_minutes(self) -> None:
+    def test_hour_boundary_replays_first_add_on_when_base_age_is_under_thirty_minutes(self) -> None:
         from momentum_alpha.skipped_base_replay import replay_shadow_seed
 
         hour_start = datetime(2026, 6, 12, 1, 0, tzinfo=timezone.utc)
@@ -193,9 +193,47 @@ class SkippedBaseReplayTests(unittest.TestCase):
             taker_fee_rate=Decimal("0"),
         )
 
-        self.assertEqual(result.add_on_count, 0)
-        self.assertEqual(result.skipped_add_on_count, 1)
+        self.assertEqual(result.add_on_count, 1)
+        self.assertEqual(result.skipped_add_on_count, 0)
+        self.assertIn("add_on_shadow", [event.event_type for event in result.events])
         self.assertIn("first_add_on_before_30m", [event.reason for event in result.events])
+
+    def test_continuous_replay_enforces_one_base_per_symbol_per_utc_day(self) -> None:
+        from momentum_alpha.skipped_base_replay import replay_shadow_opportunities
+
+        first_at = datetime(2026, 6, 12, 1, 5, tzinfo=timezone.utc)
+        second_at = datetime(2026, 6, 12, 2, 5, tzinfo=timezone.utc)
+        third_at = datetime(2026, 6, 12, 3, 5, tzinfo=timezone.utc)
+        seeds = [
+            self._seed(signal_at=first_at, shadow_id="shadow-1"),
+            self._seed(signal_at=second_at, shadow_id="shadow-2"),
+            self._seed(signal_at=third_at, shadow_id="shadow-3"),
+        ]
+        candles = [
+            self._candle(first_at, low="109"),
+            self._candle(first_at + timedelta(minutes=2), low="99"),
+            self._candle(second_at, low="109"),
+            self._candle(third_at, low="109"),
+        ]
+
+        report = replay_shadow_opportunities(
+            seeds=seeds,
+            candles_by_symbol={"AAAUSDT": candles},
+            leaders={},
+            cutoff=third_at + timedelta(minutes=1),
+            taker_fee_rate=Decimal("0"),
+            independent_candidate_replay=False,
+            enforce_daily_base_limit=True,
+        )
+
+        self.assertEqual([item.shadow_opportunity_id for item in report.opportunities], ["shadow-1"])
+        self.assertEqual(len(report.overlaps), 0)
+        self.assertEqual(
+            [item.shadow_opportunity_id for item in report.suppressed],
+            ["shadow-2", "shadow-3"],
+        )
+        self.assertEqual(report.replay_mode, "continuous_strategy")
+        self.assertTrue(all(item.reason == "daily_repeat_base" for item in report.suppressed))
 
     def test_missing_leader_skips_add_on_and_open_result_has_mtm(self) -> None:
         from momentum_alpha.skipped_base_replay import replay_shadow_seed
@@ -370,6 +408,7 @@ class SkippedBaseReplayTests(unittest.TestCase):
                 runtime_db_path=runtime_db_path,
                 output_dir=output_dir,
                 start_time=signal_at,
+                seed_end_time=signal_at,
                 end_time=cutoff,
                 symbols=["AAAUSDT"],
                 proxy="http://127.0.0.1:7897",
@@ -384,6 +423,8 @@ class SkippedBaseReplayTests(unittest.TestCase):
         self.assertEqual(report.seed_count, 1)
         self.assertFalse(report.had_fetch_errors)
         self.assertIn("input_warning", report.warnings)
+        load_call = next(item for item in calls if item[0] == "load")
+        self.assertEqual(load_call[1]["end_time"], signal_at)
         kline_call = next(item for item in calls if item[0] == "klines")
         self.assertEqual(
             kline_call[1]["start_time"],

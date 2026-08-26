@@ -35,7 +35,9 @@ Use Testnet with either an environment variable or CLI flag:
 export BINANCE_USE_TESTNET=1
 ```
 
-Base entries use the enabled combined A/B/C/D/E plus breakout veto by default.
+Base entries use the enabled combined A/B/C/D/E veto by default.  The breakout
+condition is evaluated in shadow-only mode: it is recorded on accepted Base
+entries for later analysis but cannot block a live Base order.
 It uses only completed 1m candles and fails open when the required 60-candle
 history is unavailable:
 
@@ -44,11 +46,13 @@ history is unavailable:
 - C: `trade_count_ratio_30m <= 0.75`
 - D: `taker_buy_share_15m <= 0.50` and `efficiency_15m <= 0.15`
 - E: `efficiency_15m <= 0.45` and `range_expansion_15m >= 1.50`
-- Breakout: `breakout_5m_pct >= 0.50%` and `pullback_5m_pct <= 1.25%`
+- Breakout (shadow-only): `breakout_5m_pct >= 0.50%` and `pullback_5m_pct <= 1.25%`
 
-The six clauses are OR'ed together.  Each clause is recorded separately in
-the `base_entry_skipped` audit payload so later replay can distinguish the
-reason for a veto.
+The five live A--E clauses are OR'ed together.  Breakout is recorded separately
+on accepted `base_entry` decisions with `base_veto_breakout_shadow_only=true`;
+it is not part of the live veto decision.  Live veto clauses are recorded
+separately in the `base_entry_skipped` audit payload so later replay can
+distinguish the reason for a veto.
 
 The rule can be disabled or tuned with `BASE_VETO_ENABLED`,
 `BASE_VETO_ATR_15M_PCT_THRESHOLD`,

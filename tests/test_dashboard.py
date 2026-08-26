@@ -569,7 +569,7 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("OVERLAP", filtered_html)
         self.assertNotIn("Shadow", filtered_html)
 
-    def test_filtered_review_panel_shows_independent_base_samples(self) -> None:
+    def test_filtered_review_panel_shows_continuous_base_samples(self) -> None:
         from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
 
         html = render_filtered_base_review_panel(
@@ -592,6 +592,9 @@ class DashboardTests(unittest.TestCase):
                         "missed_profit_sum": "54.25",
                         "avoided_loss_sum": "0",
                         "closed_sample_pnl_sum": "54.25",
+                        "counterfactual_trade_pnl_sum": "54.25",
+                        "actual_replaced_pnl_sum": "0",
+                        "strategy_pnl_delta": "54.25",
                         "tail_50u_count": 1,
                     },
                     "rows": [
@@ -612,6 +615,8 @@ class DashboardTests(unittest.TestCase):
                             "outcome": "win",
                             "exit_at": "2026-04-20T12:00:00+00:00",
                             "net_pnl": "54.25",
+                            "strategy_pnl_delta": "54.25",
+                            "strategy_outcome": "improved",
                             "mark_to_market_net_pnl": None,
                             "add_on_count": 2,
                             "is_long_tail_50u": True,
@@ -624,20 +629,106 @@ class DashboardTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("独立样本复盘", html)
-        self.assertIn("过滤规则净错过 54.25 U", html)
+        self.assertIn("连续策略回放", html)
+        self.assertNotIn("Veto 记录总数", html)
+        self.assertIn("被过滤候选", html)
+        self.assertIn("关闭过滤器后：策略收益变化 +54.25 U", html)
         self.assertIn("ACEUSDT", html)
-        self.assertIn("已结束 · 盈利", html)
+        self.assertIn("关闭过滤 · 改善", html)
         self.assertIn("≥50U 长尾", html)
         self.assertIn("A · ATR", html)
         self.assertIn("B · FLOW", html)
         self.assertIn("ATR 3.40% · TC 0.70 · R/V 0.31", html)
         self.assertIn("规则命中", html)
         self.assertIn("计算口径与规则", html)
-        self.assertIn("每个样本独立回放", html)
-        self.assertIn("不代表组合收益", html)
+        self.assertIn("同一 UTC 日同一品种只允许一次 Base", html)
+        self.assertIn("无过滤回放收益 − 被替代实盘收益", html)
         self.assertNotIn("OVERLAP", html)
         self.assertNotIn("Shadow", html)
+
+    def test_filtered_review_panel_shows_replaced_actual_trade_delta(self) -> None:
+        from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
+
+        html = render_filtered_base_review_panel(
+            {
+                "report_date": "2026-08-24",
+                "payload": {
+                    "summary": {
+                        "candidate_count": 1,
+                        "closed_count": 1,
+                        "open_count": 0,
+                        "pending_count": 0,
+                        "win_count": 1,
+                        "loss_count": 0,
+                        "missed_profit_sum": "2.45326145000",
+                        "avoided_loss_sum": "0",
+                        "counterfactual_trade_pnl_sum": "1.21024780000",
+                        "actual_replaced_pnl_sum": "-1.24301365",
+                        "strategy_pnl_delta": "2.45326145000",
+                    },
+                    "rows": [
+                        {
+                            "sample_id": "shadow-yb-0840",
+                            "symbol": "YBUSDT",
+                            "vetoed_at": "2026-08-23T08:40:00+00:00",
+                            "status": "closed",
+                            "outcome": "win",
+                            "net_pnl": "1.21024780000",
+                            "actual_trade_id": "YBUSDT:1",
+                            "actual_trade_net_pnl": "-1.24301365",
+                            "strategy_pnl_delta": "2.45326145000",
+                            "strategy_outcome": "improved",
+                            "add_on_count": 0,
+                        }
+                    ],
+                },
+                "available_report_dates": ["2026-08-24"],
+            }
+        )
+
+        self.assertIn("关闭过滤器后：策略收益变化 +2.45 U", html)
+        self.assertIn("关闭过滤 · 改善", html)
+        self.assertIn("无过滤 +1.21 · 实盘 -1.24", html)
+        self.assertIn("无过滤 +1.21 · 被替代实盘 -1.24", html)
+
+    def test_filtered_review_panel_labels_open_mtm_as_unsettled(self) -> None:
+        from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
+
+        html = render_filtered_base_review_panel(
+            {
+                "report_date": "2026-08-25",
+                "payload": {
+                    "summary": {
+                        "candidate_count": 1,
+                        "accepted_count": 1,
+                        "closed_count": 0,
+                        "open_count": 1,
+                        "pending_count": 0,
+                        "strategy_pnl_delta": "0",
+                        "open_mtm_pnl_sum": "16.60022527300",
+                    },
+                    "rows": [
+                        {
+                            "sample_id": "shadow-open",
+                            "symbol": "TACUSDT",
+                            "vetoed_at": "2026-08-24T23:05:00.583493+00:00",
+                            "status": "open",
+                            "outcome": "open",
+                            "mark_to_market_net_pnl": "16.60022527300",
+                            "strategy_pnl_delta": None,
+                            "add_on_count": 1,
+                            "warnings": [],
+                        }
+                    ],
+                },
+                "available_report_dates": ["2026-08-25"],
+            }
+        )
+
+        self.assertIn("策略差异 / 当前 MTM", html)
+        self.assertIn("进行中 · 未结算", html)
+        self.assertIn("当前 MTM · 未结算", html)
+        self.assertNotIn("><small>MTM</small>", html)
 
     def test_dashboard_snapshot_separates_daily_and_filtered_reports(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

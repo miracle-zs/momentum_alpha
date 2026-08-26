@@ -231,10 +231,16 @@ def replay_skipped_base_command(
         proxy=args.proxy,
         taker_fee_rate=args.taker_fee_rate,
         refresh_klines=args.refresh_klines,
+        independent_candidate_replay=not args.continuous_strategy_replay,
+        enforce_daily_base_limit=args.continuous_strategy_replay,
     )
     print(f"replay_seed_count={report.seed_count}")
-    print(f"replay_independent_count={len(report.opportunities)}")
+    print(f"replay_accepted_count={len(report.opportunities)}")
     print(f"replay_overlap_count={len(report.overlaps)}")
+    print(
+        "replay_daily_repeat_count="
+        f"{sum(1 for item in getattr(report, 'suppressed', ()) if item.reason == 'daily_repeat_base')}"
+    )
     print(f"replay_output_dir={output_dir}")
     return 1 if report.had_fetch_errors else 0
 

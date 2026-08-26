@@ -80,7 +80,7 @@ def _write_csv(*, path: Path, fields: list[str], rows: list[dict]) -> None:
 
 
 def _summary_rows(report: ShadowReplayReport) -> list[dict]:
-    return [
+    rows = [
         {
             "shadow_opportunity_id": item.shadow_opportunity_id,
             "symbol": item.symbol,
@@ -107,6 +107,61 @@ def _summary_rows(report: ShadowReplayReport) -> list[dict]:
         }
         for item in report.opportunities
     ]
+    rows.extend(
+        {
+            "shadow_opportunity_id": item.shadow_opportunity_id,
+            "symbol": item.symbol,
+            "base_signal_at": _value(item.signal_at),
+            "base_signal_sequence": "",
+            "first_base_signal_at": "",
+            "blocked_reason": item.status,
+            "status": "suppressed",
+            "base_entry_price": "",
+            "initial_stop_price": "",
+            "base_quantity": "",
+            "add_on_count": 0,
+            "skipped_add_on_count": 0,
+            "exit_at": "",
+            "exit_price": "",
+            "duration_minutes": "",
+            "gross_pnl": "",
+            "entry_fees": "",
+            "exit_fees": "",
+            "net_pnl": "",
+            "mark_price_at_cutoff": "",
+            "mark_to_market_net_pnl": "",
+            "warning_count": 0,
+        }
+        for item in report.overlaps
+    )
+    rows.extend(
+        {
+            "shadow_opportunity_id": item.shadow_opportunity_id,
+            "symbol": item.symbol,
+            "base_signal_at": _value(item.signal_at),
+            "base_signal_sequence": "",
+            "first_base_signal_at": "",
+            "blocked_reason": item.reason,
+            "status": "suppressed",
+            "base_entry_price": "",
+            "initial_stop_price": "",
+            "base_quantity": "",
+            "add_on_count": 0,
+            "skipped_add_on_count": 0,
+            "exit_at": "",
+            "exit_price": "",
+            "duration_minutes": "",
+            "gross_pnl": "",
+            "entry_fees": "",
+            "exit_fees": "",
+            "net_pnl": "",
+            "mark_price_at_cutoff": "",
+            "mark_to_market_net_pnl": "",
+            "warning_count": 0,
+        }
+        for item in report.suppressed
+    )
+    return rows
 
 
 def _leg_rows(report: ShadowReplayReport) -> list[dict]:
@@ -169,6 +224,20 @@ def _event_rows(report: ShadowReplayReport) -> list[dict]:
                 "active_shadow_opportunity_id": overlap.active_shadow_opportunity_id,
             }
         )
+    for suppressed in report.suppressed:
+        rows.append(
+            {
+                "shadow_opportunity_id": suppressed.shadow_opportunity_id,
+                "symbol": suppressed.symbol,
+                "timestamp": _value(suppressed.signal_at),
+                "event_type": suppressed.reason,
+                "price": "",
+                "stop_price": "",
+                "quantity": "",
+                "reason": suppressed.reason,
+                "active_shadow_opportunity_id": suppressed.active_shadow_opportunity_id or "",
+            }
+        )
     return sorted(
         rows,
         key=lambda row: (
@@ -200,6 +269,10 @@ def _markdown(report: ShadowReplayReport) -> str:
     add_on_count = sum(item.add_on_count for item in report.opportunities)
     skipped_add_on_count = sum(item.skipped_add_on_count for item in report.opportunities)
     base_count = sum(1 for item in report.opportunities if item.base_quantity is not None)
+    daily_repeat_count = sum(
+        1 for item in report.suppressed if item.reason == "daily_repeat_base"
+    )
+    suppressed_count = len(report.suppressed) + len(report.overlaps)
 
     sequence_pnl: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     reason_pnl: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
@@ -231,9 +304,12 @@ def _markdown(report: ShadowReplayReport) -> str:
     lines = [
         "# Skipped Base Shadow Replay",
         "",
+        f"- Replay mode: {report.replay_mode}",
         f"- Seed count: {report.seed_count}",
-        f"- Independent opportunities: {len(report.opportunities)}",
-        f"- Overlap count: {len(report.overlaps)}",
+        f"- Accepted Base opportunities: {len(report.opportunities)}",
+        f"- Position overlap count: {len(report.overlaps)}",
+        f"- Daily repeat Base count: {daily_repeat_count}",
+        f"- Suppressed seed count: {suppressed_count}",
         f"- Closed / open / unresolved: {len(closed)} / {len(open_items)} / {len(unresolved)}",
         f"- Realized net PnL: {realized}",
         f"- Open mark-to-market net PnL: {open_mtm}",

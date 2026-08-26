@@ -18,7 +18,7 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
             "<section class='chart-card filter-review-panel'>"
             "<div class='filter-review-empty'>"
             "<strong>暂无过滤复盘</strong>"
-            "<span>生成独立样本回放后，这里会显示被规则拦截的开仓结果。</span>"
+            "<span>生成连续策略回放后，这里会显示关闭过滤器时原策略的开仓与收益结果。</span>"
             "</div>"
             "</section>"
         )
@@ -35,20 +35,32 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
     legacy_unreplayed_rows = [
         row
         for row in rows_data
-        if str(row.get("status") or "") not in {"closed", "open", "pending_replay", "unresolved"}
+        if str(row.get("status") or "") not in {"closed", "open", "pending_replay", "unresolved", "suppressed"}
     ]
 
-    positive_values = [
+    strategy_values = [
         value
         for row in closed_rows
-        if (value := _parse_decimal(row.get("net_pnl"))) is not None and value > 0
+        if (
+            value := _parse_decimal(
+                row.get("strategy_pnl_delta")
+                if row.get("strategy_pnl_delta") is not None
+                else row.get("net_pnl")
+            )
+        )
+        is not None
     ]
-    negative_values = [
-        value
-        for row in closed_rows
-        if (value := _parse_decimal(row.get("net_pnl"))) is not None and value < 0
-    ]
-    candidate_count = int(_parse_numeric(summary.get("candidate_count")) or len(rows_data))
+    positive_values = [value for value in strategy_values if value > 0]
+    negative_values = [value for value in strategy_values if value < 0]
+    candidate_count = int(_parse_numeric(summary.get("candidate_count")) or 0)
+    accepted_count = int(
+        _parse_numeric(summary.get("accepted_count"))
+        or sum(
+            1
+            for row in rows_data
+            if str(row.get("status") or "") in {"closed", "open", "unresolved"}
+        )
+    )
     closed_count = int(_parse_numeric(summary.get("closed_count")) or len(closed_rows))
     open_count = int(_parse_numeric(summary.get("open_count")) or len(open_rows))
     pending_count = int(_parse_numeric(summary.get("pending_count")) or 0) + len(legacy_unreplayed_rows)
@@ -58,9 +70,15 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
     avoided_loss = _parse_decimal(summary.get("avoided_loss_sum"))
     if avoided_loss is None:
         avoided_loss = abs(sum(negative_values, Decimal("0")))
-    sample_net_pnl = _parse_decimal(summary.get("closed_sample_pnl_sum"))
-    if sample_net_pnl is None:
-        sample_net_pnl = missed_profit - avoided_loss
+    strategy_pnl_delta = _parse_decimal(summary.get("strategy_pnl_delta"))
+    if strategy_pnl_delta is None:
+        strategy_pnl_delta = _parse_decimal(summary.get("closed_sample_pnl_sum"))
+    if strategy_pnl_delta is None:
+        strategy_pnl_delta = missed_profit - avoided_loss
+    counterfactual_pnl = _parse_decimal(summary.get("counterfactual_trade_pnl_sum"))
+    if counterfactual_pnl is None:
+        counterfactual_pnl = _parse_decimal(summary.get("closed_sample_pnl_sum")) or strategy_pnl_delta
+    actual_replaced_pnl = _parse_decimal(summary.get("actual_replaced_pnl_sum")) or Decimal("0")
     win_count = int(_parse_numeric(summary.get("win_count")) or len(positive_values))
     loss_count = int(_parse_numeric(summary.get("loss_count")) or len(negative_values))
 
@@ -70,27 +88,32 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
         verdict_value = "0 samples"
     elif closed_count == 0:
         verdict_state = "pending"
-        verdict_label = f"{candidate_count} 个样本等待独立回放"
+        verdict_label = f"{accepted_count} 个原策略 Base 等待回放"
         verdict_value = f"{open_count} open · {pending_count} pending"
-    elif sample_net_pnl < 0:
+    elif strategy_pnl_delta < 0:
         verdict_state = "helped"
-        verdict_label = f"过滤规则净避免 {_format_decimal_metric(abs(sample_net_pnl))} U"
-        verdict_value = "独立样本结果偏负"
-    elif sample_net_pnl > 0:
+        verdict_label = f"关闭过滤器后：策略收益变化 {_format_decimal_metric(strategy_pnl_delta, signed=True)} U"
+        verdict_value = f"过滤规则相对避免 {_format_decimal_metric(abs(strategy_pnl_delta))} U"
+    elif strategy_pnl_delta > 0:
         verdict_state = "missed"
-        verdict_label = f"过滤规则净错过 {_format_decimal_metric(sample_net_pnl)} U"
-        verdict_value = "独立样本结果偏正"
+        verdict_label = f"关闭过滤器后：策略收益变化 {_format_decimal_metric(strategy_pnl_delta, signed=True)} U"
+        verdict_value = f"过滤规则相对错过 {_format_decimal_metric(strategy_pnl_delta)} U"
     else:
         verdict_state = "neutral"
-        verdict_label = "过滤样本净结果持平"
-        verdict_value = "0.00 U"
+        verdict_label = "关闭过滤器后：策略收益变化 0.00 U"
+        verdict_value = "过滤规则相对无变化"
 
     stat_items = [
-        ("被过滤样本", str(candidate_count), "", "原策略本来会开 Base"),
+        ("被过滤候选", str(candidate_count), "", "原策略本来会开 Base"),
         ("已完成", str(closed_count), "", f"{open_count} 进行中 · {pending_count} 待回放"),
-        ("避免亏损", _format_decimal_metric(avoided_loss), "helped", f"{loss_count} 个亏损样本"),
-        ("错过盈利", _format_decimal_metric(missed_profit), "missed", f"{win_count} 个盈利样本"),
-        ("样本净结果", _format_decimal_metric(sample_net_pnl, signed=True), _sample_tone(sample_net_pnl), "不代表组合收益"),
+        ("避免亏损", _format_decimal_metric(avoided_loss), "helped", f"{loss_count} 个负贡献候选"),
+        ("错过盈利", _format_decimal_metric(missed_profit), "missed", f"{win_count} 个正贡献候选"),
+        (
+            "策略净差异",
+            _format_decimal_metric(strategy_pnl_delta, signed=True),
+            _sample_tone(strategy_pnl_delta),
+            f"无过滤 {_format_decimal_metric(counterfactual_pnl, signed=True)} · 被替代实盘 {_format_decimal_metric(actual_replaced_pnl, signed=True)}",
+        ),
     ]
     stats_html = "".join(
         (
@@ -122,7 +145,7 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
     table_html = (
         "<div class='filter-review-table'>"
         "<div class='filter-review-table-head'>"
-        "<span>过滤 / 结束</span><span>样本</span><span>触发规则</span><span>结果</span><span>样本收益</span><span>加仓</span>"
+        "<span>过滤 / 结束</span><span>样本</span><span>触发规则</span><span>结果</span><span>策略差异 / 当前 MTM</span><span>加仓</span>"
         "</div>"
         f"{rows_html}"
         "</div>"
@@ -155,7 +178,7 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
         "<details class='filter-review-method'>"
         "<summary>计算口径与规则</summary>"
         "<div class='filter-review-method-body'>"
-        "<p>只收录原策略已满足开仓条件、但被 Base veto 拦截的信号。每个样本独立回放原策略的加仓与退出；样本之间不互斥，汇总值不代表可执行组合收益。</p>"
+        "<p>只展示原策略状态已经通过、仅被 Base veto 拦截的候选。连续回放遵守同一 UTC 日同一品种只允许一次 Base；因已有持仓、同日重复等原策略状态未通过的记录不计入本页。若过滤后同品种稍后真实开仓，无过滤路径会替代该实盘交易，因此策略差异按“无过滤回放收益 − 被替代实盘收益”计算；已接受的 Base 仍按生产策略执行小时止损上移和 add-on。</p>"
         "<div class='filter-review-method-rules'>"
         "<span>A · ATR ≥ 3%</span><span>B · TC ≤ 1 + R/V ≤ 0.5</span><span>C · TC ≤ 0.75</span>"
         "<span>D · TB ≤ 50% + EFF ≤ 0.15</span><span>E · EFF ≤ 0.45 + RX ≥ 1.50×</span>"
@@ -191,7 +214,7 @@ def _render_date_toolbar(report: dict) -> str:
     return (
         "<div class='filter-review-toolbar'>"
         "<div>"
-        "<span class='filter-review-kicker'>独立样本复盘</span>"
+        "<span class='filter-review-kicker'>连续策略回放</span>"
         "<form class='daily-review-date-form' method='get' action='.'>"
         "<input type='hidden' name='room' value='review'>"
         "<input type='hidden' name='range' value='1D'>"
@@ -219,15 +242,43 @@ def _date_link(label: str, report_date: str | None) -> str:
 
 def _render_sample_row(row: dict) -> str:
     raw_status = str(row.get("status") or "pending_replay")
-    status = raw_status if raw_status in {"closed", "open", "pending_replay", "unresolved"} else "pending_replay"
-    outcome = str(row.get("outcome") or "pending")
+    status = raw_status if raw_status in {"closed", "open", "pending_replay", "unresolved", "suppressed"} else "pending_replay"
+    counterfactual_pnl = _parse_decimal(
+        row.get("net_pnl") if status == "closed" else row.get("mark_to_market_net_pnl")
+    )
+    strategy_pnl_delta = (
+        _parse_decimal(row.get("strategy_pnl_delta"))
+        if status == "closed"
+        else None
+    )
+    if status == "closed" and strategy_pnl_delta is None:
+        strategy_pnl_delta = counterfactual_pnl
+    strategy_outcome = str(row.get("strategy_outcome") or "")
+    if strategy_outcome not in {"improved", "worsened", "flat", "pending"}:
+        strategy_outcome = (
+            "improved"
+            if strategy_pnl_delta is not None and strategy_pnl_delta > 0
+            else "worsened"
+            if strategy_pnl_delta is not None and strategy_pnl_delta < 0
+            else "flat"
+            if strategy_pnl_delta is not None
+            else "pending"
+        )
+    suppression_reason = " ".join(str(item) for item in (row.get("warnings") or []))
     label = {
         "pending_replay": "待回放",
-        "closed": "已结束 · 盈利" if outcome == "win" else "已结束 · 亏损" if outcome == "loss" else "已结束 · 持平",
-        "open": "进行中",
+        "closed": (
+            "关闭过滤 · 改善"
+            if strategy_outcome == "improved"
+            else "关闭过滤 · 恶化"
+            if strategy_outcome == "worsened"
+            else "关闭过滤 · 持平"
+        ),
+        "open": "进行中 · 未结算",
         "unresolved": "数据不足",
+        "suppressed": "未开 · " + ("同日重复" if "daily_repeat" in suppression_reason else "持仓重叠"),
     }.get(status, "待回放")
-    tone = "win" if status == "closed" and outcome == "win" else "loss" if status == "closed" and outcome == "loss" else "pending" if status == "pending_replay" else "neutral"
+    tone = "win" if status == "closed" and strategy_outcome == "improved" else "loss" if status == "closed" and strategy_outcome == "worsened" else "pending" if status == "pending_replay" else "neutral"
     rule_chips = "".join(
         f"<span class='daily-review-filter-chip daily-review-rule-chip daily-review-rule-{escape(_veto_rule_slug(token))}'>{escape(_veto_rule_label(token))}</span>"
         for token in _veto_rule_tokens(row.get("veto_rule"))
@@ -237,15 +288,38 @@ def _render_sample_row(row: dict) -> str:
         f"TC {_format_ratio(row.get('trade_count_ratio_30m'))} · "
         f"R/V {_format_ratio(row.get('return_to_vol_15m'))}"
     )
-    pnl_source = row.get("net_pnl") if status == "closed" else row.get("mark_to_market_net_pnl")
-    pnl = _parse_decimal(pnl_source)
-    pnl_tone = "daily-review-impact-positive" if pnl is not None and pnl > 0 else "daily-review-impact-negative" if pnl is not None and pnl < 0 else ""
+    pnl = (
+        strategy_pnl_delta
+        if status == "closed"
+        else counterfactual_pnl
+        if status == "open"
+        else None
+    )
+    pnl_tone = (
+        "daily-review-impact-positive"
+        if status == "closed" and pnl is not None and pnl > 0
+        else "daily-review-impact-negative"
+        if status == "closed" and pnl is not None and pnl < 0
+        else ""
+    )
+    actual_trade_pnl = _parse_decimal(row.get("actual_trade_net_pnl"))
+    actual_baseline_pnl = actual_trade_pnl if row.get("actual_trade_id") else Decimal("0")
+    pnl_detail = (
+        f"无过滤 {_format_decimal_metric(counterfactual_pnl, signed=True)} · 实盘 {_format_decimal_metric(actual_baseline_pnl, signed=True)}"
+        if status == "closed"
+        else "当前 MTM · 未结算"
+        if status == "open"
+        else ""
+    )
     sample_id = str(row.get("sample_id") or row.get("shadow_opportunity_id") or "")
     warnings = (
         ", ".join(str(item) for item in (row.get("warnings") or []))
         if status != "pending_replay"
         else ""
     ) or "no warnings"
+    actual_trade_id = str(row.get("actual_trade_id") or "")
+    if actual_trade_id:
+        warnings = f"{warnings}; replaces {actual_trade_id}"
     return (
         "<div class='filter-review-table-row'>"
         "<div class='daily-review-counterfactual-time'>"
@@ -258,7 +332,7 @@ def _render_sample_row(row: dict) -> str:
         f"<div class='filter-review-rules'><div>{rule_chips}</div><small>{escape(features)}</small></div>"
         f"<div><span class='daily-review-outcome daily-review-outcome-{tone}' title='{escape(warnings)}'>{escape(label)}</span>"
         f"{'<span class=\"daily-review-tail-badge\">≥50U 长尾</span>' if row.get('is_long_tail_50u') else ''}</div>"
-        f"<div class='daily-review-counterfactual-pnl {pnl_tone}'><strong>{escape(_format_decimal_metric(pnl, signed=True))}</strong><small>{'已实现' if status == 'closed' else 'MTM' if status == 'open' else ''}</small></div>"
+        f"<div class='daily-review-counterfactual-pnl {pnl_tone}'><strong>{escape(_format_decimal_metric(pnl, signed=True))}</strong><small>{escape(pnl_detail)}</small></div>"
         f"<div class='daily-review-counterfactual-addons'>{escape(str(row.get('add_on_count', 0)))} <small>次</small></div>"
         "</div>"
     )

@@ -65,6 +65,8 @@ class EntryIntent:
     symbol: str
     stop_price: Decimal
     leg_type: str
+    # BREAKOUT is observed for shadow analysis but never changes execution.
+    base_veto_breakout_triggered: bool = False
 
 
 @dataclass(frozen=True)

@@ -1,19 +1,190 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from momentum_alpha.daily_review import build_daily_review_report, build_daily_review_window
+from momentum_alpha.daily_review import (
+    DailyReviewWindow,
+    build_daily_review_report,
+    build_daily_review_window,
+)
 from momentum_alpha.filtered_base_review import build_filtered_base_review_report
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.runtime_store import (
+    fetch_filtered_base_review_report_by_date,
+    fetch_filtered_base_review_report_dates,
+    fetch_signal_decisions_for_window,
     insert_daily_review_report,
     insert_filtered_base_review_report,
     summarize_audit_events,
 )
 
 from .cli_env import _parse_cli_datetime, _require_runtime_db_path
+
+
+_FILTERED_REVIEW_REFRESH_MAX_AGE = timedelta(hours=48)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _parse_report_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return _as_utc(datetime.fromisoformat(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def refresh_open_filtered_base_reports(
+    *,
+    path: Path,
+    now: datetime,
+    current_report_date: str,
+    replay_output_dir: Path,
+    replay_skipped_bases_fn,
+    build_filtered_base_review_report_fn=build_filtered_base_review_report,
+    insert_filtered_base_review_report_fn=insert_filtered_base_review_report,
+) -> list[str]:
+    """Finalize recent filtered reports whose replay was still open at cutoff.
+
+    The report date/window remains unchanged; only the replay cutoff advances.
+    This keeps the original daily review immutable while allowing a filtered
+    counterfactual to settle after the day boundary.
+    """
+
+    now_utc = _as_utc(now)
+    refreshed_dates: list[str] = []
+    for report_date in fetch_filtered_base_review_report_dates(path=path):
+        if report_date >= current_report_date:
+            continue
+        stored = fetch_filtered_base_review_report_by_date(
+            path=path,
+            report_date=report_date,
+        )
+        if stored is None:
+            continue
+        payload = stored.get("payload") or {}
+        rows = payload.get("rows") or payload.get("filtered_base_rows") or []
+        window_start = _parse_report_datetime(stored.get("window_start"))
+        window_end = _parse_report_datetime(stored.get("window_end"))
+        if window_start is None or window_end is None:
+            continue
+        signal_decisions = fetch_signal_decisions_for_window(
+            path=path,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        candidate_sample_ids = {
+            str(
+                (decision.get("payload") or {}).get("shadow_opportunity_id")
+                or decision.get("intent_id")
+                or ""
+            )
+            for decision in signal_decisions
+            if decision.get("decision_type") == "base_entry_skipped"
+            and str((decision.get("payload") or {}).get("blocked_reason") or "") == "base_veto"
+        }
+        stored_sample_ids = {
+            str(row.get("sample_id") or row.get("shadow_opportunity_id") or "")
+            for row in rows
+        }
+        needs_rebuild = not candidate_sample_ids.issubset(stored_sample_ids)
+        open_rows = [
+            row
+            for row in rows
+            if str(row.get("status") or "") in {"open", "pending_replay", "unresolved"}
+        ]
+        if not open_rows and not needs_rebuild:
+            continue
+        report_age = now_utc - window_end
+        if report_age < timedelta(0) or report_age > _FILTERED_REVIEW_REFRESH_MAX_AGE:
+            continue
+        symbols = sorted(
+            {
+                str(decision.get("symbol") or "")
+                for decision in signal_decisions
+                if decision.get("decision_type") == "base_entry_skipped"
+                and str((decision.get("payload") or {}).get("blocked_reason") or "") == "base_veto"
+                and decision.get("symbol")
+            }
+        )
+        if not symbols:
+            continue
+        replay_report = replay_skipped_bases_fn(
+            runtime_db_path=path,
+            output_dir=replay_output_dir / "historical" / report_date,
+            start_time=window_start,
+            seed_end_time=window_end,
+            end_time=now_utc,
+            symbols=symbols,
+            proxy=os.environ.get("BINANCE_PROXY") or None,
+            taker_fee_rate=Decimal(os.environ.get("TAKER_FEE_RATE", "0.0005")),
+            refresh_klines=False,
+            blocked_reasons={"base_veto"},
+            independent_candidate_replay=False,
+            enforce_daily_base_limit=True,
+        )
+        if bool(getattr(replay_report, "had_fetch_errors", False)):
+            continue
+        result_by_id = {
+            str(getattr(result, "shadow_opportunity_id", "")): result
+            for result in (getattr(replay_report, "opportunities", ()) or ())
+            if getattr(result, "shadow_opportunity_id", None)
+        }
+        open_sample_ids = {
+            str(row.get("sample_id") or row.get("shadow_opportunity_id") or "")
+            for row in open_rows
+        }
+        if not open_sample_ids.issubset(result_by_id):
+            continue
+        if any(
+            str(getattr(result_by_id[sample_id], "status", "")) not in {"closed", "open"}
+            for sample_id in open_sample_ids
+        ):
+            continue
+        refreshed_report = build_filtered_base_review_report_fn(
+            path=path,
+            now=now,
+            replay_report=replay_report,
+            review_window=DailyReviewWindow(
+                report_date=report_date,
+                window_start=window_start,
+                window_end=window_end,
+            ),
+            replay_cutoff=now_utc,
+        )
+        refreshed_rows = {
+            str(row.sample_id): row
+            for row in refreshed_report.rows
+        }
+        if any(
+            sample_id not in refreshed_rows
+            or refreshed_rows[sample_id].status not in {"closed", "open"}
+            for sample_id in open_sample_ids
+        ):
+            continue
+        insert_filtered_base_review_report_fn(
+            path=path,
+            report_date=refreshed_report.report_date,
+            window_start=refreshed_report.window_start,
+            window_end=refreshed_report.window_end,
+            generated_at=refreshed_report.generated_at,
+            status=refreshed_report.status,
+            warnings=list(refreshed_report.warnings),
+            payload={
+                "summary": refreshed_report.summary,
+                "rows": [row.__dict__ for row in refreshed_report.rows],
+            },
+        )
+        refreshed_dates.append(report_date)
+    return refreshed_dates
 
 
 def healthcheck_command(
@@ -96,7 +267,8 @@ def daily_review_report_command(
             taker_fee_rate=Decimal(os.environ.get("TAKER_FEE_RATE", "0.0005")),
             refresh_klines=False,
             blocked_reasons={"base_veto"},
-            independent_candidate_replay=True,
+            independent_candidate_replay=False,
+            enforce_daily_base_limit=True,
         )
 
     report_kwargs = {
@@ -155,13 +327,27 @@ def daily_review_report_command(
                 "rows": [row.__dict__ for row in filtered_report.rows],
             },
         )
+    refreshed_filtered_dates = (
+        refresh_open_filtered_base_reports(
+            path=runtime_db_path,
+            now=now,
+            current_report_date=(filtered_report.report_date if filtered_report is not None else report.report_date),
+            replay_output_dir=replay_output_dir,
+            replay_skipped_bases_fn=replay_skipped_bases_fn,
+            build_filtered_base_review_report_fn=build_filtered_base_review_report_fn,
+            insert_filtered_base_review_report_fn=insert_filtered_base_review_report_fn,
+        )
+        if filtered_report is not None and replay_skipped_bases_fn is not None
+        else []
+    )
     print(f"report_date={report.report_date}")
     print(f"trade_count={report.trade_count}")
     print(f"actual_total_pnl={report.actual_total_pnl}")
     print(f"counterfactual_total_pnl={report.counterfactual_total_pnl}")
     filtered_summary = filtered_report.summary if filtered_report is not None else {}
     print(f"filtered_base_candidates={filtered_summary.get('candidate_count', 0)}")
-    print(f"filtered_base_sample_pnl_sum={filtered_summary.get('closed_sample_pnl_sum', '0')}")
+    print(f"filtered_base_strategy_pnl_delta={filtered_summary.get('strategy_pnl_delta', '0')}")
+    print(f"filtered_base_refreshed_dates={','.join(refreshed_filtered_dates)}")
     print(f"account_income_total_pnl={report.account_reconciliation.income_total_pnl}")
     print(f"account_trade_vs_income_delta={report.account_reconciliation.trade_vs_income_delta}")
     return 0

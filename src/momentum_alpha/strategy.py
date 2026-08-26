@@ -165,6 +165,10 @@ def evaluate_minute_close(
             )
             if base_veto_decision.triggered:
                 blocked_reason = "base_veto"
+                # A veto filters the original strategy's one Base opportunity;
+                # it must not create a fresh same-symbol entry later that day.
+                daily_base_signal_counts[leader] = sequence
+                daily_base_signal_times[leader] = now
                 skipped_base_entries.append(
                     SkippedBaseEntry(
                         symbol=leader,
@@ -190,7 +194,14 @@ def evaluate_minute_close(
             else:
                 daily_base_signal_counts[leader] = sequence
                 daily_base_signal_times[leader] = now
-                entries.append(EntryIntent(symbol=leader, stop_price=stop_price, leg_type="base"))
+                entries.append(
+                    EntryIntent(
+                        symbol=leader,
+                        stop_price=stop_price,
+                        leg_type="base",
+                        base_veto_breakout_triggered=base_veto_decision.breakout_triggered,
+                    )
+                )
     else:
         blocked_reason = blocked_reason if leader_changed else None
 

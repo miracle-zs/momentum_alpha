@@ -768,6 +768,14 @@ def run_once_live(
                     {
                         "leg_type": intent.leg_type,
                         "stop_price": str(intent.stop_price),
+                        **(
+                            {
+                                "base_veto_breakout_triggered": True,
+                                "base_veto_breakout_shadow_only": True,
+                            }
+                            if intent.leg_type == "base" and intent.base_veto_breakout_triggered
+                            else {}
+                        ),
                         **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
                     },
                 )
