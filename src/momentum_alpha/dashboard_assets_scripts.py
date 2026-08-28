@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 from .dashboard_assets_scripts_core_live import render_dashboard_core_live_script
 
+@lru_cache(maxsize=1)
 def render_dashboard_scripts() -> str:
     return """  <script>
     const ACCOUNT_METRIC_STORAGE_KEY = 'dashboard.account.metric';
@@ -236,9 +239,13 @@ def render_dashboard_scripts() -> str:
       }}
       updateAccountOverview(accountMetricsData, activeMetric, activeRange);
     }}
-    function buildDashboardApiUrl(endpoint, range) {{
+    function buildDashboardApiUrl(endpoint, range, live = false) {{
       const basePath = window.location.pathname.replace(/\\/$/, "");
-      return `${{basePath}}${{endpoint}}?range=${{encodeURIComponent(range)}}`;
+      const liveQuery = live ? '&live=1' : '';
+      return `${{basePath}}${{endpoint}}?range=${{encodeURIComponent(range)}}${{liveQuery}}`;
+    }}
+    function supportsLiveSeries(range) {{
+      return ['1H', '1D', '1W'].includes(range);
     }}
     function getSelectedAccountRange() {{
       const urlRange = new URL(window.location.href).searchParams.get('range');
@@ -249,7 +256,7 @@ def render_dashboard_scripts() -> str:
     }}
     async function loadAccountRange(range) {{
       try {{
-        const response = await fetch(buildDashboardApiUrl('/api/dashboard/timeseries', range), {{ cache: 'no-store' }});
+        const response = await fetch(buildDashboardApiUrl('/api/dashboard/timeseries', range, supportsLiveSeries(range)), {{ cache: 'no-store' }});
         if (!response.ok) throw new Error(`account range fetch failed: ${{response.status}}`);
         const payload = await response.json();
         accountMetricsData = Array.isArray(payload.account) ? payload.account : [];
@@ -335,14 +342,48 @@ def render_dashboard_scripts() -> str:
       indicator.classList.toggle('error', state === 'error');
       indicatorText.textContent = label;
     }}
+    async function refreshLiveDashboard(range) {{
+      const [summaryResponse, timeseriesResponse] = await Promise.all([
+        fetch(buildDashboardApiUrl('/api/dashboard/summary', range, true), {{ cache: 'no-store' }}),
+        fetch(buildDashboardApiUrl('/api/dashboard/timeseries', range, true), {{ cache: 'no-store' }}),
+      ]);
+      if (!summaryResponse.ok || !timeseriesResponse.ok) {{
+        throw new Error(`live dashboard refresh failed: ${{summaryResponse.status}}/${{timeseriesResponse.status}}`);
+      }}
+      const [summary, timeseries] = await Promise.all([
+        summaryResponse.json(),
+        timeseriesResponse.json(),
+      ]);
+      const nextDocument = new DOMParser().parseFromString(summary.live_html || '', 'text/html');
+      const openLiveSupportKeys = getOpenLiveSupportKeys();
+      replaceSectionFromDocument(nextDocument, '[data-dashboard-section="status"]');
+      replaceSectionFromDocument(nextDocument, '[data-dashboard-section="room-nav"]');
+      replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-risk-band');
+      replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-core-lines-band');
+      replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-support-grid');
+      restoreOpenLiveSupportCards(openLiveSupportKeys);
+      syncCoreLiveChartsFromDocument(nextDocument);
+      accountMetricsData = Array.isArray(timeseries.account) ? timeseries.account : [];
+      activeRange = range;
+      renderAccountChart();
+      bindDashboardControls();
+      setRefreshIndicatorState('ok', 'Auto refresh: 5s');
+    }}
+    let dashboardRefreshInFlight = false;
     async function refreshDashboard(force = false) {{
       const refreshButton = document.getElementById('manual-refresh-button');
       const activeRoom = document.querySelector('[data-dashboard-active-room]')?.dataset.dashboardActiveRoom;
       if (!force && activeRoom === 'review') return;
+      if (dashboardRefreshInFlight) return;
+      dashboardRefreshInFlight = true;
       try {{
         if (refreshButton) refreshButton.classList.add('is-refreshing');
+        if (activeRoom === 'live') {{
+          await refreshLiveDashboard(getSelectedAccountRange());
+          return;
+        }}
         const currentUrl = `${{window.location.pathname}}${{window.location.search}}`;
-        const res = await fetch(currentUrl, {{ cache: 'no-store' }});
+        const res = await fetch(new URL(currentUrl, window.location.origin), {{ cache: 'no-store' }});
         if (!res.ok) {{
           setRefreshIndicatorState('error', 'Unable to refresh');
           return;
@@ -383,6 +424,7 @@ def render_dashboard_scripts() -> str:
         setRefreshIndicatorState('error', 'Unable to refresh');
       }}
       finally {{
+        dashboardRefreshInFlight = false;
         if (refreshButton) refreshButton.classList.remove('is-refreshing');
       }}
     }}
@@ -395,3 +437,12 @@ def render_dashboard_scripts() -> str:
   </script>
 </body>
 </html>""".replace("{{", "{").replace("}}", "}")
+
+
+def render_dashboard_script_asset() -> str:
+    """Return the dashboard JavaScript without the surrounding HTML tags."""
+
+    document = render_dashboard_scripts()
+    script_start = document.index("<script>") + len("<script>")
+    script_end = document.index("</script>", script_start)
+    return document[script_start:script_end].strip() + "\n"

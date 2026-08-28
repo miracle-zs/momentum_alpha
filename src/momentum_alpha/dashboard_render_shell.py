@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
-from .dashboard_assets import render_dashboard_head, render_dashboard_scripts
+from .dashboard_assets import DASHBOARD_JS_ASSET_PATH, render_dashboard_head, render_dashboard_scripts
 from .dashboard_common import normalize_account_range
 from .dashboard_data import build_dashboard_timeseries_payload, build_trade_leg_count_aggregates, build_trade_leg_index_aggregates
 from .dashboard_render_panels import (
@@ -230,13 +230,19 @@ def render_dashboard_document(
     active_tab: str | None = None,
     review_view: str | None = None,
     account_range_key: str = "1D",
+    use_external_assets: bool = False,
 ) -> str:
+    scripts = (
+        f'  <script src="{DASHBOARD_JS_ASSET_PATH}" defer></script>\n</body>\n</html>'
+        if use_external_assets
+        else render_dashboard_scripts()
+    )
     return (
         "<!doctype html>\n"
         '<html lang="zh-CN">\n'
-        f"{render_dashboard_head()}\n"
+        f"{render_dashboard_head(external_stylesheet=use_external_assets)}\n"
         f"{render_dashboard_body(snapshot, strategy_config=strategy_config, active_room=active_room, active_tab=active_tab, review_view=review_view, account_range_key=account_range_key)}"
-        f"{render_dashboard_scripts()}"
+        f"{scripts}"
     )
 
 
@@ -569,6 +575,7 @@ def render_dashboard_html(
     active_tab: str | None = None,
     review_view: str | None = None,
     account_range_key: str = "1D",
+    use_external_assets: bool = False,
 ) -> str:
     return render_dashboard_document(
         snapshot,
@@ -577,4 +584,5 @@ def render_dashboard_html(
         active_tab=active_tab,
         review_view=review_view,
         account_range_key=account_range_key,
+        use_external_assets=use_external_assets,
     )

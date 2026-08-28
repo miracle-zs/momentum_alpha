@@ -19,6 +19,17 @@ class DashboardAssetsSplitTests(unittest.TestCase):
         self.assertTrue(callable(dashboard_assets_head.render_dashboard_head))
         self.assertTrue(callable(dashboard_assets_scripts.render_dashboard_scripts))
 
+    def test_dashboard_static_asset_bundles_are_raw_assets(self) -> None:
+        from momentum_alpha.dashboard_assets import render_dashboard_script_asset, render_dashboard_stylesheet
+
+        stylesheet = render_dashboard_stylesheet()
+        script = render_dashboard_script_asset()
+
+        self.assertNotIn("<style", stylesheet)
+        self.assertIn(".app", stylesheet)
+        self.assertNotIn("<script", script)
+        self.assertIn("setInterval(() => refreshDashboard(false), 5000)", script)
+
     def test_dashboard_style_bundle_modules_export_key_entrypoints(self) -> None:
         from momentum_alpha import (
             dashboard_assets_styles_base,

@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
 from .dashboard_assets_styles import render_dashboard_styles
 
 ECHARTS_CDNJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/echarts/5.6.0/echarts.min.js"
 ECHARTS_CDNJS_INTEGRITY = "sha512-XSmbX3mhrD2ix5fXPTRQb2FwK22sRMVQTpBP2ac8hX7Dh/605hA2QDegVWiAvZPiXIxOV0CbkmUjGionDpbCmw=="
 ECHARTS_JSDELIVR_URL = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
+DASHBOARD_CSS_ASSET_PATH = "assets/dashboard.css?v=1"
+DASHBOARD_CSS_ASSET_ROUTE = "/assets/dashboard.css"
+DASHBOARD_JS_ASSET_PATH = "assets/dashboard.js?v=1"
+DASHBOARD_JS_ASSET_ROUTE = "/assets/dashboard.js"
 
-def render_dashboard_head() -> str:
-    return f"""<head>
+
+@lru_cache(maxsize=2)
+def render_dashboard_head(*, external_stylesheet: bool = False) -> str:
+    head = f"""<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Momentum Alpha | 交易监控面板</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <script>
     window.__loadFallbackECharts = function () {{
       if (window.echarts) {{
@@ -389,3 +398,22 @@ def render_dashboard_head() -> str:
     {render_dashboard_styles()}
     </style>
 </head>"""
+    if not external_stylesheet:
+        return head
+
+    style_start = head.index("    <style>")
+    style_end = head.index("    </style>", style_start) + len("    </style>")
+    return (
+        head[:style_start]
+        + f'  <link rel="stylesheet" href="{DASHBOARD_CSS_ASSET_PATH}">\n'
+        + head[style_end:]
+    )
+
+
+def render_dashboard_stylesheet() -> str:
+    """Return the dashboard CSS without the surrounding HTML style tag."""
+
+    head = render_dashboard_head()
+    style_start = head.index("<style>") + len("<style>")
+    style_end = head.index("</style>", style_start)
+    return head[style_start:style_end].replace("    <!-- render_dashboard_styles -->\n", "").strip() + "\n"

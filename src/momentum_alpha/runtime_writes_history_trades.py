@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_live_state import upsert_dashboard_live_state
 
 from .runtime_writes_common import _as_utc_iso, _decimal_to_text, _json_dumps
 
@@ -89,6 +90,21 @@ def insert_stop_exit_summary(
     payload: dict | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
+    timestamp_text = _as_utc_iso(timestamp)
+    stop_payload = {
+        "timestamp": timestamp_text,
+        "symbol": symbol,
+        "round_trip_id": round_trip_id,
+        "trigger_price": _decimal_to_text(trigger_price),
+        "average_exit_price": _decimal_to_text(average_exit_price),
+        "slippage_abs": _decimal_to_text(slippage_abs),
+        "slippage_pct": _decimal_to_text(slippage_pct),
+        "exit_quantity": _decimal_to_text(exit_quantity),
+        "realized_pnl": _decimal_to_text(realized_pnl),
+        "commission": _decimal_to_text(commission),
+        "net_pnl": _decimal_to_text(net_pnl),
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -108,7 +124,7 @@ def insert_stop_exit_summary(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 symbol,
                 round_trip_id,
                 _decimal_to_text(trigger_price),
@@ -121,4 +137,10 @@ def insert_stop_exit_summary(
                 _decimal_to_text(net_pnl),
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_stop_exit_summary",
+            timestamp=timestamp_text,
+            payload=stop_payload,
         )

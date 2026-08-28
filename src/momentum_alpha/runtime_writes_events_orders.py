@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_live_state import upsert_dashboard_live_state
 
 from .runtime_writes_common import _as_utc_iso, _decimal_to_text, _json_dumps
 from .trace_ids import build_intent_id_from_client_order_id
@@ -32,6 +33,24 @@ def insert_broker_order(
     bootstrap_runtime_db(path=path)
     normalized_order_status = order_status if order_status is not None else status
     normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_order_id or client_algo_id)
+    timestamp_text = _as_utc_iso(timestamp)
+    order_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "symbol": symbol,
+        "action_type": action_type,
+        "order_type": order_type,
+        "order_id": order_id,
+        "client_order_id": client_order_id,
+        "client_algo_id": client_algo_id,
+        "decision_id": decision_id,
+        "intent_id": normalized_intent_id,
+        "order_status": normalized_order_status,
+        "side": side,
+        "quantity": quantity,
+        "price": price,
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -54,7 +73,7 @@ def insert_broker_order(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 symbol,
                 action_type,
@@ -70,6 +89,12 @@ def insert_broker_order(
                 price,
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_broker_order",
+            timestamp=timestamp_text,
+            payload=order_payload,
         )
 
 
@@ -99,6 +124,29 @@ def insert_trade_fill(
 ) -> None:
     bootstrap_runtime_db(path=path)
     normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_order_id)
+    timestamp_text = _as_utc_iso(timestamp)
+    fill_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "symbol": symbol,
+        "order_id": order_id,
+        "trade_id": trade_id,
+        "client_order_id": client_order_id,
+        "decision_id": decision_id,
+        "intent_id": normalized_intent_id,
+        "order_status": order_status,
+        "execution_type": execution_type,
+        "side": side,
+        "order_type": order_type,
+        "quantity": _decimal_to_text(quantity),
+        "cumulative_quantity": _decimal_to_text(cumulative_quantity),
+        "average_price": _decimal_to_text(average_price),
+        "last_price": _decimal_to_text(last_price),
+        "realized_pnl": _decimal_to_text(realized_pnl),
+        "commission": _decimal_to_text(commission),
+        "commission_asset": commission_asset,
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -126,7 +174,7 @@ def insert_trade_fill(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 symbol,
                 order_id,
@@ -148,6 +196,12 @@ def insert_trade_fill(
                 _json_dumps(payload or {}),
             ),
         )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_trade_fill",
+            timestamp=timestamp_text,
+            payload=fill_payload,
+        )
 
 
 def insert_algo_order(
@@ -168,6 +222,21 @@ def insert_algo_order(
 ) -> None:
     bootstrap_runtime_db(path=path)
     normalized_intent_id = intent_id or build_intent_id_from_client_order_id(client_algo_id)
+    timestamp_text = _as_utc_iso(timestamp)
+    algo_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "symbol": symbol,
+        "algo_id": algo_id,
+        "client_algo_id": client_algo_id,
+        "decision_id": decision_id,
+        "intent_id": normalized_intent_id,
+        "algo_status": algo_status,
+        "side": side,
+        "order_type": order_type,
+        "trigger_price": _decimal_to_text(trigger_price),
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -187,7 +256,7 @@ def insert_algo_order(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 symbol,
                 algo_id,
@@ -200,4 +269,10 @@ def insert_algo_order(
                 _decimal_to_text(trigger_price),
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_algo_order",
+            timestamp=timestamp_text,
+            payload=algo_payload,
         )

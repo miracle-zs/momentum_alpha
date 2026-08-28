@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from momentum_alpha.runtime_store import RuntimeStateStore
 
-from .dashboard_data_loader import load_dashboard_snapshot
+from .dashboard_data_loader import load_dashboard_live_snapshot, load_dashboard_snapshot
 from .dashboard_data_payloads import (
     build_dashboard_response_json,
     build_dashboard_summary_payload,

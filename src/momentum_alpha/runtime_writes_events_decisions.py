@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_live_state import upsert_dashboard_live_state
 
 from .runtime_writes_common import _as_utc_iso, _json_dumps
 
@@ -26,6 +27,22 @@ def insert_signal_decision(
     payload: dict | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
+    timestamp_text = _as_utc_iso(timestamp)
+    decision_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "decision_id": decision_id,
+        "intent_id": intent_id,
+        "decision_type": decision_type,
+        "symbol": symbol,
+        "previous_leader_symbol": previous_leader_symbol,
+        "next_leader_symbol": next_leader_symbol,
+        "position_count": position_count,
+        "order_status_count": order_status_count,
+        "broker_response_count": broker_response_count,
+        "stop_replacement_count": stop_replacement_count,
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -46,7 +63,7 @@ def insert_signal_decision(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 decision_id,
                 intent_id,
@@ -60,4 +77,10 @@ def insert_signal_decision(
                 stop_replacement_count,
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_signal_decision",
+            timestamp=timestamp_text,
+            payload=decision_payload,
         )

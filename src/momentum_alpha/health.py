@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import sqlite3
 from pathlib import Path
 
+from momentum_alpha.runtime_schema import _get_reused_runtime_connection
+
 
 _USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_replacements")
+
+
+@contextmanager
+def _health_connection(path: Path):
+    reused_connection = _get_reused_runtime_connection(path)
+    if reused_connection is not None:
+        yield reused_connection
+        return
+    connection = sqlite3.connect(path)
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 def _parse_utc_timestamp(value: object) -> datetime | None:
@@ -45,13 +61,10 @@ def _check_runtime_db_freshness(*, path: Path, now: datetime, max_age_seconds: i
     if not path.exists():
         return HealthCheckItem(name="runtime_db", status="FAIL", message="missing runtime_db")
     try:
-        connection = sqlite3.connect(path)
-        try:
+        with _health_connection(path) as connection:
             row = connection.execute(
                 "SELECT timestamp FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT 1"
             ).fetchone()
-        finally:
-            connection.close()
     except sqlite3.Error as exc:
         return HealthCheckItem(name="runtime_db", status="FAIL", message=f"invalid runtime_db error={exc}")
     if row is None or not row[0]:
@@ -74,27 +87,21 @@ def _check_strategy_state_freshness(*, path: Path, now: datetime, max_age_second
     if not path.exists():
         return HealthCheckItem(name="strategy_state", status="FAIL", message=f"missing path={path}")
     try:
-        connection = sqlite3.connect(path)
-        try:
+        with _health_connection(path) as connection:
             # Check if strategy_state table exists and has data
             row = connection.execute(
                 "SELECT 1 FROM strategy_state LIMIT 1"
             ).fetchone()
             if row is None:
                 return HealthCheckItem(name="strategy_state", status="WARN", message=f"empty strategy_state table")
-        finally:
-            connection.close()
     except sqlite3.Error as exc:
         return HealthCheckItem(name="strategy_state", status="FAIL", message=f"invalid path={path} error={exc}")
     # Check audit_events for latest activity as proxy for state freshness
     try:
-        connection = sqlite3.connect(path)
-        try:
+        with _health_connection(path) as connection:
             row = connection.execute(
                 "SELECT timestamp FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT 1"
             ).fetchone()
-        finally:
-            connection.close()
     except sqlite3.Error as exc:
         return HealthCheckItem(
             name="strategy_state",
@@ -130,8 +137,7 @@ def _check_audit_event_freshness(
         return HealthCheckItem(name=name, status="FAIL", message=f"missing path={path}")
     placeholders = ", ".join("?" for _ in event_types)
     try:
-        connection = sqlite3.connect(path)
-        try:
+        with _health_connection(path) as connection:
             row = connection.execute(
                 f"""
                 SELECT timestamp
@@ -142,8 +148,6 @@ def _check_audit_event_freshness(
                 """,
                 event_types,
             ).fetchone()
-        finally:
-            connection.close()
     except sqlite3.Error as exc:
         return HealthCheckItem(name=name, status="FAIL", message=f"invalid path={path} error={exc}")
     if row is None or not row[0]:
@@ -178,8 +182,7 @@ def _latest_audit_event(
         timestamp_filter = "AND timestamp >= ?"
         params.append(not_before.astimezone(timezone.utc).isoformat())
 
-    connection = sqlite3.connect(path)
-    try:
+    with _health_connection(path) as connection:
         row = connection.execute(
             f"""
             SELECT timestamp, event_type
@@ -191,8 +194,6 @@ def _latest_audit_event(
             """,
             params,
         ).fetchone()
-    finally:
-        connection.close()
     if row is None or not row[0]:
         return None
     timestamp_text = str(row[0])

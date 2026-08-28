@@ -47,6 +47,17 @@ class RuntimeSchemaTests(unittest.TestCase):
             with runtime_schema._connect(db_path) as connection:
                 self.assertEqual(connection.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
 
+    def test_runtime_connection_can_be_reused_by_nested_reads(self) -> None:
+        from momentum_alpha import runtime_schema
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            runtime_schema.bootstrap_runtime_db(path=db_path)
+            with runtime_schema._connect(db_path) as connection:
+                with runtime_schema._reuse_runtime_connection(path=db_path, connection=connection):
+                    with runtime_schema._connect(db_path) as nested_connection:
+                        self.assertIs(nested_connection, connection)
+
     def test_runtime_schema_migrates_existing_runtime_database_columns(self) -> None:
         from momentum_alpha import runtime_schema
 

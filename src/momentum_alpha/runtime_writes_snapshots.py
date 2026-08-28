@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_live_state import upsert_dashboard_live_series, upsert_dashboard_live_state
 
 from .runtime_writes_common import _as_utc_iso, _bool_to_int, _decimal_to_text, _json_dumps
 
@@ -27,6 +28,21 @@ def insert_position_snapshot(
 ) -> None:
     bootstrap_runtime_db(path=path)
     normalized_leader_symbol = leader_symbol if leader_symbol is not None else previous_leader_symbol
+    timestamp_text = _as_utc_iso(timestamp)
+    snapshot_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "leader_symbol": normalized_leader_symbol,
+        "decision_id": decision_id,
+        "intent_id": intent_id,
+        "position_count": position_count,
+        "order_status_count": order_status_count,
+        "symbol_count": symbol_count,
+        "submit_orders": submit_orders,
+        "restore_positions": restore_positions,
+        "execute_stop_replacements": execute_stop_replacements,
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -46,7 +62,7 @@ def insert_position_snapshot(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 normalized_leader_symbol,
                 decision_id,
@@ -59,6 +75,18 @@ def insert_position_snapshot(
                 _bool_to_int(execute_stop_replacements),
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_position_snapshot",
+            timestamp=timestamp_text,
+            payload=snapshot_payload,
+        )
+        upsert_dashboard_live_series(
+            connection=connection,
+            series_type="position",
+            timestamp=timestamp_text,
+            payload=snapshot_payload,
         )
 
 
@@ -79,6 +107,21 @@ def insert_account_snapshot(
     payload: dict | None = None,
 ) -> None:
     bootstrap_runtime_db(path=path)
+    timestamp_text = _as_utc_iso(timestamp)
+    snapshot_payload = {
+        "timestamp": timestamp_text,
+        "source": source,
+        "decision_id": decision_id,
+        "intent_id": intent_id,
+        "wallet_balance": _decimal_to_text(wallet_balance),
+        "available_balance": _decimal_to_text(available_balance),
+        "equity": _decimal_to_text(equity),
+        "unrealized_pnl": _decimal_to_text(unrealized_pnl),
+        "position_count": position_count,
+        "open_order_count": open_order_count,
+        "leader_symbol": leader_symbol,
+        "payload": payload or {},
+    }
     with _connect(path) as connection:
         connection.execute(
             """
@@ -98,7 +141,7 @@ def insert_account_snapshot(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                _as_utc_iso(timestamp),
+                timestamp_text,
                 source,
                 decision_id,
                 intent_id,
@@ -111,4 +154,16 @@ def insert_account_snapshot(
                 leader_symbol,
                 _json_dumps(payload or {}),
             ),
+        )
+        upsert_dashboard_live_state(
+            connection=connection,
+            state_key="latest_account_snapshot",
+            timestamp=timestamp_text,
+            payload=snapshot_payload,
+        )
+        upsert_dashboard_live_series(
+            connection=connection,
+            series_type="account",
+            timestamp=timestamp_text,
+            payload=snapshot_payload,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 
@@ -271,6 +272,21 @@ CREATE TABLE IF NOT EXISTS strategy_state (
     payload_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dashboard_live_state (
+    state_key TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_live_series (
+    series_type TEXT NOT NULL,
+    bucket_timestamp TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY(series_type, bucket_timestamp)
+);
+CREATE INDEX IF NOT EXISTS idx_dashboard_live_series_timestamp
+    ON dashboard_live_series(series_type, bucket_timestamp);
+
 CREATE TABLE IF NOT EXISTS daily_open_prices (
     trading_day TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -319,8 +335,39 @@ CREATE TABLE IF NOT EXISTS runtime_control_requests (
 """
 
 
+_REUSED_RUNTIME_CONNECTION: ContextVar[tuple[Path, sqlite3.Connection] | None] = ContextVar(
+    "reused_runtime_connection",
+    default=None,
+)
+
+
+def _runtime_connection_key(path: Path) -> Path:
+    return Path(path).resolve()
+
+
+def _get_reused_runtime_connection(path: Path) -> sqlite3.Connection | None:
+    active = _REUSED_RUNTIME_CONNECTION.get()
+    if active is None or active[0] != _runtime_connection_key(path):
+        return None
+    return active[1]
+
+
+@contextmanager
+def _reuse_runtime_connection(*, path: Path, connection: sqlite3.Connection):
+    token = _REUSED_RUNTIME_CONNECTION.set((_runtime_connection_key(path), connection))
+    try:
+        yield connection
+    finally:
+        _REUSED_RUNTIME_CONNECTION.reset(token)
+
+
 @contextmanager
 def _connect(path: Path):
+    reused_connection = _get_reused_runtime_connection(path)
+    if reused_connection is not None:
+        yield reused_connection
+        return
+
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=30.0)
     try:
@@ -430,3 +477,25 @@ def bootstrap_runtime_db(*, path: Path) -> None:
     with _connect(path) as connection:
         connection.executescript(SCHEMA)
         _migrate_runtime_db(connection)
+
+
+def ensure_dashboard_live_schema(*, path: Path) -> None:
+    """Create only the small live projection used by dashboard refreshes."""
+    with _connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS dashboard_live_state (
+                state_key TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS dashboard_live_series (
+                series_type TEXT NOT NULL,
+                bucket_timestamp TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY(series_type, bucket_timestamp)
+            );
+            CREATE INDEX IF NOT EXISTS idx_dashboard_live_series_timestamp
+                ON dashboard_live_series(series_type, bucket_timestamp);
+            """
+        )

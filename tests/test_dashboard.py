@@ -22,8 +22,87 @@ class DashboardTests(unittest.TestCase):
         from momentum_alpha import dashboard
 
         self.assertTrue(callable(dashboard.load_dashboard_snapshot))
+        self.assertTrue(callable(dashboard.load_dashboard_live_snapshot))
         self.assertTrue(callable(dashboard.render_dashboard_html))
         self.assertTrue(callable(dashboard.run_dashboard_server))
+
+    def test_live_dashboard_snapshot_reads_write_maintained_projection(self) -> None:
+        from momentum_alpha import dashboard
+        from momentum_alpha.runtime_store import insert_account_snapshot, insert_position_snapshot
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            now = datetime(2026, 4, 17, 1, 0, tzinfo=timezone.utc)
+            insert_account_snapshot(
+                path=runtime_db_file,
+                timestamp=now - timedelta(minutes=5),
+                source="poll",
+                position_count=1,
+                open_order_count=1,
+                wallet_balance="1000.00",
+                available_balance="900.00",
+                equity="1010.00",
+                unrealized_pnl="10.00",
+            )
+            insert_account_snapshot(
+                path=runtime_db_file,
+                timestamp=now,
+                source="poll",
+                position_count=1,
+                open_order_count=1,
+                wallet_balance="1000.00",
+                available_balance="880.00",
+                equity="1025.00",
+                unrealized_pnl="25.00",
+            )
+            insert_position_snapshot(
+                path=runtime_db_file,
+                timestamp=now,
+                source="poll",
+                leader_symbol="BTCUSDT",
+                position_count=1,
+                order_status_count=1,
+                payload={
+                    "positions": {
+                        "BTCUSDT": {
+                            "symbol": "BTCUSDT",
+                            "total_quantity": "0.01",
+                            "weighted_avg_entry_price": "80000",
+                            "stop_price": "79000",
+                        }
+                    }
+                },
+            )
+
+            with (
+                patch("momentum_alpha.dashboard_data_loader.fetch_account_snapshots_for_range", side_effect=AssertionError),
+                patch("momentum_alpha.dashboard_data_loader.fetch_position_snapshots_for_range", side_effect=AssertionError),
+            ):
+                snapshot = dashboard.load_dashboard_live_snapshot(
+                    now=now,
+                    runtime_db_file=runtime_db_file,
+                    account_range_key="1D",
+                )
+
+        self.assertEqual(snapshot["runtime"]["latest_account_snapshot"]["equity"], "1025.00")
+        self.assertEqual(snapshot["runtime"]["latest_position_snapshot"]["leader_symbol"], "BTCUSDT")
+        self.assertEqual(len(snapshot["recent_account_snapshots"]), 2)
+        self.assertTrue(snapshot["recent_position_risk_snapshots"])
+
+    def test_dashboard_snapshot_reuses_one_sqlite_connection_for_reads(self) -> None:
+        from momentum_alpha import dashboard, runtime_schema
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            runtime_schema.bootstrap_runtime_db(path=runtime_db_file)
+            with patch.object(runtime_schema.sqlite3, "connect", wraps=runtime_schema.sqlite3.connect) as connect:
+                dashboard.load_dashboard_snapshot(
+                    now=datetime(2026, 4, 17, 1, 0, tzinfo=timezone.utc),
+                    runtime_db_file=runtime_db_file,
+                    account_range_key="1D",
+                )
+
+        self.assertEqual(connect.call_count, 1)
 
     def _build_tabbed_snapshot(self) -> dict:
         return {
@@ -333,6 +412,27 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("<!doctype html>", document_html)
         self.assertIn("<head>", document_html)
         self.assertIn("<body>", document_html)
+
+    def test_render_dashboard_html_can_reference_cacheable_static_assets(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_html
+
+        html = render_dashboard_html(self._build_tabbed_snapshot(), use_external_assets=True)
+
+        self.assertIn('href="assets/dashboard.css?v=1"', html)
+        self.assertIn('src="assets/dashboard.js?v=1"', html)
+        self.assertNotIn("<style>", html)
+        self.assertNotIn("const ACCOUNT_METRIC_STORAGE_KEY", html)
+
+    def test_dashboard_scripts_refresh_with_summary_and_timeseries_json(self) -> None:
+        from momentum_alpha.dashboard import render_dashboard_scripts
+
+        scripts = render_dashboard_scripts()
+
+        self.assertIn("/api/dashboard/summary", scripts)
+        self.assertIn("/api/dashboard/timeseries", scripts)
+        self.assertIn("live=1", scripts)
+        self.assertIn("Promise.all", scripts)
+        self.assertNotIn("fetch(currentUrl", scripts)
 
     def test_render_dashboard_html_performance_shows_margin_usage_summary_cards(self) -> None:
         from momentum_alpha.dashboard import render_dashboard_html
