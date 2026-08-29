@@ -453,6 +453,7 @@ class RuntimeStoreTests(unittest.TestCase):
             bootstrap_runtime_db,
             fetch_filtered_base_review_report_by_date,
             fetch_filtered_base_review_report_dates,
+            fetch_filtered_base_review_reports_summary,
             fetch_latest_filtered_base_review_report,
             insert_filtered_base_review_report,
         )
@@ -477,10 +478,86 @@ class RuntimeStoreTests(unittest.TestCase):
             latest = fetch_latest_filtered_base_review_report(path=db_path)
             selected = fetch_filtered_base_review_report_by_date(path=db_path, report_date="2026-04-21")
             dates = fetch_filtered_base_review_report_dates(path=db_path)
+            summary = fetch_filtered_base_review_reports_summary(path=db_path)
 
         self.assertEqual(latest["payload"]["summary"]["candidate_count"], 1)
         self.assertEqual(selected["payload"]["rows"][0]["sample_id"], "sample-1")
         self.assertEqual(dates, ["2026-04-21"])
+        self.assertEqual(summary["report_count"], 1)
+        self.assertEqual(summary["candidate_count"], 1)
+        self.assertEqual(summary["counterfactual_trade_pnl_sum"], "-12.5")
+
+    def test_fetch_filtered_base_review_reports_summary_sums_history(self) -> None:
+        from momentum_alpha.runtime_store import (
+            bootstrap_runtime_db,
+            fetch_filtered_base_review_reports_summary,
+            insert_filtered_base_review_report,
+        )
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=db_path)
+            reports = [
+                (
+                    "2026-04-20",
+                    {
+                        "candidate_count": 2,
+                        "closed_count": 1,
+                        "open_count": 1,
+                        "missed_profit_sum": "5.50",
+                        "avoided_loss_sum": "1.25",
+                        "counterfactual_trade_pnl_sum": "4.25",
+                        "actual_replaced_pnl_sum": "-1.00",
+                        "strategy_pnl_delta": "5.25",
+                        "tail_50u_count": 1,
+                    },
+                    [
+                        {"status": "closed", "add_on_count": 2, "is_long_tail_50u": True},
+                        {"status": "open", "add_on_count": 1},
+                        {"status": "suppressed"},
+                    ],
+                ),
+                (
+                    "2026-04-21",
+                    {
+                        "candidate_count": 1,
+                        "closed_count": 1,
+                        "missed_profit_sum": "0",
+                        "avoided_loss_sum": "3.75",
+                        "counterfactual_trade_pnl_sum": "-2.00",
+                        "actual_replaced_pnl_sum": "0.50",
+                        "strategy_pnl_delta": "-3.75",
+                        "tail_50u_count": 0,
+                    },
+                    [{"status": "closed", "add_on_count": 0}],
+                ),
+            ]
+            for report_date, summary, rows in reports:
+                insert_filtered_base_review_report(
+                    path=db_path,
+                    report_date=report_date,
+                    window_start=f"{report_date}T00:00:00+00:00",
+                    window_end=f"{report_date}T23:59:59+00:00",
+                    generated_at=f"{report_date}T23:59:59+00:00",
+                    status="ok",
+                    warnings=[],
+                    payload={"summary": summary, "rows": rows},
+                )
+
+            summary = fetch_filtered_base_review_reports_summary(path=db_path)
+
+        self.assertEqual(summary["report_count"], 2)
+        self.assertEqual(summary["candidate_count"], 3)
+        self.assertEqual(summary["closed_count"], 2)
+        self.assertEqual(summary["open_count"], 1)
+        self.assertEqual(summary["suppressed_count"], 1)
+        self.assertEqual(summary["replayed_add_on_count"], 3)
+        self.assertEqual(summary["missed_profit_sum"], "5.50")
+        self.assertEqual(summary["avoided_loss_sum"], "5.00")
+        self.assertEqual(summary["counterfactual_trade_pnl_sum"], "2.25")
+        self.assertEqual(summary["actual_replaced_pnl_sum"], "-0.50")
+        self.assertEqual(summary["strategy_pnl_delta"], "1.50")
+        self.assertEqual(summary["tail_50u_count"], 1)
 
     def test_fetch_daily_review_report_by_date_returns_matching_history_row(self) -> None:
         from momentum_alpha.runtime_store import (

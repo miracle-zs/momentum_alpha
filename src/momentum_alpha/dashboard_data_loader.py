@@ -23,6 +23,7 @@ from momentum_alpha.runtime_store import (
     fetch_daily_review_reports_summary,
     fetch_filtered_base_review_report_by_date,
     fetch_filtered_base_review_report_dates,
+    fetch_filtered_base_review_reports_summary,
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_latest_daily_review_report,
@@ -180,6 +181,7 @@ def load_dashboard_snapshot(
     daily_review_report_dates: list[str] = []
     filtered_review_report_dates: list[str] = []
     daily_review_history_summary: dict | None = None
+    filtered_review_history_summary: dict | None = None
 
     if database_readable:
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
@@ -209,6 +211,7 @@ def load_dashboard_snapshot(
         daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
         daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
         filtered_review_report_dates = fetch_filtered_base_review_report_dates(path=runtime_db_file)
+        filtered_review_history_summary = fetch_filtered_base_review_reports_summary(path=runtime_db_file)
         if report_date is not None:
             daily_review_report = fetch_daily_review_report_by_date(path=runtime_db_file, report_date=report_date)
             if daily_review_report is None:
@@ -264,6 +267,7 @@ def load_dashboard_snapshot(
                 "requested_report_date": report_date,
                 "selected_report_date": daily_review_report.get("report_date"),
                 "available_report_dates": daily_review_report_dates,
+                "history_summary": filtered_review_history_summary or {},
                 "payload": {
                     "summary": stored_payload.get("filtered_base_summary") or {},
                     "rows": stored_payload.get("filtered_base_rows") or [],
@@ -296,6 +300,7 @@ def load_dashboard_snapshot(
             "requested_report_date": report_date,
             "selected_report_date": filtered_review_report.get("report_date"),
             "available_report_dates": filtered_review_report_dates,
+            "history_summary": filtered_review_history_summary or filtered_review_report.get("history_summary") or {},
         }
 
     snapshot = {

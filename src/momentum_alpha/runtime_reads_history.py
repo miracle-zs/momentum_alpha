@@ -5,6 +5,7 @@ from .runtime_reads_history_reports import (
     fetch_daily_review_report_by_date,
     fetch_daily_review_report_dates,
     fetch_daily_review_reports_summary,
+    fetch_filtered_base_review_reports_summary,
     fetch_filtered_base_review_report_by_date,
     fetch_filtered_base_review_report_dates,
     fetch_latest_daily_review_report,

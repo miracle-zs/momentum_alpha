@@ -746,6 +746,32 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("OVERLAP", html)
         self.assertNotIn("Shadow", html)
 
+    def test_filtered_review_panel_shows_historical_summary(self) -> None:
+        from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
+
+        html = render_filtered_base_review_panel(
+            {
+                "report_date": "2026-04-21",
+                "history_summary": {
+                    "report_count": 12,
+                    "candidate_count": 28,
+                    "closed_count": 24,
+                    "missed_profit_sum": "86.40",
+                    "avoided_loss_sum": "31.15",
+                    "strategy_pnl_delta": "55.25",
+                },
+                "payload": {"summary": {}, "rows": []},
+                "available_report_dates": ["2026-04-21"],
+            }
+        )
+
+        self.assertIn("HISTORICAL SUMMARY", html)
+        self.assertIn("Cumulative Strategy Delta", html)
+        self.assertIn("Filtered Candidates", html)
+        self.assertIn("86.40", html)
+        self.assertIn("31.15", html)
+        self.assertIn("+55.25", html)
+
     def test_filtered_review_panel_shows_replaced_actual_trade_delta(self) -> None:
         from momentum_alpha.dashboard_render_panels_filter_review import render_filtered_base_review_panel
 
@@ -882,6 +908,8 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("filtered_base_rows", snapshot["daily_review_report"]["payload"])
         self.assertEqual(snapshot["filtered_review_report"]["payload"]["rows"][0]["symbol"], "FILTERONLY")
         self.assertEqual(snapshot["filtered_review_report"]["available_report_dates"], ["2026-04-21"])
+        self.assertEqual(snapshot["filtered_review_report"]["history_summary"]["report_count"], 1)
+        self.assertEqual(snapshot["filtered_review_report"]["history_summary"]["candidate_count"], 1)
 
     def test_load_dashboard_snapshot_can_open_specific_daily_review_date(self) -> None:
         from momentum_alpha.dashboard import load_dashboard_snapshot

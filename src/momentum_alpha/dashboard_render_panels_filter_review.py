@@ -25,6 +25,36 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
 
     payload = report.get("payload") or {}
     summary = payload.get("summary") or payload.get("filtered_base_summary") or {}
+    history_summary = report.get("history_summary") or {}
+    history_candidate_count = history_summary.get("candidate_count")
+    if history_candidate_count is None:
+        history_candidate_count = history_summary.get("accepted_count", "n/a")
+    history_summary_items = [
+        ("Total Reports", str(history_summary.get("report_count", "n/a"))),
+        ("Filtered Candidates", str(history_candidate_count)),
+        ("Closed Replays", str(history_summary.get("closed_count", "n/a"))),
+        (
+            "Cumulative Missed Profit",
+            _format_decimal_metric(_parse_decimal(history_summary.get("missed_profit_sum"))),
+        ),
+        (
+            "Cumulative Avoided Loss",
+            _format_decimal_metric(_parse_decimal(history_summary.get("avoided_loss_sum"))),
+        ),
+        (
+            "Cumulative Strategy Delta",
+            _format_decimal_metric(_parse_decimal(history_summary.get("strategy_pnl_delta")), signed=True),
+        ),
+    ]
+    history_summary_html = "".join(
+        (
+            "<div class='daily-review-kpi daily-review-history-kpi'>"
+            f"<div class='decision-label'>{escape(label)}</div>"
+            f"<div class='decision-value'>{escape(value)}</div>"
+            "</div>"
+        )
+        for label, value in history_summary_items
+    )
     rows_data = sorted(
         payload.get("rows") or payload.get("filtered_base_rows") or [],
         key=lambda row: (row.get("vetoed_at") or "", row.get("symbol") or ""),
@@ -162,6 +192,13 @@ def render_filtered_base_review_panel(report: dict | None) -> str:
     return (
         "<section class='chart-card filter-review-panel'>"
         f"{date_toolbar}"
+        "<div class='daily-review-history-summary filter-review-history-summary'>"
+        "<div class='daily-review-history-summary-head'>"
+        "<div class='daily-review-eyebrow'>HISTORICAL SUMMARY</div>"
+        "<div class='daily-review-history-title'>Cumulative Strategy Delta</div>"
+        "</div>"
+        f"<div class='daily-review-kpi-grid daily-review-history-grid'>{history_summary_html}</div>"
+        "</div>"
         f"<div class='filter-review-verdict {escape(verdict_state)}'>"
         "<div>"
         "<span class='filter-review-kicker'>本日结论</span>"
