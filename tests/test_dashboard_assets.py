@@ -35,6 +35,25 @@ class DashboardAssetsTests(unittest.TestCase):
         self.assertIn("https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js", head)
         self.assertIn("echarts-ready", head)
 
+    def test_live_refresh_preserves_source_nodes_and_rebinds_chart_lifecycle(self) -> None:
+        from momentum_alpha import dashboard_assets
+
+        scripts = dashboard_assets.render_dashboard_scripts()
+        refresh_start = scripts.index("async function refreshLiveDashboard")
+        refresh_end = scripts.index("let dashboardRefreshInFlight", refresh_start)
+        refresh_script = scripts[refresh_start:refresh_end]
+
+        self.assertIn("function disposeCoreLiveCharts()", scripts)
+        self.assertIn("replacement.cloneNode(true)", scripts)
+        self.assertLess(
+            refresh_script.index("disposeCoreLiveCharts();"),
+            refresh_script.index(".live-core-lines-band');"),
+        )
+        self.assertLess(
+            refresh_script.index(".live-core-lines-band');"),
+            refresh_script.index("syncCoreLiveChartsFromDocument(nextDocument);"),
+        )
+
     def test_dashboard_styles_use_expandable_live_support_cards_and_order_flow_rows(self) -> None:
         from momentum_alpha import dashboard_assets
 

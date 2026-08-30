@@ -5,6 +5,7 @@ def render_dashboard_core_live_script() -> str:
     return """
     let coreLiveCharts = new Map();
     let coreLiveResizeObserver = null;
+    let coreLiveResizeHandler = null;
     let coreLiveResizeBound = false;
     let coreLiveResizeScheduled = false;
 
@@ -85,6 +86,21 @@ def render_dashboard_core_live_script() -> str:
         console.error(error);
       }
       coreLiveCharts.delete(chartNode);
+    }
+    function disposeCoreLiveCharts() {
+      coreLiveCharts.forEach((chart, chartNode) => {
+        disposeCoreLiveChart(chartNode);
+      });
+      if (coreLiveResizeObserver) {
+        coreLiveResizeObserver.disconnect();
+        coreLiveResizeObserver = null;
+      }
+      if (coreLiveResizeHandler) {
+        window.removeEventListener('resize', coreLiveResizeHandler);
+        coreLiveResizeHandler = null;
+      }
+      coreLiveResizeBound = false;
+      coreLiveResizeScheduled = false;
     }
     function renderCoreLivePlaceholder(chartNode, message, state = 'empty') {
       disposeCoreLiveChart(chartNode);
@@ -225,7 +241,8 @@ def render_dashboard_core_live_script() -> str:
         coreLiveResizeObserver = new ResizeObserver(scheduleRefresh);
         chartNodes.forEach((chartNode) => coreLiveResizeObserver.observe(chartNode));
       } else {
-        window.addEventListener('resize', scheduleRefresh);
+        coreLiveResizeHandler = scheduleRefresh;
+        window.addEventListener('resize', coreLiveResizeHandler);
       }
       coreLiveResizeBound = true;
     }

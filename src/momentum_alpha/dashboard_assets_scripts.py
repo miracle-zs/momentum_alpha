@@ -320,7 +320,8 @@ def render_dashboard_scripts() -> str:
       const current = document.querySelector(selector);
       const replacement = nextDocument.querySelector(selector);
       if (current && replacement) {{
-        current.replaceWith(replacement);
+        // Clone instead of moving the node so later sync calls can still read nextDocument.
+        current.replaceWith(replacement.cloneNode(true));
       }}
     }}
     function getOpenLiveSupportKeys() {{
@@ -359,6 +360,7 @@ def render_dashboard_scripts() -> str:
       replaceSectionFromDocument(nextDocument, '[data-dashboard-section="status"]');
       replaceSectionFromDocument(nextDocument, '[data-dashboard-section="room-nav"]');
       replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-risk-band');
+      disposeCoreLiveCharts();
       replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-core-lines-band');
       replaceSectionFromDocument(nextDocument, '[data-dashboard-room-content="live"] .live-support-grid');
       restoreOpenLiveSupportCards(openLiveSupportKeys);
