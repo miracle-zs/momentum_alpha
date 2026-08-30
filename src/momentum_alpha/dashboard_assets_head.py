@@ -9,7 +9,7 @@ ECHARTS_CDNJS_INTEGRITY = "sha512-XSmbX3mhrD2ix5fXPTRQb2FwK22sRMVQTpBP2ac8hX7Dh/
 ECHARTS_JSDELIVR_URL = "https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"
 DASHBOARD_CSS_ASSET_PATH = "assets/dashboard.css?v=1"
 DASHBOARD_CSS_ASSET_ROUTE = "/assets/dashboard.css"
-DASHBOARD_JS_ASSET_PATH = "assets/dashboard.js?v=1"
+DASHBOARD_JS_ASSET_PATH = "assets/dashboard.js?v=2"
 DASHBOARD_JS_ASSET_ROUTE = "/assets/dashboard.js"
 
 

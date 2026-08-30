@@ -419,7 +419,7 @@ class DashboardTests(unittest.TestCase):
         html = render_dashboard_html(self._build_tabbed_snapshot(), use_external_assets=True)
 
         self.assertIn('href="assets/dashboard.css?v=1"', html)
-        self.assertIn('src="assets/dashboard.js?v=1"', html)
+        self.assertIn('src="assets/dashboard.js?v=2"', html)
         self.assertNotIn("<style>", html)
         self.assertNotIn("const ACCOUNT_METRIC_STORAGE_KEY", html)
 
