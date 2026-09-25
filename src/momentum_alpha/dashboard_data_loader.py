@@ -373,6 +373,7 @@ def load_dashboard_live_snapshot(
     submit_orders: bool = False,
     account_range_key: str = "1D",
     report_date: str | None = None,
+    room: str | None = None,
 ) -> dict:
     """Load only the current dashboard room and short live projections.
 

@@ -176,17 +176,31 @@ def run_dashboard_server(
             snapshot = snapshot_cache.get_or_load(
                 key=cache_key,
                 runtime_db_file=runtime_db_file,
-                loader=lambda: (load_dashboard_live_snapshot if live_requested else load_dashboard_snapshot)(
-                    now=now_provider().astimezone(),
-                    runtime_db_file=runtime_db_file,
-                    stop_budget_usdt=stop_budget_usdt,
-                    entry_start_hour_utc=entry_start_hour_utc,
-                    entry_end_hour_utc=entry_end_hour_utc,
-                    testnet=testnet,
-                    submit_orders=submit_orders,
-                    account_range_key=account_range_key,
-                    report_date=report_date,
-                    room=requested_room,
+                loader=lambda: (
+                    load_dashboard_live_snapshot(
+                        now=now_provider().astimezone(),
+                        runtime_db_file=runtime_db_file,
+                        stop_budget_usdt=stop_budget_usdt,
+                        entry_start_hour_utc=entry_start_hour_utc,
+                        entry_end_hour_utc=entry_end_hour_utc,
+                        testnet=testnet,
+                        submit_orders=submit_orders,
+                        account_range_key=account_range_key,
+                        report_date=report_date,
+                    )
+                    if live_requested
+                    else load_dashboard_snapshot(
+                        now=now_provider().astimezone(),
+                        runtime_db_file=runtime_db_file,
+                        stop_budget_usdt=stop_budget_usdt,
+                        entry_start_hour_utc=entry_start_hour_utc,
+                        entry_end_hour_utc=entry_end_hour_utc,
+                        testnet=testnet,
+                        submit_orders=submit_orders,
+                        account_range_key=account_range_key,
+                        report_date=report_date,
+                        room=requested_room,
+                    )
                 ),
             )
             if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables", "/api/dashboard/review"}:
