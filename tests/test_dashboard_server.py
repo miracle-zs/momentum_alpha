@@ -123,8 +123,9 @@ class DashboardServerTests(unittest.TestCase):
                 runtime_db_file=runtime_db_file,
                 loader=load_snapshot,
             )
-            runtime_db_file.write_bytes(b"changed")
-            os.utime(runtime_db_file, None)
+            runtime_db_file.write_bytes(b"changed_and_extended_content")
+            stat_now = os.stat(runtime_db_file)
+            os.utime(runtime_db_file, (stat_now.st_atime + 5, stat_now.st_mtime + 5))
             third = cache.get_or_load(
                 key=("1D", None),
                 runtime_db_file=runtime_db_file,
