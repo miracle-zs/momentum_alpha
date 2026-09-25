@@ -17,6 +17,7 @@ from .market_data_klines import (
 )
 from .market_data_windows import _current_hour_window_ms, _previous_closed_hour_window_ms
 from .market_data_daily_open_stream import DailyOpenKlineStream, DailyOpenUpdate
+from .market_data_ticker_stream import MiniTickerStream, MiniTickerUpdate
 
 
 class LiveMarketDataCache:
@@ -39,6 +40,9 @@ class LiveMarketDataCache:
         self.daily_open_rest_minute: int | None = None
         self.daily_open_rest_calls = 0
         self.daily_open_stream_handle = None
+        self.mini_ticker_stream_handle = None
+        self.stream_latest_prices: dict[str, tuple[Decimal, datetime]] = {}
+        self._stream_prices_lock = threading.Lock()
         self.logger = logger
         self._daily_open_lock = threading.Lock()
         self.previous_hour_window: tuple[int, int] | None = None
@@ -66,13 +70,53 @@ class LiveMarketDataCache:
             self.exchange_symbols = parse_exchange_info(client.fetch_exchange_info())
         return self.exchange_symbols
 
+    def record_mini_ticker_updates(self, updates: list[MiniTickerUpdate]) -> None:
+        with self._stream_prices_lock:
+            for u in updates:
+                self.stream_latest_prices[u.symbol] = (u.close_price, u.observed_at)
+
+    def start_mini_ticker_stream(
+        self,
+        *,
+        testnet: bool = False,
+        stream_factory=MiniTickerStream,
+    ) -> None:
+        if self.mini_ticker_stream_handle is not None:
+            return
+        stream = stream_factory(
+            on_updates=self.record_mini_ticker_updates,
+            testnet=testnet,
+            logger=self.logger,
+        )
+        self.mini_ticker_stream_handle = stream.start()
+
+    def stop_mini_ticker_stream(self) -> None:
+        if self.mini_ticker_stream_handle is None:
+            return
+        self.mini_ticker_stream_handle.stop()
+        self.mini_ticker_stream_handle = None
+
     def latest_prices(
         self,
         *,
         symbols: list[str],
         client,
         fallback_symbols: set[str] | None = None,
+        now: datetime | None = None,
+        max_stream_age_seconds: int = 15,
     ) -> dict[str, Decimal]:
+        if self.mini_ticker_stream_handle is not None and self.stream_latest_prices:
+            ref_time = now.astimezone(timezone.utc) if now is not None else datetime.now(timezone.utc)
+            with self._stream_prices_lock:
+                stream_snapshot = {
+                    sym: price
+                    for sym, (price, observed_at) in self.stream_latest_prices.items()
+                    if abs((ref_time - observed_at).total_seconds()) <= max_stream_age_seconds
+                }
+            matched = {sym: stream_snapshot[sym] for sym in symbols if sym in stream_snapshot}
+            if len(matched) >= len(symbols):
+                return matched
+
         try:
             tickers = client.fetch_ticker_prices()
             prices: dict[str, Decimal] = {}

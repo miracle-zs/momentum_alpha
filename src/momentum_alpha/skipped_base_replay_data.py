@@ -12,6 +12,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable
 
+from momentum_alpha.runtime_schema import _connect
+
 
 @dataclass(frozen=True)
 class ReplaySeed:
@@ -84,7 +86,7 @@ def load_replay_inputs(
 
     start_utc = _as_utc(start_time) if start_time is not None else None
     end_utc = _as_utc(end_time) if end_time is not None else None
-    with sqlite3.connect(f"file:{runtime_db_path}?mode=ro", uri=True) as connection:
+    with _connect(runtime_db_path, readonly=True) as connection:
         rows = connection.execute(
             """
             SELECT

@@ -13,6 +13,7 @@ from momentum_alpha.broker import BinanceBroker
 from momentum_alpha.config import StrategyConfig
 from momentum_alpha.live_account_state import LiveAccountStateCache
 from momentum_alpha.market_data import LiveMarketDataCache
+from momentum_alpha.runtime_schema import get_sqlite_lock_stats
 from momentum_alpha.runtime_store import RuntimeStateStore
 from momentum_alpha.strategy_state_codec import StoredStrategyState
 from momentum_alpha.scheduler import run_loop
@@ -118,6 +119,9 @@ def run_forever(
             symbols=resolved_symbols,
             testnet=testnet,
         )
+        market_data_cache.start_mini_ticker_stream(
+            testnet=testnet,
+        )
         try:
             prewarm_now = now_provider()
             account_state_cache.snapshot(
@@ -127,6 +131,7 @@ def run_forever(
                 submit_orders=submit_orders,
             )
         except Exception:
+            market_data_cache.stop_mini_ticker_stream()
             market_data_cache.stop_daily_open_stream()
             raise
     if audit_recorder is not None:
@@ -227,7 +232,11 @@ def run_forever(
             audit_recorder.record(
                 event_type="poll_tick",
                 now=now,
-                payload={"symbol_count": len(resolved_symbols), "rate_limited_until": rate_limited_until},
+                payload={
+                    "symbol_count": len(resolved_symbols),
+                    "rate_limited_until": rate_limited_until,
+                    "sqlite_lock_stats": get_sqlite_lock_stats(),
+                },
             )
 
     def _handle_error(exc, now):
@@ -238,6 +247,15 @@ def run_forever(
                 now=now,
                 payload={"message": str(exc)},
             )
+
+    def _handle_missed_tick(gap_count, previous_minute, current_minute):
+        _log(
+            "missed-tick",
+            level="WARN",
+            skipped_ticks=gap_count,
+            previous_minute=f"{previous_minute[0]}-{previous_minute[1]:02d}-{previous_minute[2]:02d} {previous_minute[3]:02d}:{previous_minute[4]:02d}",
+            current_minute=f"{current_minute[0]}-{current_minute[1]:02d}-{current_minute[2]:02d} {current_minute[3]:02d}:{current_minute[4]:02d}",
+        )
 
     shutdown_requested = threading.Event()
     restore_shutdown_handlers = _install_shutdown_handlers(
@@ -251,9 +269,11 @@ def run_forever(
             max_ticks=max_ticks,
             error_handler=_handle_error,
             stop_requested=shutdown_requested.is_set,
+            on_missed_tick=_handle_missed_tick,
         )
     finally:
         restore_shutdown_handlers()
+        market_data_cache.stop_mini_ticker_stream()
         market_data_cache.stop_daily_open_stream()
         if shutdown_requested.is_set():
             _log("shutdown-complete")

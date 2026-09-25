@@ -9,7 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_schema import (
+    _connect,
+    begin_immediate_with_retry,
+    bootstrap_runtime_db,
+    is_sqlite_lock_error,
+)
 from momentum_alpha.runtime_writes_common import _as_utc_iso, _decimal_to_text, _json_dumps
 from momentum_alpha.strategy_state_codec import (
     StoredStrategyState,
@@ -18,28 +23,8 @@ from momentum_alpha.strategy_state_codec import (
 )
 from momentum_alpha.trace_ids import build_intent_id_from_client_order_id
 
-
-_SQLITE_LOCK_RETRY_DELAYS = (0.05, 0.2, 0.5)
-_SQLITE_RETRY_BUSY_TIMEOUT_MS = 1000
-
-
-def _is_sqlite_lock_error(error: sqlite3.OperationalError) -> bool:
-    message = str(error).lower()
-    return "database is locked" in message or "database table is locked" in message or "database is busy" in message
-
-
-def _begin_immediate_with_retry(connection: sqlite3.Connection) -> None:
-    """Acquire the write lock with bounded retries before running user code."""
-
-    connection.execute(f"PRAGMA busy_timeout={_SQLITE_RETRY_BUSY_TIMEOUT_MS}")
-    for attempt in range(len(_SQLITE_LOCK_RETRY_DELAYS) + 1):
-        try:
-            connection.execute("BEGIN IMMEDIATE")
-            return
-        except sqlite3.OperationalError as error:
-            if not _is_sqlite_lock_error(error) or attempt == len(_SQLITE_LOCK_RETRY_DELAYS):
-                raise
-            time.sleep(_SQLITE_LOCK_RETRY_DELAYS[attempt])
+_is_sqlite_lock_error = is_sqlite_lock_error
+_begin_immediate_with_retry = begin_immediate_with_retry
 
 
 @dataclass(frozen=True)
@@ -49,7 +34,7 @@ class RuntimeStateStore:
     def load(self) -> StoredStrategyState | None:
         if not self.path.exists():
             return None
-        with _connect(self.path) as connection:
+        with _connect(self.path, readonly=True) as connection:
             row = connection.execute("SELECT payload_json FROM strategy_state WHERE id = 1").fetchone()
         if not row:
             return None

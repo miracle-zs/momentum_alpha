@@ -28,6 +28,7 @@ from momentum_alpha.dashboard import (
     render_dashboard_body,
     render_dashboard_html,
 )
+from momentum_alpha.operational_read_model import OperationalReadModel
 from momentum_alpha.runtime_schema import ensure_dashboard_live_schema
 
 
@@ -88,6 +89,8 @@ def run_dashboard_server(
     entry_end_hour_utc: int = 23,
     testnet: bool = False,
     submit_orders: bool = False,
+    read_model: OperationalReadModel | None = None,
+    enable_background_updater: bool = False,
 ) -> int:
     now_provider = now_provider or datetime.now
     server_factory = server_factory or ThreadingHTTPServer
@@ -102,6 +105,20 @@ def run_dashboard_server(
         ),
     }
     snapshot_cache = _DashboardSnapshotCache()
+    if read_model is None:
+        read_model = OperationalReadModel(
+            runtime_db_file=runtime_db_file,
+            ttl_seconds=_DASHBOARD_SNAPSHOT_CACHE_TTL_SECONDS,
+            now_provider=now_provider,
+            stop_budget_usdt=stop_budget_usdt,
+            entry_start_hour_utc=entry_start_hour_utc,
+            entry_end_hour_utc=entry_end_hour_utc,
+            testnet=testnet,
+            submit_orders=submit_orders,
+        )
+    if enable_background_updater:
+        read_model.start_background_updater()
+
     if runtime_db_file.exists():
         try:
             ensure_dashboard_live_schema(path=runtime_db_file)
@@ -118,6 +135,7 @@ def run_dashboard_server(
                 "/api/dashboard/summary",
                 "/api/dashboard/timeseries",
                 "/api/dashboard/tables",
+                "/api/dashboard/review",
                 *static_assets,
             }
             if parsed_url.path not in supported_paths:
@@ -145,8 +163,18 @@ def run_dashboard_server(
                 query_params.get("live", ["0"])[0].lower() in {"1", "true", "yes"}
                 and parsed_url.path in {"/api/dashboard/summary", "/api/dashboard/timeseries"}
             )
+            requested_room = (
+                "live"
+                if live_requested
+                else (active_room if parsed_url.path == "/" else ("review" if parsed_url.path == "/api/dashboard/review" else None))
+            )
+            cache_key = (
+                "live" if live_requested else ("room:" + str(requested_room) if requested_room else "full"),
+                account_range_key,
+                report_date,
+            )
             snapshot = snapshot_cache.get_or_load(
-                key=("live" if live_requested else "full", account_range_key, report_date),
+                key=cache_key,
                 runtime_db_file=runtime_db_file,
                 loader=lambda: (load_dashboard_live_snapshot if live_requested else load_dashboard_snapshot)(
                     now=now_provider().astimezone(),
@@ -158,9 +186,10 @@ def run_dashboard_server(
                     submit_orders=submit_orders,
                     account_range_key=account_range_key,
                     report_date=report_date,
+                    room=requested_room,
                 ),
             )
-            if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables"}:
+            if parsed_url.path in {"/api/dashboard", "/api/dashboard/summary", "/api/dashboard/timeseries", "/api/dashboard/tables", "/api/dashboard/review"}:
                 if parsed_url.path == "/api/dashboard/summary":
                     payload = build_dashboard_summary_payload(snapshot)
                     if live_requested:
@@ -178,6 +207,12 @@ def run_dashboard_server(
                     payload = build_dashboard_timeseries_payload(snapshot)
                 elif parsed_url.path == "/api/dashboard/tables":
                     payload = build_dashboard_tables_payload(snapshot)
+                elif parsed_url.path == "/api/dashboard/review":
+                    payload = {
+                        "daily_review_report": snapshot.get("daily_review_report"),
+                        "filtered_review_report": snapshot.get("filtered_review_report"),
+                        "report_date": report_date or (snapshot.get("daily_review_report") or {}).get("report_date"),
+                    }
                 else:
                     payload = snapshot
                 body = build_dashboard_response_json(payload).encode("utf-8")
@@ -204,6 +239,9 @@ def run_dashboard_server(
         def log_message(self, format, *args):  # noqa: A003
             return
 
-    with server_factory((host, port), DashboardHandler) as server:
-        server.serve_forever()
+    try:
+        with server_factory((host, port), DashboardHandler) as server:
+            server.serve_forever()
+    finally:
+        read_model.stop_background_updater()
     return 0

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -361,15 +364,99 @@ def _reuse_runtime_connection(*, path: Path, connection: sqlite3.Connection):
         _REUSED_RUNTIME_CONNECTION.reset(token)
 
 
+@dataclass
+class SQLiteLockStats:
+    total_immediate_acquires: int = 0
+    total_immediate_contentions: int = 0
+    total_wait_seconds: float = 0.0
+    max_wait_seconds: float = 0.0
+
+
+_LOCK_STATS = SQLiteLockStats()
+
+
+def get_sqlite_lock_stats() -> dict[str, object]:
+    return {
+        "total_immediate_acquires": _LOCK_STATS.total_immediate_acquires,
+        "total_immediate_contentions": _LOCK_STATS.total_immediate_contentions,
+        "total_wait_seconds": round(_LOCK_STATS.total_wait_seconds, 6),
+        "max_wait_seconds": round(_LOCK_STATS.max_wait_seconds, 6),
+    }
+
+
+def reset_sqlite_lock_stats() -> None:
+    _LOCK_STATS.total_immediate_acquires = 0
+    _LOCK_STATS.total_immediate_contentions = 0
+    _LOCK_STATS.total_wait_seconds = 0.0
+    _LOCK_STATS.max_wait_seconds = 0.0
+
+
+_SQLITE_LOCK_RETRY_DELAYS = (0.05, 0.2, 0.5)
+_SQLITE_RETRY_BUSY_TIMEOUT_MS = 1000
+
+
+def is_sqlite_lock_error(error: BaseException) -> bool:
+    if not isinstance(error, sqlite3.OperationalError):
+        return False
+    message = str(error).lower()
+    return "database is locked" in message or "database table is locked" in message or "database is busy" in message
+
+
+def begin_immediate_with_retry(
+    connection: sqlite3.Connection,
+    *,
+    logger_fn: Callable[..., None] | None = None,
+) -> float:
+    """Acquire the write lock with bounded retries before running user code.
+
+    Returns the wait duration in seconds (0.0 if acquired immediately).
+    """
+    connection.execute(f"PRAGMA busy_timeout={_SQLITE_RETRY_BUSY_TIMEOUT_MS}")
+    start_time = time.monotonic()
+    _LOCK_STATS.total_immediate_acquires += 1
+    for attempt in range(len(_SQLITE_LOCK_RETRY_DELAYS) + 1):
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            wait_time = time.monotonic() - start_time
+            if attempt > 0:
+                _LOCK_STATS.total_immediate_contentions += 1
+                _LOCK_STATS.total_wait_seconds += wait_time
+                if wait_time > _LOCK_STATS.max_wait_seconds:
+                    _LOCK_STATS.max_wait_seconds = wait_time
+                if logger_fn is not None:
+                    logger_fn(
+                        f"sqlite write lock acquired after contention (attempt={attempt + 1}, wait_seconds={wait_time:.4f})"
+                    )
+            return wait_time
+        except sqlite3.OperationalError as error:
+            if not is_sqlite_lock_error(error) or attempt == len(_SQLITE_LOCK_RETRY_DELAYS):
+                raise
+            delay = _SQLITE_LOCK_RETRY_DELAYS[attempt]
+            time.sleep(delay)
+    return time.monotonic() - start_time
+
+
 @contextmanager
-def _connect(path: Path):
+def _connect(path: Path, *, readonly: bool = False):
     reused_connection = _get_reused_runtime_connection(path)
     if reused_connection is not None:
         yield reused_connection
         return
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path, timeout=30.0)
+    resolved_path = Path(path).resolve()
+    if readonly:
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"runtime database does not exist at {resolved_path}")
+        connection = sqlite3.connect(f"file:{resolved_path}?mode=ro", uri=True, timeout=30.0)
+        try:
+            connection.execute("PRAGMA busy_timeout=30000")
+            yield connection
+        finally:
+            connection.close()
+        return
+
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(resolved_path, timeout=30.0)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")

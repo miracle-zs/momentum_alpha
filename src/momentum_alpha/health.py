@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import sqlite3
 from pathlib import Path
+import json
+import sqlite3
 
-from momentum_alpha.runtime_schema import _get_reused_runtime_connection
+from momentum_alpha.runtime_schema import _connect
 
 
 _USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_replacements")
@@ -14,15 +15,8 @@ _USER_STREAM_ACTION_EVENT_TYPES = ("broker_submit", "broker_replace", "stop_repl
 
 @contextmanager
 def _health_connection(path: Path):
-    reused_connection = _get_reused_runtime_connection(path)
-    if reused_connection is not None:
-        yield reused_connection
-        return
-    connection = sqlite3.connect(path)
-    try:
+    with _connect(path, readonly=path.exists()) as connection:
         yield connection
-    finally:
-        connection.close()
 
 
 def _parse_utc_timestamp(value: object) -> datetime | None:
@@ -280,6 +274,45 @@ def _check_user_stream_event_health(*, path: Path, now: datetime, max_age_second
     )
 
 
+def _check_sqlite_lock_health(*, path: Path) -> HealthCheckItem:
+    if not path.exists():
+        return HealthCheckItem(name="sqlite_lock_contention", status="OK", message="no runtime_db")
+    try:
+        with _health_connection(path) as connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM audit_events
+                WHERE event_type = 'poll_tick'
+                  AND json_extract(payload_json, '$.sqlite_lock_stats') IS NOT NULL
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+    except (sqlite3.Error, OSError):
+        return HealthCheckItem(name="sqlite_lock_contention", status="OK", message="check skipped")
+    if row is None or not row[0]:
+        return HealthCheckItem(name="sqlite_lock_contention", status="OK", message="no contention data")
+    try:
+        stats = json.loads(row[0]).get("sqlite_lock_stats") or {}
+    except (TypeError, json.JSONDecodeError):
+        return HealthCheckItem(name="sqlite_lock_contention", status="OK", message="invalid stats payload")
+    acquires = int(stats.get("total_immediate_acquires", 0))
+    contentions = int(stats.get("total_immediate_contentions", 0))
+    max_wait = float(stats.get("max_wait_seconds", 0.0))
+    if max_wait > 5.0 or (acquires > 10 and contentions / acquires > 0.3):
+        return HealthCheckItem(
+            name="sqlite_lock_contention",
+            status="WARN",
+            message=f"high contention: acquires={acquires} contentions={contentions} max_wait={max_wait:.2f}s",
+        )
+    return HealthCheckItem(
+        name="sqlite_lock_contention",
+        status="OK",
+        message=f"acquires={acquires} contentions={contentions} max_wait={max_wait:.2f}s",
+    )
+
+
 def build_runtime_health_report(
     *,
     now: datetime,
@@ -313,5 +346,6 @@ def build_runtime_health_report(
             max_age_seconds=max_user_stream_event_age_seconds,
         ),
         _check_runtime_db_freshness(path=runtime_db_file, now=now, max_age_seconds=max_runtime_db_age_seconds),
+        _check_sqlite_lock_health(path=runtime_db_file),
     ]
     return RuntimeHealthReport(items=items)

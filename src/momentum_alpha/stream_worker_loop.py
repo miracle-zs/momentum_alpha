@@ -16,6 +16,7 @@ from momentum_alpha.position_recovery import (
 )
 from momentum_alpha.request_weight_budget import RequestWeightBudget
 from momentum_alpha.reconciliation import merge_position_history, restore_state
+from momentum_alpha.runtime_schema import _connect
 from momentum_alpha.runtime_store import RuntimeStateStore, rebuild_trade_analytics
 from momentum_alpha.runtime_store import insert_account_flow, insert_algo_order, insert_trade_fill
 from momentum_alpha.runtime_sync_state import RuntimeSyncStateStore
@@ -102,25 +103,21 @@ def _latest_audit_event(
     if not_before is not None:
         timestamp_filter = "AND timestamp >= ?"
         params.append(not_before.astimezone(timezone.utc).isoformat())
-    connection = None
     try:
-        connection = sqlite3.connect(runtime_db_path)
-        row = connection.execute(
-            f"""
-            SELECT timestamp, event_type
-            FROM audit_events
-            WHERE event_type IN ({placeholders})
-              {timestamp_filter}
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 1
-            """,
-            params,
-        ).fetchone()
-    except sqlite3.Error:
+        with _connect(runtime_db_path, readonly=True) as connection:
+            row = connection.execute(
+                f"""
+                SELECT timestamp, event_type
+                FROM audit_events
+                WHERE event_type IN ({placeholders})
+                  {timestamp_filter}
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """,
+                params,
+            ).fetchone()
+    except (sqlite3.Error, OSError):
         return None
-    finally:
-        if connection is not None:
-            connection.close()
     if row is None or not row[0]:
         return None
     timestamp_text = str(row[0])

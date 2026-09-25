@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Momentum Alpha Runtime Database Pruning daily at 04:30 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 Asia/Shanghai
+Persistent=true
+Unit=momentum-alpha-prune-runtime-db.service
+
+[Install]
+WantedBy=timers.target

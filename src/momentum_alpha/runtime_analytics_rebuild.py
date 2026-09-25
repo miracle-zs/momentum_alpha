@@ -8,7 +8,7 @@ from functools import wraps
 from pathlib import Path
 
 from momentum_alpha.orders import is_strategy_client_order_id
-from momentum_alpha.runtime_schema import _connect
+from momentum_alpha.runtime_schema import _connect, begin_immediate_with_retry
 
 from .runtime_analytics_common import _as_utc_iso, _decimal_to_text, _json_dumps, _json_loads, _text_to_decimal, _text_to_optional_decimal
 from .runtime_analytics_legs import _build_trade_round_trip_leg_payload, _strategy_stop_client_order_id
@@ -606,7 +606,7 @@ def rebuild_trade_analytics(*, path: Path) -> None:
             active_round_trips.pop(symbol, None)
 
         with _connect(path) as write_connection:
-            write_connection.execute("BEGIN IMMEDIATE")
+            begin_immediate_with_retry(write_connection)
             write_connection.execute("DELETE FROM trade_round_trips")
             write_connection.execute("DELETE FROM stop_exit_summaries")
             for sql, parameters in deferred_writes.statements:

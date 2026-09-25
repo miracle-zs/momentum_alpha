@@ -241,3 +241,100 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual([item["symbol"] for item in snapshots], ["SOLUSDT"])
         self.assertEqual(snapshots[0]["daily_open_price"], Decimal("74.50"))
         self.assertNotIn(0, [call["start_time_ms"] for call in client.kline_calls if call["interval"] == "1m"])
+
+    def test_mini_ticker_update_parsing(self) -> None:
+        from momentum_alpha.market_data_ticker_stream import parse_mini_ticker_update, parse_mini_ticker_updates
+
+        valid_raw = {
+            "e": "24hrMiniTicker",
+            "E": 1776211200000,
+            "s": "BTCUSDT",
+            "c": "65000.5",
+            "o": "64000.0",
+            "h": "66000.0",
+            "l": "63500.0",
+        }
+        update = parse_mini_ticker_update(valid_raw)
+        self.assertIsNotNone(update)
+        self.assertEqual(update.symbol, "BTCUSDT")
+        self.assertEqual(update.close_price, Decimal("65000.5"))
+        self.assertEqual(update.open_price, Decimal("64000.0"))
+
+        # Batch parsing (raw list and combined stream dict)
+        updates1 = parse_mini_ticker_updates([valid_raw, {"e": "unknown"}])
+        self.assertEqual(len(updates1), 1)
+
+        updates2 = parse_mini_ticker_updates({"stream": "!miniTicker@arr", "data": [valid_raw]})
+        self.assertEqual(len(updates2), 1)
+
+    def test_live_market_data_cache_uses_mini_ticker_stream_fast_path(self) -> None:
+        import threading
+        from momentum_alpha.market_data import LiveMarketDataCache
+        from momentum_alpha.market_data_ticker_stream import MiniTickerStream, MiniTickerUpdate
+
+        cache = LiveMarketDataCache()
+        now = datetime(2026, 4, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        class MockRunner:
+            def __call__(self, *, url, on_message, stop_event, logger=None):
+                on_message([
+                    {"e": "24hrMiniTicker", "E": int(now.timestamp() * 1000), "s": "BTCUSDT", "c": "100.5"},
+                    {"e": "24hrMiniTicker", "E": int(now.timestamp() * 1000), "s": "ETHUSDT", "c": "200.5"},
+                ])
+                stop_event.wait(timeout=0.5)
+
+        class Client:
+            def fetch_ticker_prices(self):
+                raise AssertionError("REST fetch_ticker_prices should not be called when stream is fresh")
+
+        def factory(on_updates, testnet, logger):
+            return MiniTickerStream(on_updates=on_updates, testnet=testnet, logger=logger, websocket_runner=MockRunner())
+
+        cache.start_mini_ticker_stream(stream_factory=factory)
+        try:
+            prices = cache.latest_prices(
+                symbols=["BTCUSDT", "ETHUSDT"],
+                client=Client(),
+                now=now,
+            )
+            self.assertEqual(prices["BTCUSDT"], Decimal("100.5"))
+            self.assertEqual(prices["ETHUSDT"], Decimal("200.5"))
+        finally:
+            cache.stop_mini_ticker_stream()
+
+    def test_live_market_data_cache_falls_back_to_rest_when_stream_is_stale(self) -> None:
+        from momentum_alpha.market_data import LiveMarketDataCache
+        from momentum_alpha.market_data_ticker_stream import MiniTickerUpdate
+
+        cache = LiveMarketDataCache()
+        # Fake an active stream handle
+        cache.mini_ticker_stream_handle = type("Handle", (), {"stop": lambda self: None})()
+        stale_time = datetime(2026, 4, 15, 13, 0, 0, tzinfo=timezone.utc)
+        cache.record_mini_ticker_updates([
+            MiniTickerUpdate(
+                symbol="BTCUSDT",
+                close_price=Decimal("100"),
+                open_price=None,
+                high_price=None,
+                low_price=None,
+                observed_at=stale_time,
+            )
+        ])
+
+        now = datetime(2026, 4, 15, 14, 0, 0, tzinfo=timezone.utc)
+        rest_called = False
+
+        class Client:
+            def fetch_ticker_prices(self):
+                nonlocal rest_called
+                rest_called = True
+                return [{"symbol": "BTCUSDT", "price": "105"}]
+
+        prices = cache.latest_prices(
+            symbols=["BTCUSDT"],
+            client=Client(),
+            now=now,
+            max_stream_age_seconds=15,
+        )
+        self.assertTrue(rest_called)
+        self.assertEqual(prices["BTCUSDT"], Decimal("105"))

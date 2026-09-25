@@ -987,3 +987,102 @@ class BrokerTests(unittest.TestCase):
         )
 
         self.assertFalse(broker.last_entry_order_failures[0]["retryable"])
+
+    def test_broker_aligns_stop_order_quantity_to_actual_entry_filled_quantity(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        sent_algo_orders = []
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def new_algo_order(self, **params):
+                sent_algo_orders.append(params)
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/algoOrder",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, request):
+                if "/fapi/v1/order" in request.url:
+                    # Partial fill: requested 1.0, but only 0.400 was executed
+                    return {
+                        "orderId": 1001,
+                        "symbol": "BTCUSDT",
+                        "status": "PARTIALLY_FILLED",
+                        "executedQty": "0.400",
+                    }
+                return {
+                    "algoId": 2001,
+                    "symbol": "BTCUSDT",
+                    "status": "NEW",
+                }
+
+        broker = BinanceBroker(client=FakeClient())
+        plan = ExecutionPlan(
+            entry_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "type": "MARKET",
+                    "quantity": "1.000",
+                    "newClientOrderId": "ma_260510100000_BTCUSDT_b00e",
+                }
+            ],
+            stop_orders=[
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "SELL",
+                    "type": "STOP_MARKET",
+                    "quantity": "1.000",
+                    "stopPrice": "60000.0",
+                    "reduceOnly": "true",
+                    "algoClientOrderId": "ma_260510100000_BTCUSDT_b00s",
+                }
+            ],
+        )
+
+        responses = broker.submit_execution_plan(plan)
+        self.assertEqual(len(responses), 2)
+        self.assertEqual(len(sent_algo_orders), 1)
+        # The stop order quantity must be dynamically aligned to executedQty 0.400
+        self.assertEqual(sent_algo_orders[0]["quantity"], "0.400")
+
+    def test_broker_failure_payload_classifies_error_reasons(self) -> None:
+        from momentum_alpha.binance_client import BinanceRequest
+        from momentum_alpha.broker import BinanceBroker
+        from momentum_alpha.execution import ExecutionPlan
+
+        class FakeClient:
+            def new_order(self, **params):
+                return BinanceRequest(
+                    method="POST",
+                    url="https://example.test/fapi/v1/order",
+                    headers={"X-MBX-APIKEY": "key"},
+                    body=f"symbol={params['symbol']}",
+                )
+
+            def send(self, _request):
+                raise RuntimeError("Margin is insufficient, code -2019")
+
+        broker = BinanceBroker(client=FakeClient())
+        broker.submit_execution_plan(
+            ExecutionPlan(
+                entry_orders=[{"symbol": "ETHUSDT", "side": "BUY", "type": "MARKET", "quantity": "10"}],
+                stop_orders=[],
+            )
+        )
+        self.assertEqual(len(broker.last_entry_order_failures), 1)
+        failure = broker.last_entry_order_failures[0]
+        self.assertEqual(failure["errorCode"], -2019)
+        self.assertEqual(failure["errorReason"], "INSUFFICIENT_MARGIN")

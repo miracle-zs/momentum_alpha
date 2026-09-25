@@ -514,10 +514,8 @@ def render_dashboard_body(
         account_range_key=account_range_key,
         review_view=review_view,
     )
-    daily_review_html = render_daily_review_panel(snapshot.get("daily_review_report"))
-    filtered_review_html = render_filtered_base_review_panel(snapshot.get("filtered_review_report"))
-    room_content_html = {
-        "live": render_dashboard_live_room(
+    if active_room == "live":
+        room_content_html = render_dashboard_live_room(
             account_risk_html=account_risk_html,
             core_lines_html=core_lines_html,
             active_signal_html=active_signal_html,
@@ -528,8 +526,11 @@ def render_dashboard_body(
             positions_summary=positions_summary,
             execution_flow_html=execution_flow_html,
             execution_flow_summary=execution_flow_summary,
-        ),
-        "review": render_dashboard_review_room(
+        )
+    elif active_room == "review":
+        daily_review_html = render_daily_review_panel(snapshot.get("daily_review_report"))
+        filtered_review_html = render_filtered_base_review_panel(snapshot.get("filtered_review_report"))
+        room_content_html = render_dashboard_review_room(
             active_review_view=review_view if active_room == "review" else "overview",
             daily_review_html=daily_review_html,
             filtered_review_html=filtered_review_html,
@@ -538,16 +539,16 @@ def render_dashboard_body(
             leg_count_aggregate_html=leg_count_aggregate_html,
             leg_index_aggregate_html=leg_index_aggregate_html,
             stop_slippage_html=stop_slippage_html,
-        ),
-        "system": render_dashboard_system_room(
+        )
+    else:
+        room_content_html = render_dashboard_system_room(
             diagnostics_html=diagnostics_html,
             warning_list_html=warning_list_html,
             config_html=config_html,
             health_items_html=health_items_html,
             recent_events_html=recent_events_html,
             runtime_db_path_display=runtime_db_path_display,
-        ),
-    }[active_room]
+        )
 
     return (
         "<!-- render_dashboard_shell -->"

@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
+from momentum_alpha.runtime_schema import _connect, begin_immediate_with_retry, bootstrap_runtime_db
 from momentum_alpha.runtime_writes_common import _json_dumps
 
 
@@ -161,7 +161,7 @@ class RuntimeSyncStateStore:
         with _connect(self.path) as connection:
             # Serialize read/merge/write so a poll order and a User Stream
             # event cannot move last_dirty_at backwards or lose a reason.
-            connection.execute("BEGIN IMMEDIATE")
+            begin_immediate_with_retry(connection)
             row = connection.execute(
                 """
                 SELECT first_dirty_at, reasons_json

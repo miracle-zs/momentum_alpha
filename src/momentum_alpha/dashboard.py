@@ -74,6 +74,9 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
+from .operational_read_model import OperationalReadModel
+
+
 def run_dashboard_server(
     *,
     host: str,
@@ -88,6 +91,8 @@ def run_dashboard_server(
     entry_end_hour_utc: int = 23,
     testnet: bool = False,
     submit_orders: bool = False,
+    read_model: OperationalReadModel | None = None,
+    enable_background_updater: bool = False,
 ) -> int:
     from momentum_alpha.dashboard_server import run_dashboard_server as _run_dashboard_server
 
@@ -104,4 +109,6 @@ def run_dashboard_server(
         entry_end_hour_utc=entry_end_hour_utc,
         testnet=testnet,
         submit_orders=submit_orders,
+        read_model=read_model,
+        enable_background_updater=enable_background_updater,
     )

@@ -5,3 +5,10 @@ local_analytics/
 .DS_Store
 .worktrees/
 /docs/HANDOFF.md
+.claude/
+.geminiignore
+.aiexclude
+CHAT_LOG.md
+CONTEXT.md
+design-qa.md
+GEMINI.md

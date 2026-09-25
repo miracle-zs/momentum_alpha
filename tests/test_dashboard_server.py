@@ -228,6 +228,55 @@ class DashboardServerTests(unittest.TestCase):
         full_loader.assert_not_called()
         self.assertIn(b'"account"', handler.wfile.getvalue())
 
+    def test_dashboard_review_api_serves_review_payload(self) -> None:
+        from momentum_alpha import dashboard_server
+
+        captured = {}
+
+        class FakeServer:
+            def __init__(self, address, handler_class):
+                captured["handler_class"] = handler_class
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def serve_forever(self):
+                return None
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            runtime_db_file.write_bytes(b"initial")
+            with patch.object(
+                dashboard_server,
+                "load_dashboard_snapshot",
+                return_value={
+                    "daily_review_report": {"report_date": "2026-04-20"},
+                    "filtered_review_report": {"report_date": "2026-04-20"},
+                },
+            ) as full_loader:
+                dashboard_server.run_dashboard_server(
+                    host="127.0.0.1",
+                    port=8080,
+                    runtime_db_file=runtime_db_file,
+                    server_factory=FakeServer,
+                )
+                handler = captured["handler_class"].__new__(captured["handler_class"])
+                handler.path = "/api/dashboard/review?report_date=2026-04-20"
+                handler.send_response = lambda status: None
+                handler.send_header = lambda name, value: None
+                handler.end_headers = lambda: None
+                handler.wfile = BytesIO()
+
+                handler.do_GET()
+
+            self.assertEqual(full_loader.call_count, 1)
+            self.assertEqual(full_loader.call_args.kwargs["room"], "review")
+            self.assertIn(b'"daily_review_report"', handler.wfile.getvalue())
+            self.assertIn(b"2026-04-20", handler.wfile.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

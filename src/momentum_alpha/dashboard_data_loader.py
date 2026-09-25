@@ -79,17 +79,13 @@ def _runtime_db_is_readable(path: Path) -> bool:
             return False
         return _DASHBOARD_REQUIRED_TABLES.issubset({str(row[0]) for row in rows})
 
-    connection = None
     try:
-        connection = sqlite3.connect(path)
-        rows = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        ).fetchall()
+        with _connect(path, readonly=True) as connection:
+            rows = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
     except (OSError, sqlite3.Error):
         return False
-    finally:
-        if connection is not None:
-            connection.close()
     return _DASHBOARD_REQUIRED_TABLES.issubset({str(row[0]) for row in rows})
 
 
@@ -103,7 +99,7 @@ def _with_dashboard_runtime_connection(function):
         if not runtime_db_path.exists():
             return function(*args, **kwargs)
 
-        connection_context = _connect(runtime_db_path)
+        connection_context = _connect(runtime_db_path, readonly=True)
         try:
             connection = connection_context.__enter__()
         except (OSError, sqlite3.Error):
@@ -137,8 +133,10 @@ def load_dashboard_snapshot(
     submit_orders: bool = False,
     account_range_key: str = "1D",
     report_date: str | None = None,
+    room: str | None = None,
 ) -> dict:
     account_range_key = normalize_account_range(account_range_key)
+    should_load_review = room is None or room == "review"
     health_report = build_runtime_health_report(
         now=now,
         runtime_db_file=runtime_db_file,
@@ -194,10 +192,11 @@ def load_dashboard_snapshot(
             path=runtime_db_file,
             since=_account_flow_since(now=now, range_key=account_range_key),
         )
+        round_trips_range = "ALL" if should_load_review else (account_range_key if account_range_key in {"1H", "1D", "1W"} else "1D")
         recent_trade_round_trips = fetch_trade_round_trips_for_range(
             path=runtime_db_file,
             now=now,
-            range_key="ALL",
+            range_key=round_trips_range,
         )
         recent_stop_exit_summaries = fetch_recent_stop_exit_summaries(path=runtime_db_file, limit=20)
         recent_position_snapshots = fetch_recent_position_snapshots(path=runtime_db_file, limit=8)
@@ -208,22 +207,23 @@ def load_dashboard_snapshot(
             require_positions=True,
         )
         recent_account_snapshots = fetch_account_snapshots_for_range(path=runtime_db_file, now=now, range_key=account_range_key)
-        daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
-        daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
-        filtered_review_report_dates = fetch_filtered_base_review_report_dates(path=runtime_db_file)
-        filtered_review_history_summary = fetch_filtered_base_review_reports_summary(path=runtime_db_file)
-        if report_date is not None:
-            daily_review_report = fetch_daily_review_report_by_date(path=runtime_db_file, report_date=report_date)
-            if daily_review_report is None:
-                warnings.append(f"daily review report missing for report_date={report_date}")
+        if should_load_review:
+            daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
+            daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
+            filtered_review_report_dates = fetch_filtered_base_review_report_dates(path=runtime_db_file)
+            filtered_review_history_summary = fetch_filtered_base_review_reports_summary(path=runtime_db_file)
+            if report_date is not None:
+                daily_review_report = fetch_daily_review_report_by_date(path=runtime_db_file, report_date=report_date)
+                if daily_review_report is None:
+                    warnings.append(f"daily review report missing for report_date={report_date}")
+                    daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
+                filtered_review_report = fetch_filtered_base_review_report_by_date(
+                    path=runtime_db_file,
+                    report_date=report_date,
+                )
+            else:
                 daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
-            filtered_review_report = fetch_filtered_base_review_report_by_date(
-                path=runtime_db_file,
-                report_date=report_date,
-            )
-        else:
-            daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
-            filtered_review_report = fetch_latest_filtered_base_review_report(path=runtime_db_file)
+                filtered_review_report = fetch_latest_filtered_base_review_report(path=runtime_db_file)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]

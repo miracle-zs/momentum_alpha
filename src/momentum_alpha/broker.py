@@ -47,6 +47,30 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return isinstance(exc, BinanceHttpError) and exc.status_code in {418, 429}
 
 
+def _classify_binance_error(exc: Exception) -> tuple[int | None, str | None]:
+    if isinstance(exc, BinanceHttpError):
+        try:
+            payload = json.loads(exc.response_body or "{}")
+            code = payload.get("code")
+            msg = payload.get("msg")
+            if code is not None:
+                return int(code), str(msg or "")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    err_str = str(exc).lower()
+    if "margin is insufficient" in err_str or "-2019" in err_str:
+        return -2019, "INSUFFICIENT_MARGIN"
+    if "immediately trigger" in err_str or "-2021" in err_str:
+        return -2021, "ORDER_WOULD_IMMEDIATELY_TRIGGER"
+    if "reduceonly" in err_str or "-2022" in err_str:
+        return -2022, "REDUCE_ONLY_REJECTED"
+    if "too many requests" in err_str or "-1003" in err_str:
+        return -1003, "TOO_MANY_REQUESTS"
+    if "filter failure" in err_str or "-1013" in err_str:
+        return -1013, "FILTER_FAILURE"
+    return None, None
+
+
 _ENTRY_ORDER_FOUND = "found"
 _ENTRY_ORDER_NOT_FOUND = "not_found"
 _ENTRY_ORDER_UNKNOWN = "unknown"
@@ -116,6 +140,7 @@ class BinanceBroker:
     def submit_execution_plan(self, plan: ExecutionPlan) -> list[dict]:
         responses: list[dict] = []
         submitted_entry_symbols: list[str | None] = []
+        entry_responses: list[dict | None] = []
         self.last_entry_order_failures = []
         self.last_stop_order_failures = []
         self.last_rate_limit_error = None
@@ -124,33 +149,54 @@ class BinanceBroker:
                 # Preserve entry/stop positional alignment while preventing any
                 # further REST calls during the current rate-limited tick.
                 submitted_entry_symbols.append(None)
+                entry_responses.append(None)
                 continue
             response = self._submit_entry_order(order)
             if response is not None:
                 responses.append(response)
                 submitted_entry_symbols.append(order.get("symbol"))
+                entry_responses.append(response)
             else:
                 submitted_entry_symbols.append(None)
+                entry_responses.append(None)
         for index, order in enumerate(plan.stop_orders):
             if index < len(submitted_entry_symbols) and submitted_entry_symbols[index] is None:
                 continue
+            effective_stop_order = dict(order)
+            if index < len(entry_responses) and entry_responses[index] is not None:
+                entry_response = entry_responses[index]
+                filled_quantity = _executed_quantity(entry_response)
+                if filled_quantity is not None and filled_quantity > Decimal("0"):
+                    planned_quantity = None
+                    try:
+                        planned_quantity = Decimal(str(order.get("quantity", "")))
+                    except (InvalidOperation, TypeError, ValueError):
+                        pass
+                    if planned_quantity is not None and filled_quantity != planned_quantity:
+                        logger.info(
+                            f"aligning stop order quantity for {order.get('symbol')} "
+                            f"from {planned_quantity} to executed {filled_quantity}"
+                        )
+                        effective_stop_order["quantity"] = format(filled_quantity, "f")
             try:
-                responses.append(self.client.send(self.client.new_algo_order(**order)))
+                responses.append(self.client.send(self.client.new_algo_order(**effective_stop_order)))
             except Exception as exc:
                 if _is_rate_limit_error(exc):
                     self.last_rate_limit_error = exc
                     self.last_stop_order_failures.append(
                         self._order_failure_payload(
-                            order,
+                            effective_stop_order,
                             exc,
                             "STOP_SUBMIT_RATE_LIMIT",
                             retryable=True,
                         )
                     )
-                    logger.warning(f"stop order rate limited for {order.get('symbol')}: {exc}")
+                    logger.warning(f"stop order rate limited for {effective_stop_order.get('symbol')}: {exc}")
                     break
-                logger.error(f"stop order failed for {order.get('symbol')}: {exc}")
-                self.last_stop_order_failures.append(self._order_failure_payload(order, exc, "STOP_SUBMIT_FAILED"))
+                logger.error(f"stop order failed for {effective_stop_order.get('symbol')}: {exc}")
+                self.last_stop_order_failures.append(
+                    self._order_failure_payload(effective_stop_order, exc, "STOP_SUBMIT_FAILED")
+                )
         return responses
 
     def _submit_entry_order(self, order: dict[str, str]) -> dict | None:
@@ -292,6 +338,7 @@ class BinanceBroker:
         attempts: int | None = None,
         retryable: bool | None = None,
     ) -> dict[str, object]:
+        error_code, error_reason = _classify_binance_error(exc)
         return {
             "symbol": order.get("symbol"),
             "side": order.get("side"),
@@ -301,6 +348,8 @@ class BinanceBroker:
             "status": status,
             "error": str(exc),
             "errorType": type(exc).__name__,
+            "errorCode": error_code,
+            "errorReason": error_reason,
             "attempts": attempts,
             "retryable": retryable,
         }

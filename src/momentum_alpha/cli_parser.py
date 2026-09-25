@@ -147,6 +147,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
     prune_runtime_db_parser.add_argument("--runtime-db-file", required=True)
     prune_runtime_db_parser.add_argument("--audit-retention-days", type=int, default=30)
     prune_runtime_db_parser.add_argument("--snapshot-retention-days", type=int, default=7)
+    prune_runtime_db_parser.add_argument("--signal-decision-retention-days", type=int, default=30)
+    prune_runtime_db_parser.add_argument("--live-series-retention-days", type=int, default=7)
+    prune_runtime_db_parser.add_argument("--archive-file", default=None, help="Path to archive.db for preserving pruned records")
+    prune_runtime_db_parser.add_argument("--backup-dir", default=None, help="Directory to store snapshot backups before pruning")
+    prune_runtime_db_parser.add_argument("--max-backups", type=int, default=7, help="Maximum number of snapshot backup files to retain")
+    prune_runtime_db_parser.add_argument("--no-backup", action="store_true", help="Skip creating snapshot backup before pruning")
 
     dashboard_parser = subparsers.add_parser("dashboard")
     dashboard_parser.add_argument("--host", default="127.0.0.1")

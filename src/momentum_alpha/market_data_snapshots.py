@@ -24,6 +24,7 @@ def _build_live_snapshots(
         symbols=tracked_symbols,
         client=client,
         fallback_symbols=held_symbols,
+        now=now,
     )
     cache.ensure_daily_open_prices(
         symbols=tracked_symbols,

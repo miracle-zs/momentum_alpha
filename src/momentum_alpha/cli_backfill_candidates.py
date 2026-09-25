@@ -10,6 +10,7 @@ from pathlib import Path
 from momentum_alpha.analytics_schema import bootstrap_leader_candidates_db
 from momentum_alpha.analytics_writes_candidates import insert_leader_candidate_snapshots_bulk
 from momentum_alpha.exchange_info import parse_exchange_info
+from momentum_alpha.runtime_schema import _connect
 
 
 DEFAULT_LEADER_CANDIDATES_DB_PATH = Path("local_analytics/leader_candidates.db")
@@ -61,8 +62,7 @@ def replay_position_snapshot_candidates(
     if not runtime_db_path.exists():
         logger(f"leader-candidate-replay runtime_db_missing path={runtime_db_path}")
         return 0
-    connection = sqlite3.connect(runtime_db_path)
-    try:
+    with _connect(runtime_db_path, readonly=True) as connection:
         rows = connection.execute(
             """
             SELECT timestamp, leader_symbol, payload_json
@@ -71,8 +71,6 @@ def replay_position_snapshot_candidates(
             ORDER BY timestamp ASC, id ASC
             """
         ).fetchall()
-    finally:
-        connection.close()
 
     candidate_rows: list[dict] = []
     for timestamp, leader_symbol, payload_json in rows:

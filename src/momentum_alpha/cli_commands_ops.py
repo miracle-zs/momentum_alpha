@@ -257,17 +257,36 @@ def prune_runtime_db_command(
         command=args.command,
         explicit_path=args.runtime_db_file,
     )
+    archive_file = getattr(args, "archive_file", None)
+    archive_path = Path(archive_file) if archive_file else None
+    backup_dir = Path(args.backup_dir) if getattr(args, "backup_dir", None) else None
+    no_backup = getattr(args, "no_backup", False)
+    max_backups = getattr(args, "max_backups", 7)
+
     summary = prune_runtime_db_fn(
         path=runtime_db_path,
         now=now_provider(),
         audit_retention_days=args.audit_retention_days,
         snapshot_retention_days=args.snapshot_retention_days,
+        signal_decision_retention_days=getattr(args, "signal_decision_retention_days", 30),
+        live_series_retention_days=getattr(args, "live_series_retention_days", 7),
+        archive_path=archive_path,
+        backup_before_prune=not no_backup,
+        backup_dir=backup_dir,
+        max_backups=max_backups,
     )
+    if summary.get("backup_file"):
+        print(f"backup_file={summary['backup_file']}")
+    if summary.get("archive_path"):
+        print(f"archive_path={summary['archive_path']}")
+        print(f"total_archived={summary.get('total_archived', 0)}")
     print(f"audit_cutoff={summary['audit_cutoff']}")
     print(f"snapshot_cutoff={summary['snapshot_cutoff']}")
     print(f"audit_events_deleted={summary['audit_events_deleted']}")
     print(f"position_snapshots_deleted={summary['position_snapshots_deleted']}")
     print(f"account_snapshots_deleted={summary['account_snapshots_deleted']}")
+    print(f"signal_decisions_deleted={summary.get('signal_decisions_deleted', 0)}")
+    print(f"live_series_deleted={summary.get('live_series_deleted', 0)}")
     return 0
 
 

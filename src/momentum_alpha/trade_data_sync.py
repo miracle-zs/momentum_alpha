@@ -12,7 +12,7 @@ from momentum_alpha.cli_backfill import (
     persist_binance_user_trade_rows,
 )
 from momentum_alpha.request_weight_budget import RequestWeightBudget
-from momentum_alpha.runtime_schema import bootstrap_runtime_db
+from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
 from momentum_alpha.runtime_store import insert_audit_event
 from momentum_alpha.runtime_sync_state import RuntimeSyncStateStore
 from momentum_alpha.structured_log import emit_structured_log
@@ -182,7 +182,7 @@ def _recent_validation_symbols(*, runtime_db_path: Path, since: datetime) -> lis
         return []
     bootstrap_runtime_db(path=runtime_db_path)
     symbols: set[str] = set()
-    with sqlite3.connect(runtime_db_path) as connection:
+    with _connect(runtime_db_path, readonly=True) as connection:
         for table in ("broker_orders", "trade_fills", "algo_orders"):
             rows = connection.execute(
                 f"""

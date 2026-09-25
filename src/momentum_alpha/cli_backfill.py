@@ -8,7 +8,7 @@ from pathlib import Path
 
 from momentum_alpha.binance_client import rate_limit_backoff_seconds
 from momentum_alpha.runtime_reads_events_orders import resolve_order_linkage
-from momentum_alpha.runtime_schema import bootstrap_runtime_db
+from momentum_alpha.runtime_schema import _connect, bootstrap_runtime_db
 from momentum_alpha.runtime_store import insert_account_flow, insert_audit_event, insert_trade_fill
 from momentum_alpha.structured_log import emit_structured_log
 
@@ -25,8 +25,7 @@ def _account_flow_exists(
 ) -> bool:
     if not runtime_db_path.exists():
         return False
-    connection = sqlite3.connect(runtime_db_path)
-    try:
+    with _connect(runtime_db_path, readonly=True) as connection:
         if reference_id is not None:
             rows = connection.execute(
                 """
@@ -64,9 +63,7 @@ def _account_flow_exists(
             """,
             (timestamp.astimezone(timezone.utc).isoformat(), reason, asset, balance_change),
         ).fetchone()
-    finally:
-        connection.close()
-    return row is not None
+        return row is not None
 
 
 def _same_balance_change(left: object, right: object) -> bool:
@@ -183,8 +180,7 @@ def _trade_fill_exists(
 ) -> bool:
     if not runtime_db_path.exists() or trade_id in (None, ""):
         return False
-    connection = sqlite3.connect(runtime_db_path)
-    try:
+    with _connect(runtime_db_path, readonly=True) as connection:
         row = connection.execute(
             """
             SELECT 1
@@ -195,8 +191,6 @@ def _trade_fill_exists(
             """,
             (symbol, trade_id),
         ).fetchone()
-    finally:
-        connection.close()
     return row is not None
 
 
@@ -213,8 +207,7 @@ def _infer_backfill_symbols(
     end_text = end_time.astimezone(timezone.utc).isoformat()
     tables = ("broker_orders", "trade_fills", "algo_orders", "signal_decisions")
     symbols: set[str] = set()
-    connection = sqlite3.connect(runtime_db_path)
-    try:
+    with _connect(runtime_db_path, readonly=True) as connection:
         for table in tables:
             rows = connection.execute(
                 f"""
@@ -228,8 +221,6 @@ def _infer_backfill_symbols(
                 (start_text, end_text),
             ).fetchall()
             symbols.update(str(row[0]).upper() for row in rows if row[0])
-    finally:
-        connection.close()
     return sorted(symbols)
 
 

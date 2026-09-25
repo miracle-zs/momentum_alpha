@@ -32,10 +32,11 @@ CREATE INDEX IF NOT EXISTS idx_leader_candidate_snapshots_symbol_time
 @contextmanager
 def connect_leader_candidates_db(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, timeout=30.0)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
+        connection.execute("PRAGMA busy_timeout=30000")
         yield connection
         connection.commit()
     finally:

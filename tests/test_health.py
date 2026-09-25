@@ -289,3 +289,56 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(report.items[3].name, "user_stream_events")
             self.assertEqual(report.items[3].status, "OK")
             self.assertIn("idle", report.items[3].message)
+
+    def test_check_sqlite_lock_health_reporting(self) -> None:
+        from momentum_alpha.health import _check_sqlite_lock_health
+        from momentum_alpha.runtime_store import bootstrap_runtime_db, insert_audit_event
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_db_file = Path(tmpdir) / "runtime.db"
+            bootstrap_runtime_db(path=runtime_db_file)
+            now = datetime(2026, 4, 15, 14, 0, tzinfo=timezone.utc)
+
+            # 1. No data yet
+            item_empty = _check_sqlite_lock_health(path=runtime_db_file)
+            self.assertEqual(item_empty.status, "OK")
+
+            # 2. Normal contention
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now,
+                event_type="poll_tick",
+                payload={
+                    "symbol_count": 50,
+                    "sqlite_lock_stats": {
+                        "total_immediate_acquires": 100,
+                        "total_immediate_contentions": 2,
+                        "total_wait_seconds": 0.1,
+                        "max_wait_seconds": 0.05,
+                    },
+                },
+                source="poll",
+            )
+            item_ok = _check_sqlite_lock_health(path=runtime_db_file)
+            self.assertEqual(item_ok.status, "OK")
+            self.assertIn("acquires=100", item_ok.message)
+
+            # 3. High contention
+            insert_audit_event(
+                path=runtime_db_file,
+                timestamp=now + timedelta(minutes=1),
+                event_type="poll_tick",
+                payload={
+                    "symbol_count": 50,
+                    "sqlite_lock_stats": {
+                        "total_immediate_acquires": 100,
+                        "total_immediate_contentions": 50,
+                        "total_wait_seconds": 15.0,
+                        "max_wait_seconds": 6.5,
+                    },
+                },
+                source="poll",
+            )
+            item_warn = _check_sqlite_lock_health(path=runtime_db_file)
+            self.assertEqual(item_warn.status, "WARN")
+            self.assertIn("high contention", item_warn.message)

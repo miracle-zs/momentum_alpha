@@ -123,6 +123,80 @@ class RuntimeSchemaTests(unittest.TestCase):
         self.assertEqual(audit_row, (None, None, "tick_result"))
         self.assertEqual(broker_row, (None, None, None))
 
+    def test_readonly_connection_behavior(self) -> None:
+        from momentum_alpha import runtime_schema
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            missing_path = Path(tmpdir) / "missing.db"
+            with self.assertRaises(FileNotFoundError):
+                with runtime_schema._connect(missing_path, readonly=True):
+                    pass
+
+            runtime_schema.bootstrap_runtime_db(path=db_path)
+            with runtime_schema._connect(db_path, readonly=True) as ro_conn:
+                rows = ro_conn.execute("SELECT 1").fetchall()
+                self.assertEqual(rows, [(1,)])
+                with self.assertRaises(sqlite3.OperationalError):
+                    ro_conn.execute("CREATE TABLE test_fail (id INT)")
+
+    def test_begin_immediate_with_retry_metrics(self) -> None:
+        import threading
+        import time
+        from momentum_alpha import runtime_schema
+
+        runtime_schema.reset_sqlite_lock_stats()
+        initial_stats = runtime_schema.get_sqlite_lock_stats()
+        self.assertEqual(initial_stats["total_immediate_acquires"], 0)
+        self.assertEqual(initial_stats["total_immediate_contentions"], 0)
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runtime.db"
+            runtime_schema.bootstrap_runtime_db(path=db_path)
+
+            # 1. No contention acquire
+            with runtime_schema._connect(db_path) as conn:
+                wait_time = runtime_schema.begin_immediate_with_retry(conn)
+                self.assertGreaterEqual(wait_time, 0.0)
+                conn.commit()
+
+            stats = runtime_schema.get_sqlite_lock_stats()
+            self.assertEqual(stats["total_immediate_acquires"], 1)
+            self.assertEqual(stats["total_immediate_contentions"], 0)
+
+            # 2. Contention acquire with simulated locked database on first attempt
+            logs: list[str] = []
+
+            class ContendedConnection:
+                def __init__(self):
+                    self.attempts = 0
+
+                def execute(self, sql):
+                    if sql.startswith("PRAGMA"):
+                        return None
+                    self.attempts += 1
+                    if self.attempts == 1:
+                        raise sqlite3.OperationalError("database is locked")
+                    return None
+
+            contended_conn = ContendedConnection()
+            wait_time = runtime_schema.begin_immediate_with_retry(contended_conn, logger_fn=logs.append)
+            self.assertGreater(wait_time, 0.0)
+            self.assertEqual(contended_conn.attempts, 2)
+
+            stats_after = runtime_schema.get_sqlite_lock_stats()
+            self.assertEqual(stats_after["total_immediate_acquires"], 2)
+            self.assertEqual(stats_after["total_immediate_contentions"], 1)
+            self.assertGreater(stats_after["total_wait_seconds"], 0.0)
+            self.assertGreater(stats_after["max_wait_seconds"], 0.0)
+            self.assertTrue(any("contention" in log for log in logs))
+
+            # Reset stats
+            runtime_schema.reset_sqlite_lock_stats()
+            cleared_stats = runtime_schema.get_sqlite_lock_stats()
+            self.assertEqual(cleared_stats["total_immediate_acquires"], 0)
+            self.assertEqual(cleared_stats["total_immediate_contentions"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
