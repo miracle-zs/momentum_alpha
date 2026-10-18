@@ -13,7 +13,7 @@ fi
 RUNTIME_DB_FILE="${RUNTIME_DB_FILE:-${PROJECT_ROOT}/var/runtime.db}"
 ARCHIVE_DB_FILE="${ARCHIVE_DB_FILE:-${PROJECT_ROOT}/var/runtime_archive.db}"
 BACKUP_DIR="${BACKUP_DIR:-${PROJECT_ROOT}/var/backups}"
-MAX_BACKUPS="${MAX_BACKUPS:-14}"
+MAX_BACKUPS="${MAX_BACKUPS:-3}"
 AUDIT_RETENTION_DAYS="${AUDIT_RETENTION_DAYS:-30}"
 SNAPSHOT_RETENTION_DAYS="${SNAPSHOT_RETENTION_DAYS:-7}"
 SIGNAL_DECISION_RETENTION_DAYS="${SIGNAL_DECISION_RETENTION_DAYS:-30}"
@@ -31,4 +31,8 @@ ARGS=(
   --live-series-retention-days "${LIVE_SERIES_RETENTION_DAYS}"
 )
 
-exec "${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"
+"${VENV_PYTHON}" -u -m momentum_alpha.main "${ARGS[@]}"
+
+# Compress newly created backups and retain only newest MAX_BACKUPS
+gzip -f "${BACKUP_DIR}"/*.db 2>/dev/null || true
+ls -t "${BACKUP_DIR}"/runtime_backup_*.db.gz 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | xargs -r rm -f
