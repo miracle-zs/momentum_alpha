@@ -379,8 +379,6 @@ def run_once_live(
         client=client,
         now=now,
         market_data_cache=market_data_cache,
-        base_veto_enabled=strategy_config.base_veto_enabled,
-        previous_leader_symbol=previous_leader_symbol,
     )
     snapshot_symbols = {snapshot["symbol"] for snapshot in snapshots}
     missing_held_symbols = sorted(held_symbols - snapshot_symbols)
@@ -768,14 +766,6 @@ def run_once_live(
                     {
                         "leg_type": intent.leg_type,
                         "stop_price": str(intent.stop_price),
-                        **(
-                            {
-                                "base_veto_breakout_triggered": True,
-                                "base_veto_breakout_shadow_only": True,
-                            }
-                            if intent.leg_type == "base" and intent.base_veto_breakout_triggered
-                            else {}
-                        ),
                         **{key: value for key, value in market_payloads.get(intent.symbol, {}).items() if value is not None},
                     },
                 )
@@ -793,66 +783,6 @@ def run_once_live(
                     "shadow_opportunity_id": skipped.shadow_opportunity_id,
                     "stop_price": str(skipped.stop_price),
                     "stop_budget_usdt": str(stop_budget_usdt),
-                    **(
-                        {"base_veto_rule": skipped.base_veto_rule}
-                        if skipped.base_veto_rule is not None
-                        else {}
-                    ),
-                    **(
-                        {
-                            "base_veto_atr_15m_pct_threshold": str(
-                                strategy_config.base_veto_atr_15m_pct_threshold
-                            ),
-                            "base_veto_trade_count_ratio_30m_threshold": str(
-                                strategy_config.base_veto_trade_count_ratio_30m_threshold
-                            ),
-                            "base_veto_return_to_vol_15m_threshold": str(
-                                strategy_config.base_veto_return_to_vol_15m_threshold
-                            ),
-                            "base_veto_trade_count_ratio_30m_c_threshold": str(
-                                strategy_config.base_veto_trade_count_ratio_30m_c_threshold
-                            ),
-                            "base_veto_taker_buy_share_15m_threshold": str(
-                                strategy_config.base_veto_taker_buy_share_15m_threshold
-                            ),
-                            "base_veto_efficiency_15m_d_threshold": str(
-                                strategy_config.base_veto_efficiency_15m_d_threshold
-                            ),
-                            "base_veto_efficiency_15m_e_threshold": str(
-                                strategy_config.base_veto_efficiency_15m_e_threshold
-                            ),
-                            "base_veto_range_expansion_15m_threshold": str(
-                                strategy_config.base_veto_range_expansion_15m_threshold
-                            ),
-                            "base_veto_breakout_5m_pct_threshold": str(
-                                strategy_config.base_veto_breakout_5m_pct_threshold
-                            ),
-                            "base_veto_pullback_5m_pct_threshold": str(
-                                strategy_config.base_veto_pullback_5m_pct_threshold
-                            ),
-                        }
-                        if skipped.base_veto_rule is not None
-                        else {}
-                    ),
-                    **(
-                        {
-                            "base_veto_a_triggered": skipped.base_veto_atr_triggered,
-                            "base_veto_b_triggered": skipped.base_veto_composite_triggered,
-                            "base_veto_atr_triggered": skipped.base_veto_atr_triggered,
-                            "base_veto_composite_triggered": skipped.base_veto_composite_triggered,
-                            "base_veto_c_triggered": skipped.base_veto_c_triggered,
-                            "base_veto_d_triggered": skipped.base_veto_d_triggered,
-                            "base_veto_e_triggered": skipped.base_veto_e_triggered,
-                            "base_veto_breakout_triggered": skipped.base_veto_breakout_triggered,
-                        }
-                        if skipped.base_veto_atr_triggered is not None
-                        else {}
-                    ),
-                    **(
-                        skipped.base_veto_features.to_payload()
-                        if skipped.base_veto_features is not None
-                        else {}
-                    ),
                     **{
                         key: value
                         for key, value in market_payloads.get(skipped.symbol, {}).items()

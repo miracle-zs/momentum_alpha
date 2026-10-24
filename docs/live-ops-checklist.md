@@ -21,7 +21,6 @@ Use this checklist during the first production session and any later restart or 
 - Confirm `AUDIT_LOG_FILE` points to a persistent writable path
 - If you want push alerts, confirm `SERVERCHAN_SENDKEY` is set
 - The available-balance alert checks every minute and sends one Server酱 push when `available_balance` first falls below `AVAILABLE_BALANCE_ALERT_THRESHOLD_USDT` (default `100` USDT). It rearms silently after the balance recovers.
-- The live Base A–E veto is disabled by default with `BASE_VETO_ENABLED=0`; its thresholds are ignored while disabled.
 
 ## Start Order
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from .market_data_cache import LiveMarketDataCache
 from .market_data_klines import (
-    _fetch_base_veto_klines,
     _fetch_current_hour_klines,
     _fetch_daily_open_klines,
     _fetch_previous_hour_klines,
