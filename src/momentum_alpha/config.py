@@ -13,7 +13,7 @@ class StrategyConfig:
     entry_end_hour_utc: int = 23
     blocked_base_entry_hours_beijing: tuple[int, ...] = (9, 10)
     first_add_on_min_hold_minutes: int = 30
-    base_veto_enabled: bool = True
+    base_veto_enabled: bool = False
     base_veto_atr_15m_pct_threshold: Decimal = Decimal("3")
     base_veto_trade_count_ratio_30m_threshold: Decimal = Decimal("1")
     base_veto_return_to_vol_15m_threshold: Decimal = Decimal("0.5")

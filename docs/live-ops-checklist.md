@@ -20,6 +20,8 @@ Use this checklist during the first production session and any later restart or 
 - Log rotation should cover `momentum-alpha.log`, `momentum-alpha-user-stream.log`, `momentum-alpha-dashboard.log`, `momentum-alpha-rebuild-trade-analytics.log`, and `momentum-alpha-daily-review-report.log`
 - Confirm `AUDIT_LOG_FILE` points to a persistent writable path
 - If you want push alerts, confirm `SERVERCHAN_SENDKEY` is set
+- The available-balance alert checks every minute and sends one Server酱 push when `available_balance` first falls below `AVAILABLE_BALANCE_ALERT_THRESHOLD_USDT` (default `100` USDT). It rearms silently after the balance recovers.
+- The live Base A–E veto is disabled by default with `BASE_VETO_ENABLED=0`; its thresholds are ignored while disabled.
 
 ## Start Order
 
@@ -70,6 +72,7 @@ Use this checklist during the first production session and any later restart or 
   - `systemctl restart momentum-alpha.service`
 - Use `bash scripts/audit_report.sh` to review the latest structured decision and fill history
 - Use `bash scripts/check_health_and_notify.sh` when you want a deduplicated alert plus recovery notification
+- Check `momentum-alpha-available-balance-alert.timer` when reviewing the low-margin push monitor
 
 ## Daily Checks
 

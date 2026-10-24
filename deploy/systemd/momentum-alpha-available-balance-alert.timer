@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Momentum Alpha Available Balance Every Minute
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=60s
+Unit=momentum-alpha-available-balance-alert.service
+
+[Install]
+WantedBy=timers.target

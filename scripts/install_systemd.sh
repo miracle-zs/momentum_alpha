@@ -14,6 +14,8 @@ sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-daily-review-report.servi
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-daily-review-report.timer" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-user-stream-healthcheck.service" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-user-stream-healthcheck.timer" /etc/systemd/system/
+sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-available-balance-alert.service" /etc/systemd/system/
+sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-available-balance-alert.timer" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-prune-runtime-db.service" /etc/systemd/system/
 sudo cp "${PROJECT_ROOT}/deploy/systemd/momentum-alpha-prune-runtime-db.timer" /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -24,6 +26,7 @@ sudo systemctl enable --now momentum-alpha-user-stream.service
 sudo systemctl enable --now momentum-alpha.service
 sudo systemctl enable --now momentum-alpha-daily-review-report.timer
 sudo systemctl enable --now momentum-alpha-user-stream-healthcheck.timer
+sudo systemctl enable --now momentum-alpha-available-balance-alert.timer
 sudo systemctl enable --now momentum-alpha-prune-runtime-db.timer
 
-echo "installed services, enabled timers (trade-data-sync, daily-review-report, user-stream-healthcheck, prune-runtime-db)"
+echo "installed services, enabled timers (trade-data-sync, daily-review-report, user-stream-healthcheck, available-balance-alert, prune-runtime-db)"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Momentum Alpha Available Balance Alert
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/momentum_alpha
+EnvironmentFile=%h/momentum_alpha/deploy/env.local
+Environment=AVAILABLE_BALANCE_ALERT_THRESHOLD_USDT=100
+ExecStart=%h/momentum_alpha/scripts/check_available_balance_and_notify.sh
+StandardOutput=append:%h/momentum_alpha/var/log/momentum-alpha-available-balance-alert.log
+StandardError=append:%h/momentum_alpha/var/log/momentum-alpha-available-balance-alert.log
