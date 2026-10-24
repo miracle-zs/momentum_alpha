@@ -527,7 +527,6 @@ def render_report(
     current_legs = [row for row in leg_rows if row["period"] == "current_logic"]
     full_legs = [row for row in leg_rows if row["period"] == "full"]
     full_timing = [row for row in timing_rows if row["period"] == "full"]
-    current_schedule = [row for row in schedule_rows if row["period"] == "current_logic"]
     full_schedule = [row for row in schedule_rows if row["period"] == "full"]
     current_scenarios = [row for row in scenarios if row["period"] == "current_logic"]
     full_scenarios = [row for row in scenarios if row["period"] == "full"]

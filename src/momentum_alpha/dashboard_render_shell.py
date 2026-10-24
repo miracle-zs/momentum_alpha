@@ -19,7 +19,6 @@ from .dashboard_render_tables import (
     render_closed_trades_table,
     render_position_cards,
     render_stop_slippage_table,
-    render_trade_history_table,
     render_trade_leg_count_aggregate_table,
     render_trade_leg_index_aggregate_table,
 )
@@ -269,12 +268,9 @@ def render_dashboard_body(
     config = strategy_config or snapshot.get("strategy_config") or {}
     execution_mode_label, execution_mode_state = _build_execution_mode(config)
     account_range_stats = _compute_account_range_stats(timeseries["account"])
-    event_counts = snapshot.get("event_counts", {})
-    decision_counts = {k: v for k, v in event_counts.items() if "decision" in k.lower() or "entry" in k.lower() or "signal" in k.lower()} or event_counts
     leader_history = list(reversed(snapshot.get("leader_history", [])))
     timeline_chart = _render_timeline_svg(events=leader_history)
     health_status = snapshot["health"]["overall_status"]
-    recent_events = snapshot.get("recent_events") or []
     equity_value = latest_account_snapshot.get("equity")
     position_details = build_position_details(latest_position_snapshot, equity_value=equity_value)
     position_count = len(position_details)
@@ -329,7 +325,6 @@ def render_dashboard_body(
     recent_broker_orders = snapshot.get("recent_broker_orders") or []
     recent_algo_orders = snapshot.get("recent_algo_orders") or []
     recent_stop_exit_summaries = snapshot.get("recent_stop_exit_summaries") or []
-    trade_history_html = render_trade_history_table(trade_fills)
     recent_trade_round_trips = snapshot.get("recent_trade_round_trips") or []
     closed_trades_html = render_closed_trades_table(recent_trade_round_trips)
     leg_count_aggregate_html = render_trade_leg_count_aggregate_table(build_trade_leg_count_aggregates(recent_trade_round_trips))
@@ -429,14 +424,6 @@ def render_dashboard_body(
         f'<div class="decision-value" style="margin-bottom:8px;">{escape(blocked_reason_summary)}</div>'
         if blocked_reason_counts
         else ""
-    )
-    execution_summary_html = (
-        "<div class='decision-grid'>"
-        f"<div class='decision-item'><div class='decision-label'>Avg Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('avg_slippage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Max Slippage</div><div class='decision-value'>{escape(_format_pct(trader_metrics['execution'].get('max_slippage_pct')))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Stop Exits</div><div class='decision-value'>{escape(str(trader_metrics['execution'].get('stop_exit_count') or 0))}</div></div>"
-        f"<div class='decision-item'><div class='decision-label'>Fee Total</div><div class='decision-value'>{escape(_format_metric(trader_metrics['execution'].get('fee_total')))}</div></div>"
-        "</div>"
     )
     performance_summary_items = [
         ("Win Rate", _format_pct(performance_win_rate * 100) if performance_win_rate is not None else "n/a"),

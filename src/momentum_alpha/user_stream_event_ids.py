@@ -36,7 +36,7 @@ def _is_strategy_stop_order_for_symbol(symbol: str, order_statuses: dict[str, di
     """
     if order_statuses is None:
         return False
-    for order_id, snapshot in order_statuses.items():
+    for snapshot in order_statuses.values():
         if snapshot is None:
             continue
         if snapshot.get("symbol") != symbol:

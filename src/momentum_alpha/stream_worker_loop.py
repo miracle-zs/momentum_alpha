@@ -597,7 +597,7 @@ def run_user_stream(
                 stream_cycle_started_at=stream_cycle_started_at,
             )
             try:
-                listen_key = stream_client.run_forever(on_event=event_handler)
+                stream_client.run_forever(on_event=event_handler)
                 _log("stream-ended")
                 if shutdown_requested.is_set():
                     break

@@ -56,7 +56,6 @@ def parse_daily_open_update(payload: object) -> DailyOpenUpdate | None:
 def _seconds_until_capture_window(now: datetime) -> float:
     now_utc = now.astimezone(timezone.utc)
     window_start = datetime.combine(now_utc.date(), time(23, 58), tzinfo=timezone.utc)
-    window_end = datetime.combine(now_utc.date(), time(0, 10), tzinfo=timezone.utc)
     if now_utc.time() <= time(0, 10):
         return 0
     if now_utc < window_start:
