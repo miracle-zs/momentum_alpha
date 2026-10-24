@@ -52,16 +52,10 @@ class OperationalReadModel:
 
         self._lock = threading.RLock()
         self._snapshots: dict[tuple[str, str, str | None], tuple[float, dict]] = {}
-        self._version = 0
 
         # Background updater attributes
         self._stop_event = threading.Event()
         self._updater_thread: threading.Thread | None = None
-
-    @property
-    def version(self) -> int:
-        with self._lock:
-            return self._version
 
     def is_fresh(
         self,
@@ -118,7 +112,6 @@ class OperationalReadModel:
                 )
 
             self._snapshots[key] = (monotonic(), snapshot)
-            self._version += 1
             return snapshot
 
     def _load_from_db(
@@ -176,12 +169,6 @@ class OperationalReadModel:
             report_date=report_date,
             force_refresh=True,
         )
-
-    def invalidate(self) -> None:
-        """Clear all in-memory snapshot caches."""
-        with self._lock:
-            self._snapshots.clear()
-            self._version += 1
 
     def start_background_updater(self, interval_seconds: float = 1.5) -> None:
         """Start a background daemon thread that periodically refreshes the hot read model."""
