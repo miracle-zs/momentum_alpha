@@ -255,7 +255,6 @@ class DashboardServerTests(unittest.TestCase):
                 "load_dashboard_snapshot",
                 return_value={
                     "daily_review_report": {"report_date": "2026-04-20"},
-                    "filtered_review_report": {"report_date": "2026-04-20"},
                 },
             ) as full_loader:
                 dashboard_server.run_dashboard_server(

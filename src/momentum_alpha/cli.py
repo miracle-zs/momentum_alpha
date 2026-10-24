@@ -10,7 +10,6 @@ from momentum_alpha.dashboard import run_dashboard_server
 from momentum_alpha.leader_opportunity_diagnostics import diagnose_opportunities
 from momentum_alpha.poll_worker import run_forever
 from momentum_alpha.runtime_store import prune_runtime_db, rebuild_trade_analytics
-from momentum_alpha.skipped_base_replay import replay_skipped_bases
 from momentum_alpha.stream_worker import run_user_stream
 
 from .cli_backfill import _account_flow_exists, backfill_account_flows, backfill_binance_user_trades
@@ -43,7 +42,6 @@ def cli_main(
     backfill_binance_user_trades_fn=None,
     backfill_leader_candidates_fn=None,
     diagnose_opportunities_fn=None,
-    replay_skipped_bases_fn=None,
     rebuild_trade_analytics_fn=None,
     prune_runtime_db_fn=None,
     sync_trade_data_fn=None,
@@ -70,7 +68,6 @@ def cli_main(
     backfill_binance_user_trades_fn = backfill_binance_user_trades_fn or backfill_binance_user_trades
     backfill_leader_candidates_fn = backfill_leader_candidates_fn or backfill_leader_candidates
     diagnose_opportunities_fn = diagnose_opportunities_fn or diagnose_opportunities
-    replay_skipped_bases_fn = replay_skipped_bases_fn or replay_skipped_bases
     rebuild_trade_analytics_fn = rebuild_trade_analytics_fn or rebuild_trade_analytics
     prune_runtime_db_fn = prune_runtime_db_fn or prune_runtime_db
     sync_trade_data_fn = sync_trade_data_fn or run_incremental_trade_data_sync
@@ -90,7 +87,6 @@ def cli_main(
         backfill_binance_user_trades_fn=backfill_binance_user_trades_fn,
         backfill_leader_candidates_fn=backfill_leader_candidates_fn,
         diagnose_opportunities_fn=diagnose_opportunities_fn,
-        replay_skipped_bases_fn=replay_skipped_bases_fn,
         rebuild_trade_analytics_fn=rebuild_trade_analytics_fn,
         prune_runtime_db_fn=prune_runtime_db_fn,
         sync_trade_data_fn=sync_trade_data_fn,
@@ -113,6 +109,5 @@ __all__ = [
     "run_incremental_trade_data_sync",
     "backfill_leader_candidates",
     "diagnose_opportunities",
-    "replay_skipped_bases",
     "build_cli_parser",
 ]

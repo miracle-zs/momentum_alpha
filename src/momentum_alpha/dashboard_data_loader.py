@@ -21,13 +21,9 @@ from momentum_alpha.runtime_store import (
     fetch_daily_review_report_by_date,
     fetch_daily_review_report_dates,
     fetch_daily_review_reports_summary,
-    fetch_filtered_base_review_report_by_date,
-    fetch_filtered_base_review_report_dates,
-    fetch_filtered_base_review_reports_summary,
     fetch_event_pulse_points,
     fetch_leader_history,
     fetch_latest_daily_review_report,
-    fetch_latest_filtered_base_review_report,
     fetch_position_snapshots_for_range,
     fetch_recent_account_flows,
     fetch_recent_algo_orders,
@@ -175,11 +171,8 @@ def load_dashboard_snapshot(
     recent_position_risk_snapshots: list[dict] = []
     recent_account_snapshots: list[dict] = []
     daily_review_report: dict | None = None
-    filtered_review_report: dict | None = None
     daily_review_report_dates: list[str] = []
-    filtered_review_report_dates: list[str] = []
     daily_review_history_summary: dict | None = None
-    filtered_review_history_summary: dict | None = None
 
     if database_readable:
         events_for_metrics = _normalize_events(fetch_recent_audit_events(path=runtime_db_file, limit=max(recent_limit, 300)))
@@ -210,20 +203,13 @@ def load_dashboard_snapshot(
         if should_load_review:
             daily_review_report_dates = fetch_daily_review_report_dates(path=runtime_db_file)
             daily_review_history_summary = fetch_daily_review_reports_summary(path=runtime_db_file)
-            filtered_review_report_dates = fetch_filtered_base_review_report_dates(path=runtime_db_file)
-            filtered_review_history_summary = fetch_filtered_base_review_reports_summary(path=runtime_db_file)
             if report_date is not None:
                 daily_review_report = fetch_daily_review_report_by_date(path=runtime_db_file, report_date=report_date)
                 if daily_review_report is None:
                     warnings.append(f"daily review report missing for report_date={report_date}")
                     daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
-                filtered_review_report = fetch_filtered_base_review_report_by_date(
-                    path=runtime_db_file,
-                    report_date=report_date,
-                )
             else:
                 daily_review_report = fetch_latest_daily_review_report(path=runtime_db_file)
-                filtered_review_report = fetch_latest_filtered_base_review_report(path=runtime_db_file)
     else:
         events_for_metrics = []
     recent_events = events_for_metrics[:recent_limit]
@@ -252,35 +238,9 @@ def load_dashboard_snapshot(
 
     if daily_review_report is not None:
         stored_payload = daily_review_report.get("payload") or {}
-        if filtered_review_report is None and (
-            "filtered_base_summary" in stored_payload or "filtered_base_rows" in stored_payload
-        ):
-            filtered_review_report = {
-                "report_date": daily_review_report.get("report_date"),
-                "window_start": daily_review_report.get("window_start"),
-                "window_end": daily_review_report.get("window_end"),
-                "generated_at": daily_review_report.get("generated_at"),
-                "status": "warning"
-                if (stored_payload.get("filtered_base_summary") or {}).get("fetch_errors")
-                else "ok",
-                "warnings": (stored_payload.get("filtered_base_summary") or {}).get("replay_warnings") or [],
-                "requested_report_date": report_date,
-                "selected_report_date": daily_review_report.get("report_date"),
-                "available_report_dates": daily_review_report_dates,
-                "history_summary": filtered_review_history_summary or {},
-                "payload": {
-                    "summary": stored_payload.get("filtered_base_summary") or {},
-                    "rows": stored_payload.get("filtered_base_rows") or [],
-                },
-            }
-        daily_payload = {
-            key: value
-            for key, value in stored_payload.items()
-            if key not in {"filtered_base_summary", "filtered_base_rows"}
-        }
         daily_review_report = {
             **daily_review_report,
-            "payload": daily_payload,
+            "payload": stored_payload,
             "requested_report_date": report_date,
             "selected_report_date": daily_review_report.get("report_date"),
             "available_report_dates": daily_review_report_dates,
@@ -292,15 +252,6 @@ def load_dashboard_snapshot(
                 "filter_impact": "0",
                 "replayed_add_on_count": 0,
             },
-        }
-
-    if filtered_review_report is not None and "selected_report_date" not in filtered_review_report:
-        filtered_review_report = {
-            **filtered_review_report,
-            "requested_report_date": report_date,
-            "selected_report_date": filtered_review_report.get("report_date"),
-            "available_report_dates": filtered_review_report_dates,
-            "history_summary": filtered_review_history_summary or filtered_review_report.get("history_summary") or {},
         }
 
     snapshot = {
@@ -341,7 +292,6 @@ def load_dashboard_snapshot(
         "recent_position_risk_snapshots": recent_position_risk_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
         "daily_review_report": daily_review_report,
-        "filtered_review_report": filtered_review_report,
         "recent_events": recent_events,
         "warnings": warnings,
         "strategy_config": build_strategy_config(
@@ -543,7 +493,6 @@ def load_dashboard_live_snapshot(
         "recent_position_risk_snapshots": recent_position_risk_snapshots,
         "recent_account_snapshots": recent_account_snapshots,
         "daily_review_report": None,
-        "filtered_review_report": None,
         "recent_events": recent_events,
         "warnings": warnings,
         "strategy_config": build_strategy_config(

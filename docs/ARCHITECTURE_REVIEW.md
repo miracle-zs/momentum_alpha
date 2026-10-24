@@ -74,7 +74,6 @@ flowchart TD
 
     subgraph Monitoring["监控与投研 (独立进程 / 定时器)"]
         Dashboard["Dashboard Web Server (Port 8080)"]
-        Replay["Skipped Base Replay (Shadow)"]
         Sync["Trade Data Incremental Sync"]
         Review["Daily Review & ServerChan"]
     end
@@ -85,7 +84,6 @@ flowchart TD
     DB -.->|Poll Read State| CoreEngine
     DB -.->|Read| Dashboard
     DB -.->|Read & Write| Sync
-    DB -.->|Read| Replay
     DB -.->|Read| Review
 ```
 
@@ -107,7 +105,6 @@ flowchart TD
   2. 同币种当日信号槽限制（`daily_base_signal_times` 防止在同一个疲软标的上反复送人头）；
   3. 止损冷却期机制（`recent_stop_loss_exits`，刚止损标的 60 分钟内禁止重入）；
   4. 组合单币唯一持仓约束（`already_holding`）；
-  5. 因果 Base Veto A-E 过滤规则。
 
 ### 2. 函数式核心与命令式外壳 (Functional Core, Imperative Shell)
 - **实现位置**：[`strategy.py`](file:///Users/zhangshuai/PycharmProjects/momentum_alpha/src/momentum_alpha/strategy.py)、[`models.py`](file:///Users/zhangshuai/PycharmProjects/momentum_alpha/src/momentum_alpha/models.py)
@@ -123,12 +120,6 @@ flowchart TD
 - **机制**：
   - `clientOrderId` 根据时间桶、标的、腿类型（`base`/`add_on`）和角色（`e`/`s`）确定性生成，天然防重入；
   - **已有持仓的止损替换**严格遵循“先挂新单并确认成功，再去撤销旧单”的时序，最大限度降低了保护空窗。
-
-### 5. 投研反事实影子回放模式区分 (Shadow Replay)
-- **实现位置**：[`skipped_base_replay.py`](file:///Users/zhangshuai/PycharmProjects/momentum_alpha/src/momentum_alpha/skipped_base_replay.py)
-- **机制**：需明确区分两种模式：
-  - **真实组合回放 (Realistic Portfolio Replay)**：遵守一币种一仓位、处理 `OVERLAP`，结果可用于评估策略改进；
-  - **独立候选回放 (Independent Candidate Mode)**：属于单样本研究模式，不能直接累加当作组合投资收益。
 
 ---
 
@@ -240,7 +231,7 @@ timeline
 
 - [x] **[P0] 修复调度器时钟**：在保持 `now_provider` 注入的前提下修复 `scheduler.py` 漏 Tick 问题，补齐边界测试（已完成并通过 12 个调度器单元测试）。
 - [x] **[P0] 止损数量对齐**：新仓入场挂止损时支持按 `executedQty` 动态对齐（覆盖部分成交），完善开仓后挂止损失败的细分类审计与错误码解析（已完成并通过全部 Broker 单元测试）。
-- [x] **[P1] 统一数据库连接**：清理剩余裸 `sqlite3.connect`（覆盖 `health.py`、`dashboard_data_loader.py`、`stream_worker_loop.py`、`trade_data_sync.py`、`cli_backfill.py`、`cli_backfill_candidates.py`、`skipped_base_replay_data.py`、`analytics_schema.py`），统一 WAL、30s 超时和 `readonly=True` 只读模式。
+- [x] **[P1] 统一数据库连接**：清理剩余裸 `sqlite3.connect`（覆盖 `health.py`、`dashboard_data_loader.py`、`stream_worker_loop.py`、`trade_data_sync.py`、`cli_backfill.py`、`cli_backfill_candidates.py`、`analytics_schema.py`），统一 WAL、30s 超时和 `readonly=True` 只读模式。
 - [x] **[P1] 锁指标监控埋点**：在 `runtime_schema.py` 统一收敛 `begin_immediate_with_retry`，记录写锁获取总次数、锁竞争次数、总等待时长与最大等待时长（`get_sqlite_lock_stats()`），并闭环接入健康检查 `_check_sqlite_lock_health` 与 `poll_tick` 审计事件。
 - [x] **[P1] 历史滑点统计**：新增 [`scripts/analyze_slippage.py`](../scripts/analyze_slippage.py) 及配套单测 [`tests/test_analyze_slippage.py`](../tests/test_analyze_slippage.py)，支持入场滑点（决策价 vs 实际成交均价）与止损出场滑点（触发价 vs 实际出场均价）的分位数统计、按仓位腿/币种拆解及 CSV/JSON 导出。
 - [x] **[P2] 行情流提速**：新增 [`market_data_ticker_stream.py`](../src/momentum_alpha/market_data_ticker_stream.py) 接入 Binance `!miniTicker@arr` 全市场广播流，在 `LiveMarketDataCache` 中实现内存行情零延迟极速快查并自动透明降级至 REST（单元测试通过）。

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from momentum_alpha.daily_review import build_daily_review_report
-from momentum_alpha.filtered_base_review import build_filtered_base_review_report
 from momentum_alpha.health import build_runtime_health_report
 from momentum_alpha.runtime_store import (
     insert_daily_review_report,
-    insert_filtered_base_review_report,
     summarize_audit_events,
 )
 
@@ -28,7 +26,6 @@ def run_cli_command(
     backfill_binance_user_trades_fn,
     backfill_leader_candidates_fn,
     diagnose_opportunities_fn,
-    replay_skipped_bases_fn,
     rebuild_trade_analytics_fn,
     prune_runtime_db_fn,
     sync_trade_data_fn,
@@ -46,16 +43,13 @@ def run_cli_command(
         "backfill_binance_user_trades_fn": backfill_binance_user_trades_fn,
         "backfill_leader_candidates_fn": backfill_leader_candidates_fn,
         "diagnose_opportunities_fn": diagnose_opportunities_fn,
-        "replay_skipped_bases_fn": replay_skipped_bases_fn,
         "rebuild_trade_analytics_fn": rebuild_trade_analytics_fn,
         "prune_runtime_db_fn": prune_runtime_db_fn,
         "sync_trade_data_fn": sync_trade_data_fn,
         "build_runtime_health_report_fn": build_runtime_health_report,
         "summarize_audit_events_fn": summarize_audit_events,
         "build_daily_review_report_fn": build_daily_review_report,
-        "build_filtered_base_review_report_fn": build_filtered_base_review_report,
         "insert_daily_review_report_fn": insert_daily_review_report,
-        "insert_filtered_base_review_report_fn": insert_filtered_base_review_report,
     }
 
     for handler in (run_live_commands, run_reporting_commands, run_ops_commands):
@@ -73,7 +67,5 @@ __all__ = [
     "build_runtime_health_report",
     "summarize_audit_events",
     "build_daily_review_report",
-    "build_filtered_base_review_report",
     "insert_daily_review_report",
-    "insert_filtered_base_review_report",
 ]

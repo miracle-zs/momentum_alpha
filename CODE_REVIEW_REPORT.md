@@ -123,14 +123,8 @@
 
 ### E. 分析与报表正确性
 
-**M19. 回放 K 线缓存把"不完整的当日"永久落盘,此后的回放静默使用残缺数据**
-[skipped_base_replay_data.py:292-300](src/momentum_alpha/skipped_base_replay_data.py:292)。缓存键为 `symbol:日期`,抓取当前(未走完的)UTC 日只存下已过去的分钟;当天后续运行(默认不刷新)全部复用残缺数据,表现为莫名的 `missing_previous_hour_candles`、漏判止损、错的截止标记价——PnL 悄悄失真。建议:当日数据不落盘或标记为 partial 强制重取。
-
-**M20. 一个未解析的种子会永久压制该币之后的全部影子机会**
-[skipped_base_replay.py:554-577](src/momentum_alpha/skipped_base_replay.py:554)。未解析结果(`exit_at=None`)被记入 `active_by_symbol` 后,同币后续种子(哪怕几天后)全部判为 `overlap_existing_shadow` 不再回放,"按拦截原因统计的 PnL" 系统性低估。建议:unresolved 结果不进 active 表。
-
 **M21. 每日复盘的反事实计算在缺出场价时按 0 计算 → 单腿贡献巨额负收益且无警告**
-[daily_review.py:207-212,251](src/momentum_alpha/daily_review.py:207)。`weighted_avg_exit_price` 缺失时回退 "0",每个回放加仓腿贡献 `(0−入场价)×数量`,污染 counterfactual 与看板"累计过滤影响"。建议:出场价 ≤0 时跳过该笔回放并追加 `missing_exit_price` 警告。
+[daily_review.py:207-212,251](src/momentum_alpha/daily_review.py:207)。`weighted_avg_exit_price` 缺失时回退 "0",每个回放加仓腿贡献 `(0−入场价)×数量`,污染 counterfactual 与每日复盘展示。建议:出场价 ≤0 时跳过该笔回放并追加 `missing_exit_price` 警告。
 
 **M22. 看板范围标签(1M/1Y/ALL)与底层数据覆盖严重不符**
 快照保留 7 天([runtime_cleanup.py:12](src/momentum_alpha/runtime_cleanup.py:12))但权益/回撤面板提供 1M/1Y/ALL 档;领涨历史只扫最近 ~100 行(约 50 分钟);滑点/止损统计固定取最近 20 条。用户读到的"1Y 轮换次数"实际是不足一小时的数据。建议:范围感知查询 + 标注实际数据覆盖。

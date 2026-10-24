@@ -58,12 +58,12 @@ def render_dashboard_performance_tab(
         "</div>"
     )
 
+
 def render_dashboard_review_tabs(active_review_view: str, *, account_range_key: str = "1D") -> str:
     active_review_view = normalize_review_view(active_review_view)
     labels = {
         "overview": "总体复盘",
         "daily": "每日复盘",
-        "filtered": "过滤复盘",
     }
     links = "".join(
         (
@@ -77,6 +77,7 @@ def render_dashboard_review_tabs(active_review_view: str, *, account_range_key: 
         f"{links}"
         "</nav>"
     )
+
 
 def render_daily_review_room(*, daily_review_html: str) -> str:
     return (
@@ -97,25 +98,6 @@ def render_daily_review_room(*, daily_review_html: str) -> str:
     )
 
 
-def render_filtered_base_review_room(*, filtered_review_html: str) -> str:
-    return (
-        '<div class="dashboard-tab-panel" data-dashboard-review-view-content="filtered">'
-        "<section class='section-frame' data-collapsible-section='review-filtered'>"
-        "<div class='section-topbar'>"
-        "<div>"
-        "<div class='section-header'>过滤复盘</div>"
-        "<div class='section-subtitle' style='margin-top:4px;color:var(--fg-muted);font-size:0.72rem;'>独立复盘原策略本来会开仓、但被 Base veto 拦截的样本。</div>"
-        "</div>"
-        "<button type='button' class='section-toggle' data-section-toggle='review-filtered'>Collapse</button>"
-        "</div>"
-        "<div class='dashboard-section section-body'>"
-        f"{filtered_review_html}"
-        "</div>"
-        "</section>"
-        "</div>"
-    )
-
-
 def render_dashboard_review_room(
     *,
     active_review_view: str,
@@ -125,13 +107,10 @@ def render_dashboard_review_room(
     leg_index_aggregate_html: str,
     stop_slippage_html: str,
     daily_review_html: str,
-    filtered_review_html: str,
 ) -> str:
     active_review_view = normalize_review_view(active_review_view)
     if active_review_view == "daily":
         body_html = render_daily_review_room(daily_review_html=daily_review_html)
-    elif active_review_view == "filtered":
-        body_html = render_filtered_base_review_room(filtered_review_html=filtered_review_html)
     else:
         body_html = render_dashboard_performance_tab(
             performance_summary_html=performance_summary_html,

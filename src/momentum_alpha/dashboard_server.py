@@ -224,7 +224,6 @@ def run_dashboard_server(
                 elif parsed_url.path == "/api/dashboard/review":
                     payload = {
                         "daily_review_report": snapshot.get("daily_review_report"),
-                        "filtered_review_report": snapshot.get("filtered_review_report"),
                         "report_date": report_date or (snapshot.get("daily_review_report") or {}).get("report_date"),
                     }
                 else:

@@ -21,7 +21,6 @@ Gemini 的报告适合作为问题清单，但不宜直接作为重构方案执�
 | 可以杜绝无止损裸仓 | 过度表述 | 新仓仍然是先提交入场、再提交止损。若入场成功而止损提交及后续修复均失败，仍可能出现裸仓；当前代码是“预检查 + 修复 + 验证”，不是绝对保证。见 [`poll_worker_core_live.py`](../src/momentum_alpha/poll_worker_core_live.py)。 |
 | SQLite/WAL 会导致高频锁库 | 方向正确，结论过强 | 项目已有统一连接层、WAL、busy timeout、`BEGIN IMMEDIATE` 重试和原子状态合并。不过 SQLite 这里是数据库级写者串行，不是行锁；是否已经成为生产瓶颈，需要实际锁等待、写事务耗时和 `database is locked` 次数来证明。参考 [SQLite transaction 文档](https://sqlite.org/lang_transaction.html)。 |
 | 应立即改成单进程 | 这是可选方案，不是必然结论 | 单进程可以减少 poll/user-stream 的状态合并复杂度，但也会扩大共同故障域。当前双进程 + SQLite 是项目明确选择的模块化单体方案，建议先测量再迁移。 |
-| Shadow replay 已严格模拟真实组合约束 | 部分正确 | 连续策略/portfolio 模式处理了重叠和每日限制；但默认独立候选回放是分析模式，不能直接当作组合收益。见 [`skipped_base_replay.py`](../src/momentum_alpha/skipped_base_replay.py)。 |
 | 149 个 Python 文件说明模块碎片化 | 证据不足 | 项目中有不少有意拆出的 focused module 和兼容 facade，架构计划也明确要求保留这些边界。文件数量本身不是架构缺陷；更值得关注的是少数大模块和它们的真实耦合。 |
 | scheduler 存在漏 tick | 正确，属于明确 bug | 当前只在 `second <= 2` 时运行；如果进程在第 3 秒之后才检查，该分钟可能永久跳过。见 [`scheduler.py`](../src/momentum_alpha/scheduler.py)。不过报告给出的修复示例若直接使用 `datetime.now()`，会破坏现有的时钟注入和测试模型。 |
 | 使用 IOC 或 Price Protect 限制入场滑点 | 需要修正 | IOC 限价入场是可行方向，但必须处理部分成交和实际成交数量。Binance 的 `priceProtect` 主要用于条件止损/止盈触发保护，不是市价入场滑点保护。参考 [Binance Futures New Order 文档](https://developers.binance.com/docs/derivatives/usds-margined-futures/trade/rest-api/New-Order)。 |
@@ -87,7 +86,6 @@ Gemini 的报告适合作为问题清单，但不宜直接作为重构方案执�
 - 678 个测试通过不等于 100% 覆盖率；
 - SQLite WAL 不等于行级锁，也不等于必然高频锁库；
 - 149 个文件不等于模块化失败；
-- 默认 shadow replay 并非组合收益模拟；
 - `priceProtect` 不是市价入场滑点保护；
 - 当前止损流程降低了裸仓风险，但不能宣称绝对杜绝。
 
