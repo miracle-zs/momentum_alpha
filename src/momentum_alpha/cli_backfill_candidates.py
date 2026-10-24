@@ -12,9 +12,6 @@ from momentum_alpha.exchange_info import parse_exchange_info
 from momentum_alpha.runtime_schema import _connect
 
 
-DEFAULT_LEADER_CANDIDATES_DB_PATH = Path("local_analytics/leader_candidates.db")
-
-
 def _json_loads(value: str | None) -> dict:
     if not value:
         return {}

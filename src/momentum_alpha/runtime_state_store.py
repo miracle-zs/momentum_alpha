@@ -10,7 +10,6 @@ from momentum_alpha.runtime_schema import (
     _connect,
     begin_immediate_with_retry,
     bootstrap_runtime_db,
-    is_sqlite_lock_error,
 )
 from momentum_alpha.runtime_writes_common import _as_utc_iso, _decimal_to_text, _json_dumps
 from momentum_alpha.strategy_state_codec import (
@@ -20,7 +19,6 @@ from momentum_alpha.strategy_state_codec import (
 )
 from momentum_alpha.trace_ids import build_intent_id_from_client_order_id
 
-_is_sqlite_lock_error = is_sqlite_lock_error
 _begin_immediate_with_retry = begin_immediate_with_retry
 
 

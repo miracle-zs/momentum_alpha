@@ -261,12 +261,12 @@ def render_dashboard_scripts() -> str:
     function initializeAccountMetrics() {{
       accountMetricsData = getAccountMetricsData();
       if (!Array.isArray(accountMetricsData)) return;
-      activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
+      activeMetric = localStorage.getItem(ACCOUNT_METRIC_STORAGE_KEY) || 'equity';
       activeRange = getSelectedAccountRange();
       document.querySelectorAll('[data-account-metric]').forEach((button) => {{
         button.addEventListener('click', () => {{
           activeMetric = button.dataset.accountMetric;
-          localStorage.setItem('dashboard.account.metric', activeMetric);
+          localStorage.setItem(ACCOUNT_METRIC_STORAGE_KEY, activeMetric);
           document.querySelectorAll('[data-account-metric]').forEach((node) => node.classList.toggle('active', node === button));
           renderAccountChart();
         }});
@@ -398,7 +398,7 @@ def render_dashboard_scripts() -> str:
         const nextTitle = nextDocument.querySelector('title');
         if (nextTitle) document.title = nextTitle.textContent || document.title;
         // Preserve user-selected range on refresh
-        activeMetric = localStorage.getItem('dashboard.account.metric') || 'equity';
+        activeMetric = localStorage.getItem(ACCOUNT_METRIC_STORAGE_KEY) || 'equity';
         activeRange = getSelectedAccountRange();
         if (activeRange === '1D') {{
           // Reload from DOM for default range
