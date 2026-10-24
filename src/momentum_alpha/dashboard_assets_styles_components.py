@@ -571,8 +571,6 @@ def _render_dashboard_component_styles() -> str:
     .daily-review-counterfactual-stat.positive strong { color: var(--success); }
     .daily-review-counterfactual-stat.negative strong { color: var(--danger); }
     .daily-review-counterfactual-stat.tail strong { color: var(--accent); }
-    .daily-review-filter-explainer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; color: var(--fg-muted); font-size: 0.72rem; line-height: 1.45; }
-    .daily-review-filter-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 8px; border: 1px solid rgba(138,210,255,0.25); border-radius: 999px; background: rgba(138,210,255,0.08); color: var(--accent-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.65rem; white-space: nowrap; }
     .daily-review-counterfactual-table { overflow-x: auto; border: 1px solid rgba(138,210,255,0.14); border-radius: 12px; background: rgba(0,0,0,0.18); }
     .daily-review-counterfactual-header, .daily-review-counterfactual-row { display: grid; grid-template-columns: minmax(120px, 0.85fr) minmax(120px, 0.85fr) minmax(250px, 1.7fr) minmax(145px, 1fr) minmax(90px, 0.62fr) minmax(72px, 0.48fr); gap: 12px; min-width: 920px; align-items: center; }
     .daily-review-counterfactual-header { padding: 12px 14px 9px; border-bottom: 1px solid rgba(138,210,255,0.14); color: var(--fg-muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em; }
@@ -583,22 +581,6 @@ def _render_dashboard_component_styles() -> str:
     .daily-review-counterfactual-time span, .daily-review-counterfactual-symbol strong { color: var(--fg); }
     .daily-review-counterfactual-symbol strong { color: var(--accent); }
     .daily-review-counterfactual-time small, .daily-review-counterfactual-symbol small, .daily-review-counterfactual-pnl small, .daily-review-counterfactual-addons small { color: var(--fg-muted); font-size: 0.62rem; }
-    .daily-review-veto-evidence { min-width: 0; }
-    .daily-review-rule-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-    .daily-review-rule-chip { min-height: 22px; padding: 3px 7px; font-size: 0.59rem; }
-    .daily-review-rule-a { border-color: rgba(245,210,138,0.36); background: rgba(245,210,138,0.08); color: var(--accent); }
-    .daily-review-rule-b, .daily-review-rule-c { border-color: rgba(138,210,255,0.3); background: rgba(138,210,255,0.08); color: var(--accent-strong); }
-    .daily-review-rule-d, .daily-review-rule-e { border-color: rgba(255,184,0,0.3); background: rgba(255,184,0,0.08); color: var(--warning); }
-    .daily-review-rule-breakout { border-color: rgba(0,255,136,0.28); background: rgba(0,255,136,0.07); color: var(--success); }
-    .daily-review-rule-empty, .daily-review-rule-mix-empty { color: var(--fg-muted); font-size: 0.72rem; }
-    .daily-review-feature-pills { display: flex; flex-direction: column; gap: 3px; margin-top: 7px; color: var(--fg-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.64rem; white-space: normal; line-height: 1.35; }
-    .daily-review-feature-line-secondary { color: var(--accent-strong); }
-    .daily-review-rule-mix { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 9px 10px; border: 1px solid rgba(138,210,255,0.12); border-radius: 10px; background: rgba(0,0,0,0.13); }
-    .daily-review-rule-mix-title { margin-right: 3px; color: var(--fg-muted); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.12em; }
-    .daily-review-rule-mix-item { display: inline-flex; align-items: center; gap: 6px; min-height: 23px; padding: 3px 7px; border: 1px solid rgba(138,210,255,0.18); border-radius: 999px; background: rgba(138,210,255,0.05); }
-    .daily-review-rule-mix-item b { color: var(--fg-muted); font-size: 0.6rem; font-weight: 700; }
-    .daily-review-rule-mix-item strong { color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem; }
-    .daily-review-rule-mix-note { margin-left: auto; color: var(--fg-muted); font-size: 0.65rem; line-height: 1.35; }
     .daily-review-outcome { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; }
     .daily-review-outcome-win { color: var(--success); border-color: rgba(0,255,136,0.24); background: rgba(0,255,136,0.08); }
     .daily-review-outcome-loss { color: var(--danger); border-color: rgba(255,68,102,0.25); background: rgba(255,68,102,0.08); }
