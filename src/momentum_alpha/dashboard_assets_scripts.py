@@ -64,14 +64,6 @@ def render_dashboard_scripts() -> str:
       const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
       return `${{lookup.month}}-${{lookup.day}} ${{lookup.hour}}:${{lookup.minute}}`;
     }}
-    function filterAccountPoints(points, range) {{
-      if (!points.length || range === 'ALL') return points;
-      const hours = {{ '1H': 1, '1D': 24, '1W': 24 * 7, '1M': 24 * 30, '1Y': 24 * 365 }}[range] || 24;
-      const latest = new Date(points[points.length - 1].timestamp).getTime();
-      const cutoff = latest - hours * 60 * 60 * 1000;
-      const filtered = points.filter((point) => new Date(point.timestamp).getTime() >= cutoff);
-      return filtered.length ? filtered : points;
-    }}
     function buildAccountChartSvg(points, metric) {{
       if (!points.length) {{
         return `<div class="chart-empty"><span class="chart-empty-icon">◎</span><span>waiting for account history</span></div>`;
