@@ -9,9 +9,6 @@ def _render_dashboard_responsive_styles() -> str:
       .cosmic-visual-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .metrics-grid { grid-template-columns: repeat(2, 1fr); }
       .hero-grid { grid-template-columns: 1fr; }
-      .charts-row { grid-template-columns: 1fr; }
-      .decision-row { grid-template-columns: 1fr; }
-      .bottom-row { grid-template-columns: 1fr; }
       .live-account-risk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .live-core-lines-head { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
       .live-core-context { grid-column: 1 / -1; grid-row: 2; }
@@ -35,10 +32,6 @@ def _render_dashboard_responsive_styles() -> str:
       .daily-review-history-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .daily-review-toolbar { flex-direction: column; align-items: stretch; }
       .daily-review-toolbar-note { max-width: none; text-align: left; }
-      .daily-review-hero { grid-template-columns: 1fr; }
-      .daily-review-counterfactual-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .daily-review-module-head, .daily-review-section-head { align-items: flex-start; flex-direction: column; }
-      .daily-review-section-note { max-width: none; text-align: left; }
       .account-panel-header, .account-main-toolbar { flex-direction: column; align-items: flex-start; }
     }
     @media (max-width: 768px) {
@@ -75,13 +68,6 @@ def _render_dashboard_responsive_styles() -> str:
       .analytics-row { min-width: 540px; grid-template-columns: 1.2fr 0.8fr 0.8fr 0.8fr 0.7fr; font-size: 0.68rem; }
       .daily-review-kpi-grid { grid-template-columns: 1fr 1fr; }
       .daily-review-history-grid { grid-template-columns: 1fr 1fr; }
-      .daily-review-panel-redesign { padding: 12px; }
-      .daily-review-hero-copy, .daily-review-hero-impact { min-height: 120px; padding: 17px; }
-      .daily-review-hero-title { font-size: 1.35rem; }
-      .daily-review-module { padding: 13px; }
-      .daily-review-counterfactual-block, .daily-review-ledger { padding: 13px; }
-      .daily-review-counterfactual-stats { grid-template-columns: 1fr 1fr; }
-      .daily-review-counterfactual-header, .daily-review-counterfactual-row { min-width: 900px; }
       .daily-review-date-form { align-items: flex-start; }
       .daily-review-grid { min-width: 920px; grid-template-columns: minmax(112px, 1fr) minmax(82px, 0.7fr) minmax(112px, 1fr) minmax(78px, 0.72fr) minmax(78px, 0.72fr) minmax(96px, 0.82fr) minmax(60px, 0.52fr) minmax(64px, 0.52fr); }
       .daily-review-row { font-size: 0.68rem; }

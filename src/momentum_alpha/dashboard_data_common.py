@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
 from momentum_alpha.dashboard_common import ACCOUNT_RANGE_WINDOWS

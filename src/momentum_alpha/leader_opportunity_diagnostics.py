@@ -177,12 +177,6 @@ def _decimal_text(value: Decimal | None) -> str:
     return format(normalized, "f")
 
 
-def _optional_text(value: object | None) -> str:
-    if value in (None, ""):
-        return ""
-    return str(value)
-
-
 def _optional_bool(value: object | None) -> bool | None:
     if value is None:
         return None

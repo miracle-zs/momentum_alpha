@@ -6,10 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from pathlib import Path
 
 

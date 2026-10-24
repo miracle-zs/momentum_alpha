@@ -53,7 +53,6 @@ class OperationalReadModel:
         self._lock = threading.RLock()
         self._snapshots: dict[tuple[str, str, str | None], tuple[float, dict]] = {}
         self._version = 0
-        self._db_signature: tuple[tuple[int, int] | None, ...] | None = None
 
         # Background updater attributes
         self._stop_event = threading.Event()
@@ -63,18 +62,6 @@ class OperationalReadModel:
     def version(self) -> int:
         with self._lock:
             return self._version
-
-    def _file_signature(self) -> tuple[tuple[int, int] | None, ...]:
-        signature: list[tuple[int, int] | None] = []
-        for suffix in ("", "-wal"):
-            candidate = self.runtime_db_file if not suffix else Path(f"{self.runtime_db_file}{suffix}")
-            try:
-                stat = candidate.stat()
-            except OSError:
-                signature.append(None)
-            else:
-                signature.append((stat.st_mtime_ns, stat.st_size))
-        return tuple(signature)
 
     def is_fresh(
         self,

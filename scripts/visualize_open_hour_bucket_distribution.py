@@ -7,10 +7,9 @@ import argparse
 import html
 import math
 import sqlite3
-from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
-from statistics import mean, median
+from statistics import median
 
 from visualize_trade_time_distribution import (
     BEIJING,

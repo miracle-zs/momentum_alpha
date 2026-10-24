@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 from momentum_alpha.runtime_schema import _connect
 
-from .runtime_reads_common import _ACCOUNT_RANGE_DENSITY, _as_utc_iso, _json_loads
+from .runtime_reads_common import _ACCOUNT_RANGE_DENSITY, _json_loads
 
 
 def fetch_recent_position_snapshots(*, path: Path, limit: int = 20, require_positions: bool = False) -> list[dict]:
